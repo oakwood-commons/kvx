@@ -4,7 +4,7 @@ kvx is maintained by the project maintainer(s) listed in this file.
 
 ## Maintainers
 
-- Adam Baker (GitHub: @abaker9)
+- Aeron Baker (GitHub: @abaker9)
 
 ## Decision Making
 
