@@ -1,0 +1,252 @@
+version: '3'
+
+vars:
+  NAME: "kvx"
+  OUTPUT_FILE: "{{.NAME}}{{exeExt}}"
+  DIST: "dist"
+  BUILD_VERSION:
+    sh: |
+      git fetch --tags --quiet || true
+      tag="$(git tag -l "v[0-9]*.[0-9]*.[0-9]*" --sort=-v:refname | head -n1)"
+      if [ -n "$tag" ]; then
+        echo "${tag#v}"
+      else
+        echo "0.0.1-alpha$(date +%Y%m%d)"
+      fi
+  BUILD_TAG:
+    sh: |
+      printf "%s" "{{.BUILD_VERSION}}" | sed -E 's/^v//'
+  GO_VERSION:
+    sh: |
+      if [ -f go.mod ]; then
+        v="$(awk '/^toolchain[[:space:]]+go/ {print $2; exit}' go.mod | tr -d '\r' | sed 's/^go//')"
+        if [ -z "$v" ]; then
+          v="$(awk '/^go[[:space:]]+/ {print $2; exit}' go.mod | tr -d '\r')"
+        fi
+        if [ -z "$v" ]; then
+          v="$(go env GOVERSION | sed 's/^go//')"
+        fi
+        echo "$v"
+      else
+        go env GOVERSION | sed 's/^go//'
+      fi
+
+env:
+  TASK_USE_BASH: "true"
+
+tasks:
+  default:
+    desc: Show kvx task info
+    silent: true
+    cmds:
+      - |
+        echo "------------------------------------------------------------"
+        echo "kvx Taskfile Information"
+        echo "------------------------------------------------------------"
+        echo "Usage:"
+        echo "  task           # Prints this info section"
+        echo "  task build     # Builds the binary"
+        echo "  task lint      # Runs golangci-lint"
+        echo "  task test      # Runs unit tests"
+        echo "  task coverage  # Runs tests with coverage report"
+        echo "  task ci        # mod + lint + test + coverage"
+        echo
+        echo "Variables and Values:"
+        echo "  NAME:          {{ .NAME }}"
+        echo "  OUTPUT_FILE:   {{ .OUTPUT_FILE }}"
+        echo "  DIST:          {{ .DIST }}"
+        echo "  BUILD_VERSION: {{ .BUILD_VERSION }}"
+        echo "  BUILD_TAG:     {{ .BUILD_TAG }}"
+        echo "  GO_VERSION:    {{ .GO_VERSION }}"
+        echo "------------------------------------------------------------"
+
+  build:
+    desc: Build the kvx binary
+    deps:
+      - mod
+    cmds:
+      - mkdir -p {{.DIST}}
+      - go build -o {{.DIST}}/{{.OUTPUT_FILE}} .
+  
+  build-windows:
+    desc: Build the kvx binary for windows
+    deps:
+      - mod
+    env:
+      GOOS: "windows"    
+    cmds:
+      - mkdir -p {{.DIST}}
+      - go build -o {{.DIST}}/kvx.exe .
+
+  mod:
+    desc: Download and tidy Go modules if needed
+    sources:
+      - go.mod
+      - go.sum
+    cmds:
+      - go mod tidy
+      - go mod download
+
+  run:
+    desc: Run the app with default output
+    cmds:
+      - go run . tests/sample.yaml
+
+  run-interactive:
+    desc: Run the app in interactive mode
+    cmds:
+      - go run . tests/sample.yaml -i
+
+  # debug-keys: (removed) Debug helper `debug_keys.go` not present in repository
+  test-outputs:
+    desc: Run non-interactive output checks (table/json/yaml expressions)
+    cmds:
+      - go run . tests/sample.yaml -o table
+      - go run . tests/sample.yaml -e '_.items'
+      - go run . tests/sample.yaml -e '_.items[0]'
+      - go run . tests/sample.yaml -e '_.items[0].name'
+      - go run . tests/sample.yaml -e '_.metadata' -o json
+      - go run . tests/sample.yaml -e '_.items' -o yaml
+      - go run . tests/test_data.yaml -o table
+      - go run . tests/test_data.yaml -e '_.database.credentials' -o json
+      - go run . tests/test_data.yaml -e '_.servers[0]'
+
+  test-file-interactive:
+    desc: Test custom file in interactive mode
+    cmds:
+      - go run . tests/test_data.yaml -i
+
+  test:
+    desc: Run Go unit tests
+    cmds:
+      - go test ./...
+
+  lint:
+    desc: Run linters using golangci-lint
+    cmds:
+      - |
+        if ! command -v golangci-lint >/dev/null 2>&1; then
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+        fi
+        golangci-lint run ./...
+
+  coverage:
+    desc: Run tests with code coverage report (shows total + individual coverage)
+    cmds:
+      - |
+        rm -f coverage.out
+        echo "Running tests with coverage..."
+        go test ./... -coverprofile=coverage.out -covermode=atomic -timeout=120s
+        echo
+        echo "=== Code Coverage Report ==="
+        echo
+        go tool cover -func=coverage.out | awk '
+          BEGIN { printf "%-60s %s\n", "Path", "Coverage" }
+          /^[^ ]/ { printf "%-60s %s\n", $1, $3 }
+        '
+        go tool cover -func=coverage.out | awk '
+          /^total:/ { printf "\n%-60s %s\n\n", "TOTAL COVERAGE:", $3 }
+        '
+
+  go-test:
+    desc: Alias for 'test'
+    cmds:
+      - task: test
+
+  ci:
+    desc: Run build and tests
+    cmds:
+      - task: mod
+      - task: lint
+      - task: test
+      - task: coverage
+
+  clean:
+    desc: Clean build artifacts and caches
+    cmds:
+      - go clean -cache -modcache -testcache || true
+      - rm -f {{.DIST}}/{{.NAME}} {{.DIST}}/{{.OUTPUT_FILE}} || true
+      - rmdir --ignore-fail-on-non-empty {{.DIST}} || true
+      - find . -name "coverage.*" -type f -delete || true
+
+  help:
+    desc: Show available tasks
+    cmds:
+      - task -l
+
+  release:
+    desc: Build release binaries with goreleaser and generate index.html
+    vars:
+      RELEASE_VERSION:
+        sh: |
+          git fetch --tags --quiet 2>/dev/null || true
+          tag="$(git describe --tags --abbrev=0 2>/dev/null || echo "")"
+          if [ -z "$tag" ]; then
+            commit="$(git rev-parse --short HEAD)"
+            echo "0.1.0-SNAPSHOT-${commit}"
+          else
+            echo "${tag#v}"
+          fi
+    cmds:
+      - |
+        echo "Building release {{.RELEASE_VERSION}}..."
+        goreleaser release --snapshot --clean
+      - |
+        echo ""
+        echo "Release artifacts in dist/:"
+        ls -la dist/*.tar.gz dist/*.zip 2>/dev/null || true
+      - |
+        echo ""
+        echo "Generating dist/index.html from README.md..."
+        go run scripts/generate_index.go dist
+      - |
+        echo ""
+        echo "To publish, copy dist/* to your release location."
+
+  release-dry-run:
+    desc: Preview release build without creating artifacts
+    cmds:
+      - goreleaser check
+      - goreleaser release --snapshot --clean --skip=publish
+
+  tag:
+    desc: "Create a git tag for release (usage: task tag VERSION=v1.0.0)"
+    vars:
+      VERSION: '{{.VERSION | default ""}}'
+    preconditions:
+      - sh: '[ -n "{{.VERSION}}" ]'
+        msg: "VERSION is required. Usage: task tag VERSION=v1.0.0"
+      - sh: 'echo "{{.VERSION}}" | grep -qE "^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$"'
+        msg: "VERSION must be in semver format (e.g., v1.0.0, v1.0.0-beta.1)"
+      - sh: '[ -z "$(git status --porcelain)" ]'
+        msg: "Working directory is not clean. Commit or stash changes first."
+    cmds:
+      - |
+        echo "Creating tag {{.VERSION}}..."
+        git tag -a "{{.VERSION}}" -m "Release {{.VERSION}}"
+        echo "Tag {{.VERSION}} created locally."
+        echo ""
+        echo "To push the tag:"
+        echo "  git push origin {{.VERSION}}"
+        echo ""
+        echo "To build the release:"
+        echo "  task release"
+
+  tag-push:
+    desc: "Create and push a git tag (usage: task tag-push VERSION=v1.0.0)"
+    vars:
+      VERSION: '{{.VERSION | default ""}}'
+    preconditions:
+      - sh: '[ -n "{{.VERSION}}" ]'
+        msg: "VERSION is required. Usage: task tag-push VERSION=v1.0.0"
+      - sh: 'echo "{{.VERSION}}" | grep -qE "^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$"'
+        msg: "VERSION must be in semver format (e.g., v1.0.0, v1.0.0-beta.1)"
+      - sh: '[ -z "$(git status --porcelain)" ]'
+        msg: "Working directory is not clean. Commit or stash changes first."
+    cmds:
+      - |
+        echo "Creating tag {{.VERSION}}..."
+        git tag -a "{{.VERSION}}" -m "Release {{.VERSION}}"
+        echo "Tag {{.VERSION}} created and pushing to origin..."
+        git push origin "{{.VERSION}}"
+        echo "Tag {{.VERSION}} pushed."

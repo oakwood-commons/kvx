@@ -1,0 +1,712 @@
+{
+  "pd1001": {
+    "clusterName": "pd1001",
+    "clusterDescription": "Production cluster - Primary US East",
+    "clusterDecommissionDate": null,
+    "alert": false,
+    "status": "up",
+    "platform": "gcp",
+    "platformStatus": {
+      "gcp": {
+        "projectID": "prod-us-east-001",
+        "projectNumber": "100000000001",
+        "vertical": "caas",
+        "wifPool": "openshift-prod-pool",
+        "wifProvider": "openshift-prod-provider",
+        "serviceAccountIssuer": "https://storage.googleapis.com/prod-oidc-1001"
+      },
+      "onPrem": {
+        "f5CIS": {
+          "enabled": true,
+          "vips": ["10.100.1.10", "10.100.1.11"]
+        }
+      }
+    },
+    "billing": {
+      "appID": 11001,
+      "billingModel": "Dedicated"
+    },
+    "provisioning": {
+      "services": ["general", "database", "cache"],
+      "enabled": true,
+      "billingType": ["paid"],
+      "environments": ["prod"],
+      "infraNodes": true,
+      "environment": "prod"
+    },
+    "allowedStorageClasses": {
+      "rwo": ["gce-balanced-csi", "gce-ssd-csi"],
+      "rwx": ["ocs-storagecluster-cephfs"]
+    },
+    "apiServerURL": "https://api.pd1001.example.net:6443",
+    "consoleServerURL": "https://console.pd1001.example.net",
+    "argo": {
+      "platformURL": "https://argo-platform.pd1001.example.net",
+      "tenantURL": "https://argo-tenant.pd1001.example.net"
+    },
+    "dns": {
+      "internal": "router.pd1001.example.net",
+      "external": "router-ext.pd1001.example.net",
+      "supplier": "cloudflare",
+      "vpc": "prod-vpc-east"
+    },
+    "infrastructureName": "infra-pd1001",
+    "location": {
+      "platformStatusKey": "gcp",
+      "name": "gcp-us-east1",
+      "description": "Google Cloud US East"
+    },
+    "changeManagement": {
+      "SNOSupportGroup": "Production Platform Team",
+      "bulkmail": [
+        {
+          "name": "prod_notifications@example.com",
+          "subscriptionURL": "https://notifications.example.net/pd1001"
+        }
+      ],
+      "changeGroup": 1,
+      "changeWindow": ["Saturday(2am-6am:EST)"],
+      "siblingCluster": "pd1002",
+      "siblingRegion": "us-west"
+    }
+  },
+  "pd1002": {
+    "clusterName": "pd1002",
+    "clusterDescription": "Production cluster - Primary US West",
+    "clusterDecommissionDate": null,
+    "alert": false,
+    "status": "up",
+    "platform": "gcp",
+    "platformStatus": {
+      "gcp": {
+        "projectID": "prod-us-west-001",
+        "projectNumber": "100000000002",
+        "vertical": "caas",
+        "wifPool": "openshift-prod-pool",
+        "wifProvider": "openshift-prod-provider",
+        "serviceAccountIssuer": "https://storage.googleapis.com/prod-oidc-1002"
+      },
+      "onPrem": {
+        "f5CIS": {
+          "enabled": true,
+          "vips": ["10.100.2.10", "10.100.2.11"]
+        }
+      }
+    },
+    "billing": {
+      "appID": 11002,
+      "billingModel": "Dedicated"
+    },
+    "provisioning": {
+      "services": ["general", "database", "cache"],
+      "enabled": true,
+      "billingType": ["paid"],
+      "environments": ["prod"],
+      "infraNodes": true,
+      "environment": "prod"
+    },
+    "allowedStorageClasses": {
+      "rwo": ["gce-balanced-csi", "gce-ssd-csi"],
+      "rwx": ["ocs-storagecluster-cephfs"]
+    },
+    "apiServerURL": "https://api.pd1002.example.net:6443",
+    "consoleServerURL": "https://console.pd1002.example.net",
+    "argo": {
+      "platformURL": "https://argo-platform.pd1002.example.net",
+      "tenantURL": "https://argo-tenant.pd1002.example.net"
+    },
+    "dns": {
+      "internal": "router.pd1002.example.net",
+      "external": "router-ext.pd1002.example.net",
+      "supplier": "cloudflare",
+      "vpc": "prod-vpc-west"
+    },
+    "infrastructureName": "infra-pd1002",
+    "location": {
+      "platformStatusKey": "gcp",
+      "name": "gcp-us-west1",
+      "description": "Google Cloud US West"
+    },
+    "changeManagement": {
+      "SNOSupportGroup": "Production Platform Team",
+      "bulkmail": [
+        {
+          "name": "prod_notifications@example.com",
+          "subscriptionURL": "https://notifications.example.net/pd1002"
+        }
+      ],
+      "changeGroup": 1,
+      "changeWindow": ["Saturday(2am-6am:PST)"],
+      "siblingCluster": "pd1001",
+      "siblingRegion": "us-east"
+    }
+  },
+  "pd2001": {
+    "clusterName": "pd2001",
+    "clusterDescription": "Production cluster - EU Central",
+    "clusterDecommissionDate": null,
+    "alert": true,
+    "status": "up",
+    "platform": "gcp",
+    "platformStatus": {
+      "gcp": {
+        "projectID": "prod-eu-central-001",
+        "projectNumber": "200000000001",
+        "vertical": "caas",
+        "wifPool": "openshift-prod-pool",
+        "wifProvider": "openshift-prod-provider",
+        "serviceAccountIssuer": "https://storage.googleapis.com/prod-oidc-2001"
+      },
+      "onPrem": {
+        "f5CIS": {
+          "enabled": true,
+          "vips": ["10.200.1.10"]
+        }
+      }
+    },
+    "billing": {
+      "appID": 12001,
+      "billingModel": "Dedicated"
+    },
+    "provisioning": {
+      "services": ["general", "database"],
+      "enabled": true,
+      "billingType": ["paid"],
+      "environments": ["prod"],
+      "infraNodes": true,
+      "environment": "prod"
+    },
+    "allowedStorageClasses": {
+      "rwo": ["gce-balanced-csi", "gce-ssd-csi"],
+      "rwx": ["ocs-storagecluster-cephfs"]
+    },
+    "apiServerURL": "https://api.pd2001.example.net:6443",
+    "consoleServerURL": "https://console.pd2001.example.net",
+    "argo": {
+      "platformURL": "https://argo-platform.pd2001.example.net",
+      "tenantURL": "https://argo-tenant.pd2001.example.net"
+    },
+    "dns": {
+      "internal": "router.pd2001.example.net",
+      "external": "router-ext.pd2001.example.net",
+      "supplier": "cloudflare",
+      "vpc": "prod-vpc-eu"
+    },
+    "infrastructureName": "infra-pd2001",
+    "location": {
+      "platformStatusKey": "gcp",
+      "name": "gcp-europe-west3",
+      "description": "Google Cloud EU Central"
+    },
+    "changeManagement": {
+      "SNOSupportGroup": "Production Platform Team",
+      "bulkmail": [
+        {
+          "name": "prod_eu_notifications@example.com",
+          "subscriptionURL": "https://notifications.example.net/pd2001"
+        }
+      ],
+      "changeGroup": 2,
+      "changeWindow": ["Saturday(3am-7am:CET)"],
+      "siblingCluster": null,
+      "siblingRegion": null
+    }
+  },
+  "pd3001": {
+    "clusterName": "pd3001",
+    "clusterDescription": "Production cluster - Asia Pacific",
+    "clusterDecommissionDate": null,
+    "alert": false,
+    "status": "up",
+    "platform": "plant",
+    "platformStatus": {
+      "gcp": {
+        "projectID": null,
+        "projectNumber": null,
+        "vertical": null,
+        "wifPool": null,
+        "wifProvider": null,
+        "serviceAccountIssuer": null
+      },
+      "onPrem": {
+        "f5CIS": {
+          "enabled": true,
+          "vips": ["10.30.1.10", "10.30.1.11", "10.30.1.12"]
+        }
+      }
+    },
+    "billing": {
+      "appID": 13001,
+      "billingModel": "Shared"
+    },
+    "provisioning": {
+      "services": ["general"],
+      "enabled": true,
+      "billingType": ["paid"],
+      "environments": ["prod"],
+      "infraNodes": false,
+      "environment": "prod"
+    },
+    "allowedStorageClasses": {
+      "rwo": ["ocs-storagecluster-ceph-rbd"],
+      "rwx": ["ocs-storagecluster-cephfs"]
+    },
+    "apiServerURL": "https://api.pd3001.example.net:6443",
+    "consoleServerURL": "https://console.pd3001.example.net",
+    "argo": {
+      "platformURL": "https://argo-platform.pd3001.example.net",
+      "tenantURL": "https://argo-tenant.pd3001.example.net"
+    },
+    "dns": {
+      "internal": "router.pd3001.example.net",
+      "external": null,
+      "supplier": null,
+      "vpc": null
+    },
+    "infrastructureName": "infra-pd3001",
+    "location": {
+      "platformStatusKey": "plant",
+      "name": "plant-apac-001",
+      "description": "On-Prem Asia Pacific"
+    },
+    "changeManagement": {
+      "SNOSupportGroup": "Production Platform Team",
+      "bulkmail": [
+        {
+          "name": "prod_apac_notifications@example.com",
+          "subscriptionURL": "https://notifications.example.net/pd3001"
+        }
+      ],
+      "changeGroup": 3,
+      "changeWindow": ["Sunday(1am-5am:JST)"],
+      "siblingCluster": null,
+      "siblingRegion": null
+    }
+  },
+  "pd4001": {
+    "clusterName": "pd4001",
+    "clusterDescription": "Production cluster - Legacy US Central",
+    "clusterDecommissionDate": "2026-06-30",
+    "alert": true,
+    "status": "up",
+    "platform": "plant",
+    "platformStatus": {
+      "gcp": {
+        "projectID": null,
+        "projectNumber": null,
+        "vertical": null,
+        "wifPool": null,
+        "wifProvider": null,
+        "serviceAccountIssuer": null
+      },
+      "onPrem": {
+        "f5CIS": {
+          "enabled": true,
+          "vips": ["10.40.1.10"]
+        }
+      }
+    },
+    "billing": {
+      "appID": 14001,
+      "billingModel": "Shared"
+    },
+    "provisioning": {
+      "services": ["general"],
+      "enabled": false,
+      "billingType": ["paid"],
+      "environments": ["prod"],
+      "infraNodes": false,
+      "environment": "prod"
+    },
+    "allowedStorageClasses": {
+      "rwo": ["ocs-storagecluster-ceph-rbd"],
+      "rwx": ["ocs-storagecluster-cephfs"]
+    },
+    "apiServerURL": "https://api.pd4001.example.net:6443",
+    "consoleServerURL": "https://console.pd4001.example.net",
+    "argo": {
+      "platformURL": "https://argo-platform.pd4001.example.net",
+      "tenantURL": "https://argo-tenant.pd4001.example.net"
+    },
+    "dns": {
+      "internal": "router.pd4001.example.net",
+      "external": null,
+      "supplier": null,
+      "vpc": null
+    },
+    "infrastructureName": "infra-pd4001",
+    "location": {
+      "platformStatusKey": "plant",
+      "name": "plant-us-central-001",
+      "description": "On-Prem US Central (Legacy)"
+    },
+    "changeManagement": {
+      "SNOSupportGroup": "Production Platform Team",
+      "bulkmail": [
+        {
+          "name": "prod_legacy_notifications@example.com",
+          "subscriptionURL": "https://notifications.example.net/pd4001"
+        }
+      ],
+      "changeGroup": 4,
+      "changeWindow": ["Sunday(3am-7am:CST)"],
+      "siblingCluster": null,
+      "siblingRegion": null
+    }
+  },
+  "pp5001": {
+    "clusterName": "pp5001",
+    "clusterDescription": "Pre-production cluster - US East Staging",
+    "clusterDecommissionDate": null,
+    "alert": false,
+    "status": "up",
+    "platform": "gcp",
+    "platformStatus": {
+      "gcp": {
+        "projectID": "preprod-us-east-001",
+        "projectNumber": "500000000001",
+        "vertical": "caas",
+        "wifPool": "openshift-preprod-pool",
+        "wifProvider": "openshift-preprod-provider",
+        "serviceAccountIssuer": "https://storage.googleapis.com/preprod-oidc-5001"
+      },
+      "onPrem": {
+        "f5CIS": {
+          "enabled": false,
+          "vips": []
+        }
+      }
+    },
+    "billing": {
+      "appID": 15001,
+      "billingModel": "Shared"
+    },
+    "provisioning": {
+      "services": ["general", "database"],
+      "enabled": true,
+      "billingType": ["paid", "trial"],
+      "environments": ["preprod", "staging"],
+      "infraNodes": false,
+      "environment": "preprod"
+    },
+    "allowedStorageClasses": {
+      "rwo": ["gce-balanced-csi", "gce-standard-csi"],
+      "rwx": ["ocs-storagecluster-cephfs"]
+    },
+    "apiServerURL": "https://api.pp5001.example.net:6443",
+    "consoleServerURL": "https://console.pp5001.example.net",
+    "argo": {
+      "platformURL": "https://argo-platform.pp5001.example.net",
+      "tenantURL": "https://argo-tenant.pp5001.example.net"
+    },
+    "dns": {
+      "internal": "router.pp5001.example.net",
+      "external": null,
+      "supplier": null,
+      "vpc": "preprod-vpc-east"
+    },
+    "infrastructureName": "infra-pp5001",
+    "location": {
+      "platformStatusKey": "gcp",
+      "name": "gcp-us-east1",
+      "description": "Google Cloud US East"
+    },
+    "changeManagement": {
+      "SNOSupportGroup": "Pre-Production Platform Team",
+      "bulkmail": [
+        {
+          "name": "preprod_notifications@example.com",
+          "subscriptionURL": "https://notifications.example.net/pp5001"
+        }
+      ],
+      "changeGroup": 5,
+      "changeWindow": ["Daily(6pm-11pm:EST)"],
+      "siblingCluster": "pp5002",
+      "siblingRegion": "us-west"
+    }
+  },
+  "pp5002": {
+    "clusterName": "pp5002",
+    "clusterDescription": "Pre-production cluster - US West Staging",
+    "clusterDecommissionDate": null,
+    "alert": false,
+    "status": "up",
+    "platform": "gcp",
+    "platformStatus": {
+      "gcp": {
+        "projectID": "preprod-us-west-001",
+        "projectNumber": "500000000002",
+        "vertical": "caas",
+        "wifPool": "openshift-preprod-pool",
+        "wifProvider": "openshift-preprod-provider",
+        "serviceAccountIssuer": "https://storage.googleapis.com/preprod-oidc-5002"
+      },
+      "onPrem": {
+        "f5CIS": {
+          "enabled": false,
+          "vips": []
+        }
+      }
+    },
+    "billing": {
+      "appID": 15002,
+      "billingModel": "Shared"
+    },
+    "provisioning": {
+      "services": ["general", "database"],
+      "enabled": true,
+      "billingType": ["paid", "trial"],
+      "environments": ["preprod", "staging"],
+      "infraNodes": false,
+      "environment": "preprod"
+    },
+    "allowedStorageClasses": {
+      "rwo": ["gce-balanced-csi", "gce-standard-csi"],
+      "rwx": ["ocs-storagecluster-cephfs"]
+    },
+    "apiServerURL": "https://api.pp5002.example.net:6443",
+    "consoleServerURL": "https://console.pp5002.example.net",
+    "argo": {
+      "platformURL": "https://argo-platform.pp5002.example.net",
+      "tenantURL": "https://argo-tenant.pp5002.example.net"
+    },
+    "dns": {
+      "internal": "router.pp5002.example.net",
+      "external": null,
+      "supplier": null,
+      "vpc": "preprod-vpc-west"
+    },
+    "infrastructureName": "infra-pp5002",
+    "location": {
+      "platformStatusKey": "gcp",
+      "name": "gcp-us-west1",
+      "description": "Google Cloud US West"
+    },
+    "changeManagement": {
+      "SNOSupportGroup": "Pre-Production Platform Team",
+      "bulkmail": [
+        {
+          "name": "preprod_notifications@example.com",
+          "subscriptionURL": "https://notifications.example.net/pp5002"
+        }
+      ],
+      "changeGroup": 5,
+      "changeWindow": ["Daily(6pm-11pm:PST)"],
+      "siblingCluster": "pp5001",
+      "siblingRegion": "us-east"
+    }
+  },
+  "pp6001": {
+    "clusterName": "pp6001",
+    "clusterDescription": "Pre-production cluster - EU Testing",
+    "clusterDecommissionDate": null,
+    "alert": false,
+    "status": "up",
+    "platform": "gcp",
+    "platformStatus": {
+      "gcp": {
+        "projectID": "preprod-eu-001",
+        "projectNumber": "600000000001",
+        "vertical": "caas",
+        "wifPool": "openshift-preprod-pool",
+        "wifProvider": "openshift-preprod-provider",
+        "serviceAccountIssuer": "https://storage.googleapis.com/preprod-oidc-6001"
+      },
+      "onPrem": {
+        "f5CIS": {
+          "enabled": false,
+          "vips": []
+        }
+      }
+    },
+    "billing": {
+      "appID": 16001,
+      "billingModel": "Shared"
+    },
+    "provisioning": {
+      "services": ["general"],
+      "enabled": true,
+      "billingType": ["trial"],
+      "environments": ["preprod", "test"],
+      "infraNodes": false,
+      "environment": "preprod"
+    },
+    "allowedStorageClasses": {
+      "rwo": ["gce-standard-csi"],
+      "rwx": ["ocs-storagecluster-cephfs"]
+    },
+    "apiServerURL": "https://api.pp6001.example.net:6443",
+    "consoleServerURL": "https://console.pp6001.example.net",
+    "argo": {
+      "platformURL": "https://argo-platform.pp6001.example.net",
+      "tenantURL": "https://argo-tenant.pp6001.example.net"
+    },
+    "dns": {
+      "internal": "router.pp6001.example.net",
+      "external": null,
+      "supplier": null,
+      "vpc": "preprod-vpc-eu"
+    },
+    "infrastructureName": "infra-pp6001",
+    "location": {
+      "platformStatusKey": "gcp",
+      "name": "gcp-europe-west3",
+      "description": "Google Cloud EU Central"
+    },
+    "changeManagement": {
+      "SNOSupportGroup": "Pre-Production Platform Team",
+      "bulkmail": [
+        {
+          "name": "preprod_eu_notifications@example.com",
+          "subscriptionURL": "https://notifications.example.net/pp6001"
+        }
+      ],
+      "changeGroup": 6,
+      "changeWindow": ["Daily(7pm-11pm:CET)"],
+      "siblingCluster": null,
+      "siblingRegion": null
+    }
+  },
+  "pp7001": {
+    "clusterName": "pp7001",
+    "clusterDescription": "Pre-production cluster - Development Sandbox",
+    "clusterDecommissionDate": null,
+    "alert": false,
+    "status": "up",
+    "platform": "plant",
+    "platformStatus": {
+      "gcp": {
+        "projectID": null,
+        "projectNumber": null,
+        "vertical": null,
+        "wifPool": null,
+        "wifProvider": null,
+        "serviceAccountIssuer": null
+      },
+      "onPrem": {
+        "f5CIS": {
+          "enabled": false,
+          "vips": []
+        }
+      }
+    },
+    "billing": {
+      "appID": 17001,
+      "billingModel": "Shared"
+    },
+    "provisioning": {
+      "services": ["general"],
+      "enabled": true,
+      "billingType": ["free", "trial"],
+      "environments": ["dev", "test"],
+      "infraNodes": false,
+      "environment": "preprod"
+    },
+    "allowedStorageClasses": {
+      "rwo": ["ocs-storagecluster-ceph-rbd"],
+      "rwx": ["ocs-storagecluster-cephfs"]
+    },
+    "apiServerURL": "https://api.pp7001.example.net:6443",
+    "consoleServerURL": "https://console.pp7001.example.net",
+    "argo": {
+      "platformURL": "https://argo-platform.pp7001.example.net",
+      "tenantURL": "https://argo-tenant.pp7001.example.net"
+    },
+    "dns": {
+      "internal": "router.pp7001.example.net",
+      "external": null,
+      "supplier": null,
+      "vpc": null
+    },
+    "infrastructureName": "infra-pp7001",
+    "location": {
+      "platformStatusKey": "plant",
+      "name": "plant-dev-001",
+      "description": "On-Prem Development"
+    },
+    "changeManagement": {
+      "SNOSupportGroup": "Pre-Production Platform Team",
+      "bulkmail": [
+        {
+          "name": "dev_notifications@example.com",
+          "subscriptionURL": "https://notifications.example.net/pp7001"
+        }
+      ],
+      "changeGroup": 7,
+      "changeWindow": ["Anytime"],
+      "siblingCluster": null,
+      "siblingRegion": null
+    }
+  },
+  "pp8001": {
+    "clusterName": "pp8001",
+    "clusterDescription": "Pre-production cluster - Performance Testing",
+    "clusterDecommissionDate": null,
+    "alert": true,
+    "status": "degraded",
+    "platform": "gcp",
+    "platformStatus": {
+      "gcp": {
+        "projectID": "preprod-perf-001",
+        "projectNumber": "800000000001",
+        "vertical": "caas",
+        "wifPool": "openshift-preprod-pool",
+        "wifProvider": "openshift-preprod-provider",
+        "serviceAccountIssuer": "https://storage.googleapis.com/preprod-oidc-8001"
+      },
+      "onPrem": {
+        "f5CIS": {
+          "enabled": false,
+          "vips": []
+        }
+      }
+    },
+    "billing": {
+      "appID": 18001,
+      "billingModel": "Shared"
+    },
+    "provisioning": {
+      "services": ["general", "cache"],
+      "enabled": true,
+      "billingType": ["trial"],
+      "environments": ["preprod", "test"],
+      "infraNodes": true,
+      "environment": "preprod"
+    },
+    "allowedStorageClasses": {
+      "rwo": ["gce-ssd-csi"],
+      "rwx": ["ocs-storagecluster-cephfs"]
+    },
+    "apiServerURL": "https://api.pp8001.example.net:6443",
+    "consoleServerURL": "https://console.pp8001.example.net",
+    "argo": {
+      "platformURL": "https://argo-platform.pp8001.example.net",
+      "tenantURL": "https://argo-tenant.pp8001.example.net"
+    },
+    "dns": {
+      "internal": "router.pp8001.example.net",
+      "external": null,
+      "supplier": null,
+      "vpc": "preprod-vpc-perf"
+    },
+    "infrastructureName": "infra-pp8001",
+    "location": {
+      "platformStatusKey": "gcp",
+      "name": "gcp-us-central1",
+      "description": "Google Cloud US Central"
+    },
+    "changeManagement": {
+      "SNOSupportGroup": "Pre-Production Platform Team",
+      "bulkmail": [
+        {
+          "name": "perf_test_notifications@example.com",
+          "subscriptionURL": "https://notifications.example.net/pp8001"
+        }
+      ],
+      "changeGroup": 8,
+      "changeWindow": ["Daily(10pm-6am:CST)"],
+      "siblingCluster": null,
+      "siblingRegion": null
+    }
+  }
+}

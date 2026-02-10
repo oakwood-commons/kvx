@@ -1,0 +1,78 @@
+name: kvx-catalog
+version: "2.5"
+active: true
+rating: 4.8
+description: A comprehensive kvx catalog with detailed metadata
+
+items:
+  - name: chamomile
+    origin: egypt
+    available: true
+    stock: 150
+    price: 12.99
+    tags:
+      - herbal
+      - calming
+      - caffeine-free
+    vendor:
+      name: "Egypt Premium Teas"
+      contact: "vendor@egyptteas.com"
+      rating: 4.5
+  - name: earl-grey
+    origin: england
+    available: true
+    stock: 200
+    price: 15.99
+    tags:
+      - black
+      - bergamot
+      - classic
+    vendor:
+      name: "British Tea Co"
+      contact: "sales@britishtea.co.uk"
+      rating: 4.9
+  - name: matcha
+    origin: japan
+    available: false
+    stock: 0
+    price: 25.50
+    tags:
+      - green
+      - ceremonial
+      - energy-boost
+    vendor:
+      name: "Tokyo Matcha House"
+      contact: "info@matcahouse.jp"
+      rating: 5.0
+regions:
+  asia:
+    countries:
+      - japan
+      - india
+      - china
+    popular_teas:
+      - oolong
+      - matcha
+      - darjeeling
+    volume_tons: 450000
+  europe:
+    countries:
+      - england
+      - germany
+      - france
+    popular_teas:
+      - earl-grey
+      - english-breakfast
+      - chamomile
+    volume_tons: 85000
+metadata:
+  bad-key: null
+  created: "2025-12-10"
+  author: "abaker9"
+  last_updated: "2025-12-10T14:32:00Z"
+  database_id: "tea_catalog_v2"
+  verified: true
+  tags:
+    production: true
+    export: true
+    archived: false

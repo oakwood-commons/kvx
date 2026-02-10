@@ -1,0 +1,24 @@
+---
+title: Log Entry 1
+timestamp: "2025-01-10T10:00:00Z"
+level: INFO
+message: "Application started successfully"
+details:
+  version: "2.5.0"
+  environment: production
+---
+title: Log Entry 2
+timestamp: "2025-01-10T10:05:30Z"
+level: WARNING
+message: "High memory usage detected"
+details:
+  memory_percent: 85
+  threshold: 80
+---
+title: Log Entry 3
+timestamp: "2025-01-10T10:10:15Z"
+level: ERROR
+message: "Database connection failed"
+details:
+  retry_count: 3
+  next_retry: "2025-01-10T10:11:15Z"

@@ -1,0 +1,89 @@
+version: "2"
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+linters:
+  enable:
+    - asciicheck
+    - bodyclose
+    - dogsled
+    - dupl
+    - durationcheck
+    - errcheck
+    - errorlint
+    - exhaustive
+    - gochecknoinits
+    - goheader
+    - gomodguard
+    - goprintffuncname
+    - importas
+    - makezero
+    - misspell
+    - nakedret
+    - nilerr
+    - prealloc
+    - predeclared
+    - promlinter
+    - tparallel
+    - unparam
+    - whitespace
+
+    - staticcheck
+    - revive
+    - forbidigo
+    - forcetypeassert
+    - gocritic
+    - gosec
+    - noctx
+  # disable:
+  # # disabling temporarily and will be enabled back after fixing issues
+  #   - staticcheck
+  settings:
+    gocritic:
+      disabled-checks:
+        - unlambda
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+    rules:
+      # Exclude some linters from running on tests files.
+      - path: _test\.go
+        linters:
+          # - gocyclo
+          - errcheck
+          - dupl
+          - gosec
+          - forcetypeassert
+          - revive
+          - gocritic
+      # CLI output intentionally uses fmt.Print/Println and Cobra init() pattern
+      - path: cmd/root\.go
+        linters:
+          - errcheck
+          - forbidigo
+          - gochecknoinits
+          - forcetypeassert
+      # Exclude dupl from CEL extension files with similar function registration patterns
+      - path: pkg/celexp/ext/marshalling/marshalling\.go
+        linters:
+          - dupl
+      - path: pkg/celexp/ext/sort/sort\.go
+        linters:
+          - dupl
+formatters:
+  enable:
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

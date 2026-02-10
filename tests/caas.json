@@ -1,0 +1,29 @@
+{
+  "cluster_001": {
+    "clusterName": "cluster_001",
+    "status": "up",
+    "alert": true,
+    "platform": "gcp",
+    "dns": { "internal": "router.cluster_001.example.net", "external": null },
+    "location": { "platformStatusKey": "gcp", "name": "gcp-us-central1" },
+    "allowedStorageClasses": { "rwo": ["gce-balanced-csi", "gce-ssd-csi", "gce-standard-csi"], "rwx": ["ocs-storagecluster-cephfs"] }
+  },
+  "cluster_002": {
+    "clusterName": "cluster_002",
+    "status": "up",
+    "alert": true,
+    "platform": "gcp",
+    "dns": { "internal": "router.cluster_002.example.net", "external": "router-ext.cluster_002.example.net" },
+    "location": { "platformStatusKey": "gcp", "name": "gcp-us-central1" },
+    "allowedStorageClasses": { "rwo": ["gce-balanced-csi", "gce-ssd-csi", "gce-standard-csi"], "rwx": ["ocs-storagecluster-cephfs"] }
+  },
+  "cluster_003": {
+    "clusterName": "cluster_003",
+    "status": "up",
+    "alert": true,
+    "platform": "plant",
+    "dns": { "internal": "router.cluster_003.example.net", "external": null },
+    "location": { "platformStatusKey": "plant", "name": "plant-001" },
+    "allowedStorageClasses": { "rwo": ["ocs-storagecluster-ceph-rbd"], "rwx": ["ocs-storagecluster-cephfs"] }
+  }
+}

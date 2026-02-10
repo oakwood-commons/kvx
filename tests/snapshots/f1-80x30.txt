@@ -1,0 +1,30 @@
+╭──────────── Help ────────────────╮
+│Navigation                        │
+│j/k  navigate up/down             │
+│h/l  navigate back/forward        │
+│/  search/filter                  │
+│n/N  next/prev match              │
+│gg/G  go to top/bottom            │
+│:  expression mode                │
+│y  copy path                      │
+│?  toggle help                    │
+│q  quit                           │
+│                                  │
+│Expressions                       │
+│Enter  go to key (resets context) │
+│Tab / Shift+Tab  cycle suggestions│
+│.  keys + CEL functions           │
+│[  array indices                  │
+│Ctrl+C  quit                      │
+╰──────────────────────────────────╯
+╭──────────────────────────────────── kvx ─────────────────────────────────────╮
+│KEY          VALUE                                                            │
+│──────────────────────────────────────────────────────────────────────────────│
+│active       true                                                             │
+│description  A comprehensive kvx catalog with detailed metadata               │
+│items        [{"available":true,"name":"chamomile","origin":"egypt","price"...│
+│metadata     {"author":"abaker9","bad-key":null,"created":"2025-12-10","dat...│
+│name         kvx-catalog                                                      │
+│rating       4.8                                                              │
+╰ _.active ────────────────────────────────────────────────────────── map: 1/8 ╯
+? help / search f filter y copy : expr q quit                                   

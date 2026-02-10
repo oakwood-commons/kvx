@@ -1,0 +1,78 @@
+name: test-inventory
+version: 1.0.0
+environment: testing
+active: true
+
+database:
+  host: localhost
+  port: 5432
+  name: test_db
+  credentials:
+    username: admin
+    password: secret123
+  settings:
+    max_connections: 100
+    timeout: 30
+    ssl_enabled: true
+
+servers:
+  - name: web-01
+    ip: 192.168.1.10
+    role: frontend
+    status: running
+    tags:
+      - production
+      - web
+      - nginx
+  - name: api-01
+    ip: 192.168.1.20
+    role: backend
+    status: running
+    tags:
+      - production
+      - api
+      - golang
+  - name: db-01
+    ip: 192.168.1.30
+    role: database
+    status: running
+    tags:
+      - production
+      - postgres
+
+users:
+  alice:
+    email: alice@example.com
+    role: admin
+    active: true
+    permissions:
+      - read
+      - write
+      - delete
+  bob:
+    email: bob@example.com
+    role: developer
+    active: true
+    permissions:
+      - read
+      - write
+  charlie:
+    email: charlie@example.com
+    role: viewer
+    active: false
+    permissions:
+      - read
+
+metrics:
+  cpu_usage: 45.5
+  memory_usage: 78.2
+  disk_usage: 62.8
+  network_throughput: 1250.5
+  uptime_days: 127
+
+features:
+  authentication: true
+  logging: true
+  caching: true
+  monitoring: false
+  backup: true

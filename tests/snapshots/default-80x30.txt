@@ -1,0 +1,30 @@
+╭──────────────────────────────────── kvx ─────────────────────────────────────╮
+│KEY          VALUE                                                            │
+│──────────────────────────────────────────────────────────────────────────────│
+│active       true                                                             │
+│description  A comprehensive kvx catalog with detailed metadata               │
+│items        [{"available":true,"name":"chamomile","origin":"egypt","price"...│
+│metadata     {"author":"abaker9","bad-key":null,"created":"2025-12-10","dat...│
+│name         kvx-catalog                                                      │
+│rating       4.8                                                              │
+│regions      {"asia":{"countries":["japan","india","china"],"popular_teas":...│
+│version      2.5                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+╰ _.active ────────────────────────────────────────────────────────── map: 1/8 ╯
+? help / search f filter y copy : expr q quit                                   

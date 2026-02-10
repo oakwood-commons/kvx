@@ -1,0 +1,24 @@
+╭[m────────────────────[m Help [m─────────────────────────[m╮[m
+│Navigation[m                                         │
+│j/k [m navigate up/down[m                              │
+│h/l [m navigate back/forward[m                         │
+│/ [m search/filter[m                                   │
+│n/N [m next/prev match[m                               │
+│gg/G [m go to top/bottom[m                             │
+│: [m expression mode[m                                 │
+│y [m copy path[m                                       │
+│? [m toggle help[m                                     │
+│q [m quit[m                                            │
+│                                                   │
+│Expressions[m                                        │
+│Enter [m go to key (resets context)[m                  │
+│Tab / Shift+Tab [m cycle suggestions[m                 │
+│. [m keys + CEL functions[m                            │
+│[ [m array indices[m                                   │
+│Ctrl+C [m quit[m                                       │
+│                                                   │
+│Mode: vim (switch with --keymap vim|emacs|function)[m│
+╰───────────────────────────────────────────────────╯
+╭[m────────────────────────────────────[m kvx [m─────────────────────────────────────[m╮[m
+│                                                                              │
+? help / search f filter y copy : expr q quit                                   

@@ -1,0 +1,57 @@
+# Build artifacts
+bin/
+build/
+dist/
+out/
+kvx
+kvx.exe
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go tooling outputs
+*.test
+*.out
+*.pprof
+coverage
+coverage.out
+cover.out
+profile.out
+cpu.out
+mem.out
+trace.out
+.cache/
+.gocache/
+
+# Dependency directories
+vendor/
+
+# Logs and temp files
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+~*
+lint_*.txt
+*_output.txt
+test_*.txt
+
+# Editor settings
+.vscode/
+.idea/
+*.code-workspace
+
+# OS-specific clutter
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# local
+local/
+temp/
+.task/
+embed-tui

@@ -1,0 +1,593 @@
+# Default configuration for kvx
+# This file serves as the source of truth for default config values.
+# When new config items are added, they should be added here
+# to ensure they appear in --config output automatically.
+app:
+  about:
+    name: kvx
+    description: A terminal-based UI for exploring structured data in an interactive, navigable way.
+    # Dynamic fields (populated at runtime from build info):
+    # version: Application version (dynamic: from build info)
+    # go_version: Go version used to build (dynamic: from build info)
+    # build_os: Build operating system (dynamic: from build info)
+    # build_arch: Build architecture (dynamic: from build info)
+    # git_commit: Git commit hash (dynamic: from build info)
+    # These fields are available in templates as {{.config.app.about.version}}, etc.
+    # or as {{.build.version}}, etc.
+    license: Apache License 2.0
+    repository_url: https://github.com/yourusername/kvx
+    documentation_url: https://github.com/yourusername/kvx/blob/main/README.md
+    author: The kvx contributors
+    # Additional details (array of strings, supports templates)
+    # These appear in CLI --help and UI help overlay
+    # details:
+    #   - "In addition to being a standalone CLI, kvx is designed as a reusable TUI component, allowing other applications to embed the viewer directly into their own terminal interfaces."
+  cli:
+    # CLI help text (supports Go templates, can reference .config and .build)
+    help_header_template: "{.config.app.about.name}}: {{.config.app.about.description}}\nVersion: {{.config.app.about.name}} {{.config.app.about.version}}\nLicense: {{.config.app.about.license}}"
+    help_description: "It presents data as key value trees that you can expand, collapse, and inspect directly in the terminal, making it easy to understand complex or deeply nested structures."
+    help_usage: "Non-interactive CLI uses CEL expressions via --expression with '_' as root. For special keys use bracket notation (e.g., _.metadata[\"bad-key\"]). Interactive TUI supports dotted-path shorthand."
+    # Future CLI options:
+    # default_output_format: table  # table|json|yaml|csv|raw
+    # confirm_on_exit: false  # Require confirmation before exiting
+    # save_command_history: true  # Save command history to file
+    # history_file: ~/.config/kvx/history  # Path to history file
+    # max_history_size: 1000  # Maximum number of history entries
+  debug:
+    # Debug and logging settings grouped together
+    max_events: 200
+    # Future debug options:
+    # log_level: info  # debug|info|warn|error
+    # log_file: ""  # Path to log file (empty = stderr)
+    # log_format: text  # text|json
+    # verbose: false  # Enable verbose debug output
+    # trace_cel: false  # Trace CEL expression evaluation
+ui:
+  # Theme selection and configuration
+  theme:
+    default: midnight
+    # Future theme options:
+    # auto_detect: false  # Auto-detect theme from terminal
+    # prefer_dark: true  # Prefer dark themes when auto-detecting
+    # custom_colors: {}  # Override specific colors per theme
+  # Feature flags - enable/disable UI features
+  features:
+    allow_edit_input: true
+    allow_filter: true
+    allow_suggestions: true
+    allow_intellisense: true
+    key_mode: vim  # Keybinding mode: vim (default), emacs, or function
+    # Future feature flags:
+    # mouse_enabled: false  # Enable mouse support for clicking/selecting
+    # keyboard_shortcuts: true  # Enable keyboard shortcuts
+    # auto_complete: true  # Enable auto-completion
+  # Intellisense settings for expression mode
+  intellisense:
+    max_suggestions: 10  # Maximum number of suggestions to show in status panel
+  # Help text configuration for expression mode and UI
+  help:
+    # Expression mode entry help - shown when entering expression mode (F6)
+    expr_mode_entry: "Tab: complete | Type: show help | Enter: evaluate"
+    # Function help customization - map of function name to custom help text
+    # If not specified, uses auto-discovered examples from completion engine
+    function_help:
+      # Example: Override help for specific functions
+      # filter: "filter(x, condition) - Filter array elements\nExample: [1,2,3].filter(x, x > 1)"
+      # map: "map(x, expr) - Transform array elements\nExample: [1,2,3].map(x, x * 2)"
+    cel:
+      # Example data bound to '_' when validating CEL examples
+      example_data:
+        number: 42
+        stringValue: "7"
+        value: 3.14
+        delta: -3
+        ratio: 1.8
+        status: active
+        name: "KVX Demo"
+        email: "user@example.com"
+        filename: "test_config.json"
+        url: "https://example.com/api"
+        path: "/var/log/app.log"
+        csv: "a,b,c"
+        text: "replace the old value"
+        code: "abc123"
+        input: "  spaced  "
+        createdAt: "2024-01-01T00:00:00Z"
+        tasks:
+          default:
+            cmds:
+              - "sleep 1"
+              - "echo test"
+              - "ls -la"
+        items:
+          - id: target
+            name: alpha
+            status: active
+            valid: true
+            primary: true
+          - id: other
+            name: beta
+            status: pending
+            valid: false
+            primary: false
+        users:
+          - name: Alice
+            age: 30
+            email: alice@example.com
+            role: admin
+          - name: Bob
+            age: 17
+            email: bob@gmail.com
+            role: viewer
+        config:
+          debug: true
+        user:
+          email: person@example.com
+      # Function examples database for CEL functions (per expression language)
+      # Shown in completion/help panels while typing in expression mode (CEL).
+      # Schema: function_name:
+      #   description: "What this function does"
+      #   examples: [array of example strings]
+      function_examples:
+         # List/Array methods
+         sort:
+           description: "Method: list.sort(). Sort array elements in ascending order."
+           examples:
+             - "[3,1,2].sort() => [1,2,3]"
+             - "_.tasks.default.cmds.sort()"
+         filter:
+           description: "Method: list.filter(x, condition). Filter array elements based on a condition."
+           examples:
+             - "[1,2,3,4,5].filter(x, x > 2) => [3,4,5]"
+             - "_.items.filter(x, x.status == 'active')"
+             - "_.users.filter(u, u.age >= 18)"
+         map:
+           description: "Method: list.map(x, expr). Transform each array element."
+           examples:
+             - "[1,2,3].map(x, x * 2) => [2,4,6]"
+             - "_.items.map(x, x.name)"
+             - "_.users.map(u, u.email)"
+         exists:
+           description: "Method: list.exists(x, condition). Check if any array element matches (OR)."
+           examples:
+             - "[1,2,3].exists(x, x > 5) => false"
+             - "_.items.exists(x, x.id == 'target')"
+             - "_.users.exists(u, u.role == 'admin')"
+         all:
+           description: "Method: list.all(x, condition). Check if all array elements match (AND)."
+           examples:
+             - "[1,2,3].all(x, x > 0) => true"
+             - "_.items.all(x, x.valid == true)"
+             - "_.users.all(u, u.email != '')"
+         exists_one:
+           description: "Method: list.exists_one(x, condition). Check if exactly one element matches."
+           examples:
+             - "[1,2,3].exists_one(x, x == 2) => true"
+             - "_.items.exists_one(x, x.primary)"
+         size:
+           description: "Method: value.size(). Get the size/length of a string, array, or map."
+           examples:
+             - "[1,2,3].size() => 3"
+             - "_.items.size()"
+             - "'hello'.size() => 5"
+         # String methods
+         contains:
+           description: "Method: string.contains(substring). Check if a string contains a substring."
+           examples:
+             - "'hello world'.contains('world') => true"
+             - "_.name.contains('test')"
+             - "_.email.contains('@example.com')"
+         startsWith:
+           description: "Method: string.startsWith(prefix). Check if a string starts with a prefix."
+           examples:
+             - "'hello'.startsWith('he') => true"
+             - "_.filename.startsWith('test_')"
+             - "_.url.startsWith('https://')"
+         endsWith:
+           description: "Method: string.endsWith(suffix). Check if a string ends with a suffix."
+           examples:
+             - "'hello'.endsWith('lo') => true"
+             - "_.filename.endsWith('.json')"
+             - "_.email.endsWith('@gmail.com')"
+         matches:
+           description: "Method: string.matches(pattern). Test a string against a regex."
+           examples:
+             - "'test123'.matches('[a-z]+[0-9]+') => true"
+             - "_.email.matches('[a-zA-Z0-9]+@.+')"
+         split:
+           description: "Method: string.split(delimiter). Split a string into an array."
+           examples:
+             - "'a,b,c'.split(',') => ['a','b','c']"
+             - "_.path.split('/')"
+             - "_.csv.split(',')"
+         replace:
+           description: "Method: string.replace(old, new). Replace all occurrences of a substring."
+           examples:
+             - "'hello'.replace('l', 'L') => 'heLLo'"
+             - "_.text.replace('old', 'new')"
+         substring:
+           description: "Method: string.substring(start, end). Extract a portion of a string."
+           examples:
+             - "'hello'.substring(1, 4) => 'ell'"
+             - "_.name.substring(0, 5)"
+         lowerAscii:
+           description: "Method: string.lowerAscii(). Convert ASCII letters to lowercase."
+           examples:
+             - "'HELLO'.lowerAscii() => 'hello'"
+             - "_.name.lowerAscii()"
+         upperAscii:
+           description: "Method: string.upperAscii(). Convert ASCII letters to uppercase."
+           examples:
+             - "'hello'.upperAscii() => 'HELLO'"
+             - "_.code.upperAscii()"
+         trim:
+           description: "Method: string.trim(). Remove leading/trailing whitespace."
+           examples:
+             - "'  hello  '.trim() => 'hello'"
+             - "_.input.trim()"
+         # Type conversion
+         # string() is the canonical CEL conversion; toString is not available in our env.
+         int:
+           description: "Global: int(value). Convert a value to an integer (truncates decimals)."
+           examples:
+             - "int('42') => 42"
+             - "int(3.14) => 3"
+             - "int(_.stringValue)"
+         double:
+           description: "Global: double(value). Convert a value to a floating-point number."
+           examples:
+             - "double('3.14') => 3.14"
+             - "double(42) => 42.0"
+             - "double(_.value)"
+         string:
+           description: "Global: string(value). Convert any value to its string representation."
+           examples:
+             - "string(42) => '42'"
+             - "string(true) => 'true'"
+             - "string(_.number)"
+         bytes:
+           description: "Global: bytes(string). Convert a string to bytes (UTF-8)."
+           examples:
+             - "bytes('hello')"
+             - "string(bytes('hello')) => 'hello'"
+         # Map methods
+         has:
+           description: "Global: has(obj.field). Check if a field is present."
+           examples:
+             - "has({\"a\": 1}.a) => true"
+             - "has(_.config.debug)"
+             - "has(_.user.email)"
+         # Comparison and logic
+         in:
+           description: "Operator: value in collection. Check if a value exists in a list or map."
+           examples:
+             - "'a' in ['a', 'b', 'c'] => true"
+             - "5 in [1,2,3,4,5] => true"
+             - "_.status in ['active', 'pending']"
+         # Math
+         abs:
+           description: "Global: math.abs(number). Absolute value of a number."
+           examples:
+             - "math.abs(-3) => 3"
+             - "math.abs(_.delta)"
+         ceil:
+           description: "Global: math.ceil(number). Round up to the nearest integer."
+           examples:
+             - "math.ceil(1.2) => 2"
+             - "math.ceil(_.ratio)"
+         floor:
+           description: "Global: math.floor(number). Round down to the nearest integer."
+           examples:
+             - "math.floor(1.8) => 1"
+             - "math.floor(_.ratio)"
+         round:
+           description: "Global: math.round(number). Round to the nearest integer."
+           examples:
+             - "math.round(1.5) => 2"
+             - "math.round(_.ratio)"
+         # Date/Time
+         timestamp:
+           description: "Global: timestamp(value). Parse an ISO8601 timestamp or epoch."
+           examples:
+             - "timestamp('2024-01-01T00:00:00Z')"
+             - "timestamp(_.createdAt)"
+         duration:
+           description: "Global: duration(value). Parse a duration string like '1h30m' or '5s'."
+           examples:
+             - "duration('1h30m')"
+             - "duration('5s')"
+         # Base64 helpers (global)
+         base64.encode:
+           description: "Global: base64.encode(bytes). Encode bytes to base64."
+           examples:
+             - "base64.encode(b\"hello\") => 'aGVsbG8='"
+         base64.decode:
+           description: "Global: base64.decode(string). Decode base64 to bytes."
+           examples:
+             - "string(base64.decode('aGVsbG8=')) => 'hello'"
+         # List helpers (method)
+         flatten:
+           description: "Method: list.flatten(). Flatten a list of lists."
+           examples:
+             - "[[1,2],[3]].flatten() => [1,2,3]"
+         slice:
+           description: "Method: list.slice(start, end). Slice a list by index."
+           examples:
+             - "[1,2,3,4].slice(1, 3) => [2,3]"
+         # Math helpers (global)
+         math.greatest:
+           description: "Global: math.greatest(list). Get the greatest numeric value."
+           examples:
+             - "math.greatest([1,2,3]) => 3"
+         math.least:
+           description: "Global: math.least(list). Get the least numeric value."
+           examples:
+             - "math.least([1,2,3]) => 1"
+         math.sqrt:
+           description: "Global: math.sqrt(value). Compute square root."
+           examples:
+             - "math.sqrt(9) => 3"
+             - "math.sqrt(2.25) => 1.5"
+  # Display and layout settings
+  display:
+    key_col_width: 30
+    sort: ascending  # map key sorting: none|ascending|descending
+    # Future display options:
+    # truncate_long_values: true  # Truncate long values in table
+    # max_value_display_length: 100  # Maximum characters to show for values before truncation
+    # show_line_numbers: false  # Show line numbers in table
+    # show_types: false  # Show data types in value column (e.g., [string], [number])
+    # show_row_numbers: false  # Show row numbers
+    # wrap_text: false  # Wrap long text instead of truncating
+    # min_col_width: 10  # Minimum column width
+    # max_col_width: 0  # Maximum column width (0 = unlimited)
+  # User behavior and interaction settings
+  behavior:
+    # Future behavior options:
+    # auto_focus_input: false  # Auto-focus input field on startup
+    # clear_input_on_navigate: false  # Clear input when navigating with arrow keys
+    # confirm_on_quit: false  # Require confirmation before quitting
+    # save_state: true  # Save UI state (scroll position, expanded nodes) on exit
+    # restore_state: true  # Restore UI state on startup
+    # state_file: ~/.config/kvx/state.json  # Path to state file
+  # Performance and optimization settings
+  performance:
+    # Debounce delay for real-time search filtering (milliseconds).
+    # Higher values reduce lag when typing quickly. Set to 0 for immediate search (may cause lag).
+    filter_debounce_ms: 150
+    # Maximum number of results returned by deep search (Enter in search mode).
+    # When exceeded, a "showing first N of many" indicator is shown.
+    search_result_limit: 500
+    # Number of rows to pre-render above/below the visible viewport.
+    # Improves scroll smoothness for large datasets.
+    scroll_buffer_rows: 5
+    # Enable virtual scrolling to render only visible rows.
+    # Improves performance for large datasets.
+    virtual_scrolling: true
+    # Future performance options:
+    # max_suggestions: 20  # Maximum number of suggestions to show in dropdown
+    # suggestion_delay_ms: 100  # Delay before showing suggestions (milliseconds)
+    # max_table_rows: 0  # Maximum rows to show in table (0 = unlimited, useful for large datasets)
+    # cache_size: 1000  # Size of expression evaluation cache
+    # lazy_load: true  # Lazy load nested data
+  # Search and filtering settings
+  search:
+    # Future search options:
+    # search_case_sensitive: false  # Case sensitivity for search operations
+    # search_regex: false  # Enable regular expressions in search
+    # filter_highlight: true  # Highlight matching text in filtered results
+    # search_scope: both  # Search scope: keys|values|both
+    # search_history: true  # Remember search history
+    # max_search_history: 50  # Maximum number of search history entries
+  # Data formatting settings
+  formatting:
+    yaml:
+      indent: 2  # spaces for indentation
+      literal_block_strings: true  # render multiline strings with |
+    tree:
+      max_depth: 0  # 0 = unlimited
+      max_string_length: 0  # 0 = auto (terminal-based when TTY, unlimited when piped)
+      max_array_inline: 3  # items before showing "[N items]"
+      expand_arrays: false  # show all array elements
+      no_values: false  # structure only mode
+    mermaid:
+      direction: TD  # Diagram direction: TD, LR, BT, RL
+      max_depth: 0  # 0 = unlimited
+      max_string_length: 0  # 0 = unlimited
+      max_array_inline: 3  # items before showing "[N items]"
+      expand_arrays: false  # show all array elements
+      no_values: false  # structure only mode
+    # Future formatting options:
+    # date_format: "RFC3339"  # Format for date/time values (RFC3339, ISO8601, Unix, etc.)
+    # number_format: "auto"  # Format for numeric values (auto, scientific, fixed, etc.)
+    # decimal_places: 2  # Number of decimal places for floats
+    # thousand_separator: ","  # Thousand separator for numbers
+    # boolean_format: "true/false"  # Format for boolean values (true/false, yes/no, 1/0)
+    # null_format: "null"  # How to display null/empty values
+  # Popup and modal settings
+  popup:
+    info_popup:
+      enabled: false
+      # Templates can reference config values using {{.config.app.about.description}}, etc.
+      # Build info is available as {{.build.version}}, {{.build.go_version}}, etc.
+      text: '{{.config.app.about.name}}: {{.config.app.about.description}}.'
+      anchor: top
+      justify: center
+      modal: false
+      permanent: false
+    # Future popup options:
+    # notification_timeout: 3000  # Timeout for notification popups (milliseconds)
+    # error_popup_timeout: 5000  # Timeout for error popups (milliseconds)
+  themes:
+    # Dark theme: Clean, professional dark palette with cyan accents (default)
+    # High contrast, easy on the eyes, great for long work sessions
+    dark:
+      key_color: 81        # Table keys
+      value_color: 246     # Table values
+      header_fg: 81        # Panel header/border text
+      header_bg: 236       # Panel header/border background
+      border_style: rounded # Panel border style (normal|rounded)
+      selected_fg: 250     # Selected row foreground
+      selected_bg: 24      # Selected row background
+      separator_color: 238 # Table separator lines
+      input_bg: 236        # Path input background
+      input_fg: 246        # Path input text
+      ghost_fg: 246        # Input ghost/suggestion text
+      status_color: 81     # Status/info text
+      status_error: 203    # Error status text
+      status_success: 114  # Success status text
+      debug_color: 244     # Debug/status details
+      footer_fg: 244       # Footer text
+      footer_bg: 236       # Footer background
+      help_key: 81         # Help overlay key labels
+      help_value: 245      # Help overlay descriptions
+
+    # Midnight theme: Deep navy base with vivid accents and purple selection
+    midnight:
+      key_color: 81        # Table keys
+      value_color: 250     # Table values
+      header_fg: 81        # Panel header/border text
+      header_bg: 234       # Panel header/border background
+      border_style: rounded # Panel border style (normal|rounded)
+      selected_fg: 254     # Selected row foreground
+      selected_bg: 99      # Selected row background
+      separator_color: 239 # Table separator lines
+      input_bg: 234        # Path input background
+      input_fg: 252        # Path input text
+      ghost_fg: 245        # Input ghost/suggestion text
+      status_color: 81     # Status/info text
+      status_error: 203    # Error status text
+      status_success: 114  # Success status text
+      debug_color: 246     # Debug/status details
+      footer_fg: 245       # Footer text
+      footer_bg: 234       # Footer background
+      help_key: 81         # Help overlay key labels
+      help_value: 248      # Help overlay descriptions
+
+    # Warm theme: Retro-inspired warm palette with oranges, golds, and earth tones
+    # Inviting and nostalgic, easy on the eyes with warm colors
+    warm:
+      key_color: 214       # Table keys
+      value_color: 230     # Table values
+      header_fg: 230       # Panel header/border text
+      header_bg: 94        # Panel header/border background
+      border_style: rounded # Panel border style (normal|rounded)
+      selected_fg: 16      # Selected row foreground
+      selected_bg: 178     # Selected row background
+      separator_color: 101 # Table separator lines
+      input_bg: 52         # Path input background
+      input_fg: 230        # Path input text
+      ghost_fg: 230        # Input ghost/suggestion text
+      status_color: 178    # Status/info text
+      status_error: 160    # Error status text
+      status_success: 106  # Success status text
+      debug_color: 214     # Debug/status details
+      footer_fg: 230       # Footer text
+      footer_bg: 94        # Footer background
+      help_key: 214        # Help overlay key labels
+      help_value: 230      # Help overlay descriptions
+
+    # Cool theme: Modern cool palette with blues, cyans, and purples
+    # Contemporary and sleek, with vibrant cool-toned accents
+    cool:
+      key_color: 45        # Table keys
+      value_color: 153     # Table values
+      header_fg: 117       # Panel header/border text
+      header_bg: 17        # Panel header/border background
+      border_style: normal # Panel border style (normal|rounded)
+      selected_fg: 232     # Selected row foreground
+      selected_bg: 75      # Selected row background
+      separator_color: 24  # Table separator lines
+      input_bg: 18         # Path input background
+      input_fg: 117        # Path input text
+      ghost_fg: 117        # Input ghost/suggestion text
+      status_color: 45     # Status/info text
+      status_error: 196    # Error status text
+      status_success: 48   # Success status text
+      debug_color: 117     # Debug/status details
+      footer_fg: 117       # Footer text
+      footer_bg: 17        # Footer background
+      help_key: 45         # Help overlay key labels
+      help_value: 153      # Help overlay descriptions
+  menu:
+    # Action-based menu configuration with mode-specific key bindings
+    # Each action defines its label and which key triggers it in each mode
+    help:
+      label: help
+      enabled: true
+      help_text: Toggle inline help
+      keys:
+        function: f1
+        vim: "?"
+        emacs: f1
+      popup:
+        enabled: true
+        modal: true
+        anchor: top
+        justify: left
+        title: |
+          {{or .config.app.about.name "kvx"}} help
+        title_justify: center
+        text: |
+          {{or .config.app.about_line (printf "%s: %s" .config.app.about.name .config.app.about.description)}}
+
+          {{.config.app.help.text}}
+
+          ---
+          Version {{.config.app.about.version}} | License: {{.config.app.about.license}} | **{{.config.app.about.author}}**
+
+    search:
+      label: search
+      enabled: true
+      help_text: Start search
+      keys:
+        function: f3
+        vim: "/"
+        emacs: ctrl+s
+
+    filter:
+      label: filter
+      enabled: true
+      help_text: Filter current map keys
+      keys:
+        function: f4
+        vim: f
+        emacs: ctrl+l
+
+    copy:
+      label: copy
+      enabled: true
+      help_text: Copy current expression/path
+      keys:
+        function: f5
+        vim: "y"
+        emacs: alt+w
+
+    expr:
+      label: expr
+      action: expr_toggle
+      enabled: true
+      help_text: Toggle expression input
+      keys:
+        function: f6
+        vim: ":"
+        emacs: alt+x
+
+    quit:
+      label: quit
+      enabled: true
+      help_text: Quit
+      keys:
+        function: f10
+        vim: q
+        emacs: ctrl+q
+
+    custom:
+      label: custom
+      enabled: false
+      keys:
+        function: f12
+      popup:
+        text: Custom popup
+        anchor: top
+        modal: false
