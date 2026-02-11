@@ -16,24 +16,15 @@
 
 ## Navigation basics
 
-kvx defaults to **vim** keybinding mode. Switch with `--keymap vim|emacs|function`.
+kvx defaults to **vim** keybinding mode:
 
-### Vim mode (default)
 - `j`/`k`: navigate up/down; `h`/`l`: ascend/drill into selection.
 - `/`: search/filter; `n`/`N`: next/prev match; `f`: filter map keys.
 - `gg`/`G`: go to top/bottom.
 - `:`: expression mode; `y`: copy path; `?`: toggle help; `q`: quit.
 - `Esc`: close open contexts (input/search/popup) but do not exit.
 
-### Emacs mode (`--keymap emacs`)
-- `C-n`/`C-p`: up/down; `C-b`/`C-f`: back/forward.
-- `C-s`: search; `C-r`: prev match; `M-<`/`M->`: top/bottom.
-- `M-x`: expression; `M-w`: copy; `F1`: help; `C-g`: cancel; `C-q`: quit.
-
-### Function mode (`--keymap function`)
-- Arrows: navigate table; `Left` ascends; `Right/Enter` drill.
-- `Home`/`End`: top/bottom.
-- `F1` Help, `F3` Search, `F4` Filter, `F5` Copy, `F6` Expression, `F10` Quit.
+Prefer **emacs** or **function-key** style bindings? Use `--keymap emacs` or `--keymap function`.
 
 ## Filter (type-ahead)
 

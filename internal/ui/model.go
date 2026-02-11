@@ -19,6 +19,7 @@ import (
 	"charm.land/lipgloss/v2"
 	runewidth "github.com/mattn/go-runewidth"
 
+	celhelper "github.com/oakwood-commons/kvx/internal/cel"
 	"github.com/oakwood-commons/kvx/internal/completion"
 	"github.com/oakwood-commons/kvx/internal/formatter"
 	"github.com/oakwood-commons/kvx/internal/navigator"
@@ -620,6 +621,17 @@ func InitialModel(node interface{}) Model {
 	var functionExamples map[string]FunctionExampleValue
 	if cfg, err := EmbeddedDefaultConfig(); err == nil {
 		functionExamples = cfg.Help.CEL.FunctionExamples
+		// Derive example hints for CEL function discovery only if not already
+		// set by the CLI config loader (which merges user overrides on top).
+		if celhelper.GetExampleHints() == nil && len(functionExamples) > 0 {
+			hints := make(map[string]string, len(functionExamples))
+			for name, v := range functionExamples {
+				if len(v.Examples) > 0 {
+					hints[name] = "e.g. " + v.Examples[0]
+				}
+			}
+			celhelper.SetExampleHints(hints)
+		}
 	}
 
 	// Initialize CEL function suggestions with usage hints; fall back to static list

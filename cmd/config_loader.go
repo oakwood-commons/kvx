@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"fmt"
+	"maps"
 	"os"
 	"sort"
 	"strings"
@@ -139,9 +140,10 @@ func (l configLoader) loadMergedConfig(cfgPath string) (ui.ThemeConfigFile, erro
 			cfg.Menu = mergeMenuConfig(cfg.Menu, fileCfg.Menu)
 		}
 		if len(fileCfg.Themes) > 0 {
-			mergedThemes := make(map[string]ui.ThemeConfig)
+			mergedThemes := make(map[string]ui.ThemeConfig, len(cfg.Themes))
+			maps.Copy(mergedThemes, cfg.Themes)
 			for name, themeCfg := range fileCfg.Themes {
-				base, ok := cfg.Themes[name]
+				base, ok := mergedThemes[name]
 				if !ok {
 					darkTheme, _ := ui.GetTheme("dark")
 					base = ui.ThemeConfigFromTheme(darkTheme)
@@ -330,9 +332,10 @@ func mergeConfigFromNested(nested struct {
 		cfg.Popup.InfoPopup = mergeInfoPopup(cfg.Popup.InfoPopup, nested.UI.Defaults.InfoPopup)
 	}
 	if len(nested.UI.Themes) > 0 {
-		mergedThemes := make(map[string]ui.ThemeConfig)
+		mergedThemes := make(map[string]ui.ThemeConfig, len(cfg.Themes))
+		maps.Copy(mergedThemes, cfg.Themes)
 		for name, themeCfg := range nested.UI.Themes {
-			baseTheme, ok := cfg.Themes[name]
+			baseTheme, ok := mergedThemes[name]
 			if !ok {
 				baseTheme = ui.ThemeConfig{}
 			}

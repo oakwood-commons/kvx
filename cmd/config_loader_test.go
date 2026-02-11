@@ -79,3 +79,55 @@ func TestAddConfigCommentsAddsPopupHints(t *testing.T) {
 	require.Contains(t, annotated, "Popup options: enabled (bool)")
 	require.Contains(t, annotated, "# show on startup")
 }
+
+func TestConfigLoaderUserOverrideMergesWithDefaults(t *testing.T) {
+	// Load defaults to know what we start with
+	defaults, err := loadMergedConfig("")
+	require.NoError(t, err)
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+
+	// User config: override one function_example, add a custom one, change a theme color
+	configYAML := `ui:
+  help:
+    cel:
+      function_examples:
+        filter:
+          description: "Custom filter description"
+          examples:
+            - "_.items.filter(x, x.custom)"
+        myCustomFunc:
+          description: "A user-defined function"
+          examples:
+            - "myCustomFunc('test')"
+  themes:
+    midnight:
+      key_color: "#abcdef"
+`
+	require.NoError(t, os.WriteFile(cfgPath, []byte(configYAML), 0o600))
+
+	cfg, err := loadMergedConfig(cfgPath)
+	require.NoError(t, err)
+
+	// User override replaces the default filter entry
+	require.Contains(t, cfg.Help.CEL.FunctionExamples, "filter")
+	require.Equal(t, "Custom filter description", cfg.Help.CEL.FunctionExamples["filter"].Description)
+	require.Equal(t, []string{"_.items.filter(x, x.custom)"}, cfg.Help.CEL.FunctionExamples["filter"].Examples)
+
+	// User addition is present
+	require.Contains(t, cfg.Help.CEL.FunctionExamples, "myCustomFunc")
+
+	// Default entries that the user did NOT override are still present
+	require.Contains(t, cfg.Help.CEL.FunctionExamples, "map", "default 'map' should survive user override of 'filter'")
+	require.Contains(t, cfg.Help.CEL.FunctionExamples, "size", "default 'size' should survive user override")
+
+	// Theme override applied
+	require.Equal(t, ui.ColorValue("#abcdef"), cfg.Themes["midnight"].KeyColor)
+
+	// Other built-in themes still present from defaults
+	require.True(t, len(cfg.Themes) >= len(defaults.Themes), "user override should not remove other themes")
+
+	// Default theme name still set (not cleared by partial override)
+	require.NotEmpty(t, cfg.Theme.Default)
+}
