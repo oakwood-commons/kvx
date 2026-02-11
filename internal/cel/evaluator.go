@@ -287,55 +287,29 @@ func ExtractPathAndIndex(expr string) (string, string, error) {
 	return path, index, nil
 }
 
-// GetAvailableFunctions returns a list of common CEL functions and their descriptions
+// GetAvailableFunctions returns a list of CEL functions discovered from the environment.
+// Functions are returned in "name() - description" format.
 func GetAvailableFunctions() []string {
-	return []string{
-		"filter(list, condition) - Filter array elements",
-		"map(list, expr) - Transform array elements",
-		"all(list, condition) - Check if all elements match",
-		"exists(list, condition) - Check if any element matches",
-		"exists_one(list, condition) - Check if exactly one matches",
-		"size(x) - Get size of array/map/string",
-		"list.filter(x, condition) - Filter array elements",
-		"list.map(x, expr) - Transform array elements",
-		"list.all(x, condition) - Check if all elements match",
-		"list.exists(x, condition) - Check if any element matches",
-		"list.exists_one(x, condition) - Check if exactly one matches",
-		"list.size() - Get size of array/map/string",
-		"has(map[\"key\"]) - Check if map contains key",
-		"string.matches(pattern) - Regex pattern matching",
-		"string.startsWith(prefix) - String starts with prefix",
-		"string.endsWith(suffix) - String ends with suffix",
-		"string.contains(substring) - String contains substring",
+	funcs, err := DiscoverCELFunctions()
+	if err != nil || len(funcs) == 0 {
+		return nil
 	}
+	return funcs
 }
 
-// defaultExampleHints provides example usage hints for common CEL functions.
+// exampleHints holds example usage hints set from config at startup.
 // These hints are used in suggestions to help users understand how to use functions.
-var defaultExampleHints = map[string]string{
-	"map":           "e.g. items.map(x, x.field)",
-	"filter":        "e.g. items.filter(x, x.available)",
-	"all":           "e.g. items.all(x, x.available)",
-	"exists":        "e.g. items.exists(x, x.price > 10)",
-	"exists_one":    "e.g. items.exists_one(x, x.id == \"a\")",
-	"has":           "e.g. has(metadata[\"bad-key\"])",
-	"size":          "e.g. items.size()",
-	"contains":      "e.g. \"hello\".contains(\"el\")",
-	"startsWith":    "e.g. name.startsWith(\"api.\")",
-	"endsWith":      "e.g. name.endsWith(\"net\")",
-	"matches":       "e.g. name.matches(\"earl.*\")",
-	"regex.extract": "e.g. regex.extract(\"abc123\", \"[0-9]+\")",
-	"regex.replace": "e.g. regex.replace(\"abc123\", \"[0-9]+\", \"X\")",
-	"base64.decode": "e.g. base64.decode(\"aGVsbG8=\")",
-	"base64.encode": "e.g. base64.encode(b\"hello\")",
-	"lists.range":   "e.g. lists.range(0, 3)",
-	"flatten":       "e.g. items.flatten()",
-	"slice":         "e.g. items.slice(0, 2)",
-	"min":           "e.g. math.min(prices)",
-	"max":           "e.g. math.max(prices)",
-	"greatest":      "e.g. math.greatest(prices)",
-	"least":         "e.g. math.least(prices)",
-	"sqrt":          "e.g. math.sqrt(9)",
+var exampleHints map[string]string
+
+// SetExampleHints sets the example hints used by DiscoverCELFunctionDocs.
+// These should be derived from the config file's function_examples section.
+func SetExampleHints(hints map[string]string) {
+	exampleHints = hints
+}
+
+// GetExampleHints returns the current example hints, or nil if none have been set.
+func GetExampleHints() map[string]string {
+	return exampleHints
 }
 
 // DiscoverCELFunctions builds a CEL environment and returns discovered function names.
@@ -408,7 +382,17 @@ func GetCommonPatterns() []string {
 	}
 }
 
-// typeLabel renders a CEL type into a readable label (uses declared type names when available).
+// DiscoverCELFunctionDocs returns function suggestions with usage hints (method vs global).
+// Hints are loaded from config via SetExampleHints; if none are set, suggestions omit hints.
+// The returned strings keep the bare name up front for insertion, and append usage after " - ".
+func DiscoverCELFunctionDocs() ([]string, error) {
+	env, err := newStandardCELEnv()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create CEL environment: %w", err)
+	}
+
+	return DiscoverFunctionsFromEnv(env, exampleHints), nil
+}
 func typeLabel(t *types.Type) string {
 	if t == nil {
 		return "any"
@@ -506,15 +490,4 @@ func DiscoverFunctionsFromEnv(env *cel.Env, exampleHints map[string]string) []st
 
 	sort.Strings(out)
 	return out
-}
-
-// DiscoverCELFunctionDocs returns function suggestions with usage hints (method vs global).
-// The returned strings keep the bare name up front for insertion, and append usage after " - ".
-func DiscoverCELFunctionDocs() ([]string, error) {
-	env, err := newStandardCELEnv()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create CEL environment: %w", err)
-	}
-
-	return DiscoverFunctionsFromEnv(env, defaultExampleHints), nil
 }

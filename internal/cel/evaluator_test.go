@@ -348,21 +348,21 @@ func TestExtractPathAndIndex_InvalidSyntax(t *testing.T) {
 	}
 }
 
-func TestGetAvailableFunctions_ReturnsDescriptions(t *testing.T) {
+func TestGetAvailableFunctions_ReturnsDynamicFunctions(t *testing.T) {
 	funcs := GetAvailableFunctions()
 	if len(funcs) == 0 {
-		t.Fatal("expected function descriptions")
+		t.Fatal("expected discovered functions from CEL environment")
 	}
-	// Verify at least one common function
+	// Verify at least one common function is discovered
 	found := false
 	for _, fn := range funcs {
-		if len(fn) > 0 && (fn[0:6] == "filter" || fn[0:3] == "map") {
+		if strings.Contains(fn, "filter") || strings.Contains(fn, "map") || strings.Contains(fn, "size") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Error("expected common functions like filter or map")
+		t.Error("expected common functions like filter, map, or size")
 	}
 }
 
@@ -374,15 +374,13 @@ func TestDiscoverCELFunctionDocs_ReturnsFormattedSuggestions(t *testing.T) {
 	if len(docs) < 10 {
 		t.Errorf("expected at least 10 function docs, got %d", len(docs))
 	}
-	// Verify format: should contain function names with ()
+	// Verify format: should contain function names with "() - " notation
 	for _, doc := range docs {
-		if len(doc) < 3 || doc[len(doc)-1] != ')' {
-			// Most should end with ) from function notation
-			continue
+		if strings.Contains(doc, "() - ") {
+			return // At least one valid function found
 		}
-		return // At least one valid function found
 	}
-	t.Error("expected function docs to contain function() notation")
+	t.Error("expected function docs to contain name() - description notation")
 }
 
 func TestDiscoverFunctionsFromEnv_WithCustomEnvironment(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	celhelper "github.com/oakwood-commons/kvx/internal/cel"
 	"github.com/oakwood-commons/kvx/internal/completion"
 	"github.com/oakwood-commons/kvx/internal/navigator"
 	ui "github.com/oakwood-commons/kvx/internal/ui"
@@ -30,18 +31,25 @@ func applyFunctionExamples(cfg ui.ThemeConfigFile, clearMissing bool) {
 	if len(examples) == 0 {
 		if clearMissing {
 			completion.SetFunctionExamplesWithDescriptions(nil)
+			celhelper.SetExampleHints(nil)
 		}
 		return
 	}
 
 	data := make(map[string]completion.FunctionExampleData, len(examples))
+	hints := make(map[string]string, len(examples))
 	for name, exValue := range examples {
 		data[name] = completion.FunctionExampleData{
 			Description: exValue.Description,
 			Examples:    exValue.Examples,
 		}
+		// Derive short hint from first example for CEL function discovery
+		if len(exValue.Examples) > 0 {
+			hints[name] = "e.g. " + exValue.Examples[0]
+		}
 	}
 	completion.SetFunctionExamplesWithDescriptions(data)
+	celhelper.SetExampleHints(hints)
 }
 
 func defaultThemeName(cfg ui.ThemeConfigFile) string {

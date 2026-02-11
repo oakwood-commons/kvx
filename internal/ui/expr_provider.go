@@ -31,7 +31,7 @@ func (celExpressionProvider) DiscoverSuggestions() []string {
 	if list, err := celhelper.DiscoverCELFunctions(); err == nil && len(list) > 0 {
 		return list
 	}
-	return celhelper.GetAvailableFunctions()
+	return nil
 }
 
 func (celExpressionProvider) IsExpression(expr string) bool {

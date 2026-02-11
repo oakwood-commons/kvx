@@ -2,37 +2,22 @@
 
 **kvx** is a terminal-based UI for exploring structured data like JSON, YAML, and TOML in an interactive, navigable way. It presents data as key value trees that you can expand, collapse, and inspect directly in the terminal, making it easy to understand complex or deeply nested structures. In addition to being a standalone CLI, kvx is designed as a reusable TUI component, allowing other applications to embed the viewer directly into their own terminal interfaces for consistent data inspection and visualization.
 
-## Quick Start
-
-```bash
-task build
-dist/kvx tests/sample.yaml       # table output
-dist/kvx tests/sample.yaml -i    # interactive TUI
-```
-
-## Install
-
-**Prerequisites:** Go 1.20+, [task](https://taskfile.dev/)
-
-```bash
-task build                    # recommended (builds to dist/kvx)
-go build -o dist/kvx .        # alternative (always use -o dist/kvx)
-```
-
-**Note:** The binary is built to `dist/kvx`, not the root directory. Always use `-o dist/kvx` when building manually.
-
 ## Usage
 
 ```bash
-dist/kvx <file> [flags]
+kvx <file> [flags]
+kvx tests/sample.yaml           # table output
+kvx tests/sample.yaml -i        # interactive TUI
 ```
+
+See [docs/development.md](docs/development.md) for build instructions and project setup.
 
 ### Flags
 
 - `-i, --interactive` launch the TUI; `--snapshot` renders once and exits using the same layout as the TUI.
 - `--press "<keys>"` script startup keys (e.g., `<F3>name<Enter>`); include `<F10>` to bypass the TUI and emit the non-interactive output.
 - `-e, --expression <cel>` evaluate CEL against `_` (e.g., `_.items[0].name`, `type(_)`); dotted shorthand stays TUI-only.
-- `--search <text>` search keys/values; seeds F3 in TUI and prints a bordered table in non-interactive runs.
+- `--search <text>` search keys/values; seeds search mode in TUI and prints a bordered table in non-interactive runs.
 - `-o, --output table|list|tree|yaml|json|toml|raw|csv` choose output format (default: `table`).
 - `--limit N`, `--offset N`, `--tail N` apply record limiting after any expression; `--tail` ignores `--offset` and cannot combine with `--limit`.
 - `--width N`, `--height N` override detected terminal size for TUI/snapshot/CLI bordered tables.
@@ -52,13 +37,6 @@ dist/kvx <file> [flags]
 - Array index style: `--array-style index|numbered|bullet|none` controls how array elements are labeled. Default is `index` (`[0]`, `[1]`); use `numbered` for `1, 2`, `bullet` for `•`, or `none` to hide indices (useful with `-o list`).
 - CSV output is available for CLI/snapshot runs: arrays of objects become rows with merged headers, maps become key/value rows, other values emit a single `value` column.
 - YAML output defaults to indent `2` and literal block strings; these options are configurable via `formatting.yaml.*` in the config.
-
-### Logging Pattern
-Uses the logr interface with zapr (zap adapter) for structured logging:
-- `logger.Get(verbosity)` creates loggers with verbosity levels (negative numbers, e.g., `-1` for debug)
-- Context-aware: `logger.WithLogger(ctx, lgr)` and `logger.FromContext(ctx)`
-- Global keys defined in `logger/logger.go`: `RootCommandKey`, `CommitKey`, `VersionKey`, etc.
-- Example: `lgr.V(1).Info("message", "key", value)` for verbose logging
 
 ## Config
 
@@ -158,9 +136,8 @@ kvx tests/sample.yaml --search status
 
 ## Interactive Mode (TUI)
 
-**Keybinding modes:** kvx defaults to **vim** mode. Switch with `--keymap vim|emacs|function`.
+kvx defaults to **vim** keybindings:
 
-### Vim mode (default)
 | Key | Action |
 |-----|--------|
 | `j` / `k` | Navigate up/down |
@@ -175,83 +152,28 @@ kvx tests/sample.yaml --search status
 | `q` | Quit |
 | `Esc` | Close input/help/search context (does not quit) |
 
-### Emacs mode (`--keymap emacs`)
-| Key | Action |
-|-----|--------|
-| `C-n` / `C-p` | Navigate up/down |
-| `C-b` / `C-f` | Navigate back/forward |
-| `C-s` | Search |
-| `C-r` | Previous match |
-| `M-<` / `M->` | Go to top/bottom |
-| `M-x` | Expression mode |
-| `M-w` | Copy path |
-| `F1` | Toggle help |
-| `C-g` | Cancel/clear |
-| `C-q` | Quit |
+Prefer **emacs** or **function-key** style bindings? Use `--keymap emacs` or `--keymap function`.
 
-### Function mode (`--keymap function`)
-| Key | Action |
-|-----|--------|
-| `↑` / `↓` | Navigate up/down |
-| `←` / `→` | Navigate back/forward |
-| `Home` / `End` | Go to top/bottom |
-| `F1` | Help |
-| `F3` | Search |
-| `F4` | Filter |
-| `F5` | Copy |
-| `F6` | Expression mode |
-| `F10` | Quit |
-
-**Panels (semantic names):**
+**Panels:**
 - Data panel: main table view with path label and selection/total (`n/x`).
-- Help panel (popup): F1 overlay with navigation help.
+- Help panel: overlay with navigation help (`?` to toggle).
 - Status bar: single-line info/error/status (right-aligned when input hidden).
-- Input panel: single-line bordered input (Expression/Search titles); hidden until F3/F6.
-- Footer: bottom line with `F1 - Help` on the left and `Rows/Cols` on the right.
+- Input panel: single-line bordered input (Expression/Search titles); hidden until activated.
+- Footer: bottom line with Help hint on the left and Rows/Cols on the right.
 
 **Filter & search:**
 - With input hidden, typing filters rows by key prefix; backspace edits; `Esc` clears; filter clears when you drill/ascend.
-- Search (F3) keeps input open; results update live; `Right/Enter` drill, `Left` backs up within search base; `Esc` restores the prior node.
+- Search (`/`) keeps input open; results update live; `Right/Enter` drill, `Left` backs up within search base; `Esc` restores the prior node.
 
-**Expression (F6):**
+**Expression (`:`):**
 - Starts with current path; Tab/Shift+Tab → keys/indices, Up/Down → CEL functions for the node type, Right accepts ghost completion.
 - `Enter` evaluates and stays in expr; errors in red; non-navigable results fall back to your prior path when you exit.
 
 ## Embedding the TUI
 
-kvx's TUI can be embedded into your own Go application using the public `tui` package:
+kvx's TUI can be embedded into your own Go application. See [docs/embedding.md](docs/embedding.md) for the full guide covering data loading, custom CEL functions, themes, and configuration.
 
-```go
-import (
-  "log"
-  "github.com/oakwood-commons/kvx/pkg/core"
-  "github.com/oakwood-commons/kvx/pkg/tui"
-)
-
-func main() {
-  // Load data from JSON/YAML/NDJSON (or build your own map).
-  // Use LoadObject to pass already parsed Go values without re-serialization.
-  data, err := core.LoadFile("data.yaml")
-  if err != nil {
-    log.Fatal(err)
-  }
-
-  cfg := tui.DefaultConfig()
-
-  if err := tui.Run(data, cfg); err != nil {
-    log.Fatal(err)
-  }
-}
-```
-
-See [docs/embedding.md](docs/embedding.md) for a deeper embed guide (custom CEL, themes, config, and data-loading options including `core.LoadObject`).
-
-**Customization:**
-- Extend CEL with custom functions via `tui.NewCELExpressionProvider()` and `tui.SetExpressionProvider()`
-- Customize themes and UI settings via `tui.Config` (or start from `tui.DefaultConfig()`)
-- Override navigation behavior with custom navigators
-
-See [`examples/embed-tui/`](examples/embed-tui/) for a complete example with custom CEL functions.
+For a working example, see [`examples/embed-tui/`](examples/embed-tui/).
 
 ### Core API (Load + Eval + Rows)
 
@@ -283,38 +205,3 @@ func main() {
 ```
 
 See [`examples/core-cli/`](examples/core-cli/) for a minimal core-only example.
-
-## Development
-
-```bash
-task build          # Build binary
-task run            # Run with sample data
-task run-interactive # Run TUI
-task test           # Run tests
-go test ./...       # Direct test execution
-```
-
-### Project Structure
-
-- `cmd/` - CLI commands (Cobra)
-- `internal/navigator/` - Path/CEL navigation
-- `internal/cel/` - CEL evaluator
-- `internal/ui/` - TUI (Bubble Tea)
-- `internal/formatter/` - Output formats
-- `tests/`, `examples/data/` - Test fixtures
-
-### Testing
-
-Tests use fixture-based approach with deterministic Bubble Tea `Update()` calls:
-
-```bash
-task test
-go test ./internal/ui -v
-```
-
-## Architecture
-
-1. Parse YAML/JSON → `interface{}` (`map[string]any`, `[]any`)
-2. CLI: evaluate `--expression` via CEL with `_` context
-3. TUI: navigate dotted paths (sugar) or CEL in the path input
-4. Output via formatters (non-interactive) or TUI (interactive)
