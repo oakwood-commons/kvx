@@ -1,9 +1,7 @@
 // Package intellisense provides a reusable completion engine for expression languages.
 //
 // This package exports a clean API for integrating intelligent completion and type-aware
-// suggestions into CLI and TUI applications. It supports pluggable expression engines,
-// starting with CEL (Common Expression Language), with the ability to add jq, JSONPath,
-// and other expression languages.
+// suggestions into CLI and TUI applications using CEL (Common Expression Language).
 //
 // # Basic Usage
 //
@@ -30,14 +28,11 @@
 package intellisense
 
 import (
-	"strings"
-
 	"github.com/oakwood-commons/kvx/internal/completion"
 )
 
 // Provider defines the interface for expression completion engines.
-// Different expression languages (CEL, jq, etc.) implement this interface
-// to provide language-specific completion, type inference, and evaluation.
+// Implementations provide language-specific completion, type inference, and evaluation.
 type Provider interface {
 	// DiscoverFunctions returns all available functions for this expression language.
 	DiscoverFunctions() []FunctionMetadata
@@ -90,43 +85,20 @@ func NewCELProvider() (Provider, error) {
 	return completion.NewCELProvider()
 }
 
-// NewJQProvider creates a new jq completion provider (stub).
-func NewJQProvider() (Provider, error) {
-	return completion.NewJQProvider()
-}
-
-var defaultLanguage = "cel"
 var customProvider Provider
 
-// SetDefaultLanguage sets the default intellisense provider language (e.g., "cel", "jq").
-func SetDefaultLanguage(lang string) {
-	l := strings.ToLower(strings.TrimSpace(lang))
-	if l == "jq" || l == "cel" {
-		defaultLanguage = l
-	}
-}
-
-// SetProvider allows host applications to inject a custom Provider implementation
-// (e.g., an MQL provider). When set, NewProvider() will return this provider
-// instead of the built-in factory.
+// SetProvider allows host applications to inject a custom Provider implementation.
+// When set, NewProvider() will return this provider instead of CEL.
 func SetProvider(p Provider) {
 	customProvider = p
 }
 
-// NewProvider returns a provider for the configured default language.
-// Defaults to CEL; set via SetDefaultLanguage("jq") to use jq.
+// NewProvider returns the custom provider if set, otherwise a CEL provider.
 func NewProvider() (Provider, error) {
 	if customProvider != nil {
 		return customProvider, nil
 	}
-	switch defaultLanguage {
-	case "jq":
-		return NewJQProvider()
-	case "cel":
-		fallthrough
-	default:
-		return NewCELProvider()
-	}
+	return NewCELProvider()
 }
 
 // SearchOptions configures completion behavior.
