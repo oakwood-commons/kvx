@@ -2,8 +2,7 @@
 package completion
 
 // Provider defines the interface for expression completion engines.
-// Different expression languages (CEL, jq, etc.) implement this interface
-// to provide language-specific completion, type inference, and evaluation.
+// Implementations provide language-specific completion, type inference, and evaluation.
 type Provider interface {
 	// DiscoverFunctions returns all available functions for this expression language.
 	// Each provider determines its own discovery strategy (programmatic introspection,
