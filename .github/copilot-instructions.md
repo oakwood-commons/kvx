@@ -90,7 +90,7 @@ golangci-lint run --fix          # Auto-fix issues
 ### Interactive vs Snapshot
 - Avoid `-i` in CI/tests: interactive mode does not exit and can hang.
 - Use `--snapshot` to render the exact same output as `-i` and exit.
-- `--press "..."` simulates keys on startup. Supports vim-style special keys like `<esc>`, `<f1>`, `<f3>`, `<f6>`, and text entry.
+- `--press "..."` simulates keys on startup. Supports vim-style special keys like `<esc>`, `?`, `/`, `:`, and text entry.
 
 ### Non-Interactive CLI Parity
 - For non-interactive runs (no `-i`, no `--snapshot`), output shows the data table only (no status or input panels).
@@ -105,7 +105,7 @@ kvx tests/sample.yaml --snapshot --press "<Right><Right>"
 kvx tests/sample.yaml -o table -e "_.items[0]"
 
 # Simulate keys in snapshot (search then navigate)
-kvx tests/sample.yaml --snapshot --press "<F3>name<Enter><Right>"
+kvx tests/sample.yaml --snapshot --press "/name<Enter><Right>"
 ```
 
 ### Go Run Examples (from source)
@@ -120,5 +120,5 @@ go run ./cmd/kvx/kvx.go tests/sample.yaml --snapshot --press "<Right><Right>"
 go run ./cmd/kvx/kvx.go tests/sample.yaml -o table -e "_.items[0]"
 
 # Snapshot with search then navigate (source)
-go run ./cmd/kvx/kvx.go tests/sample.yaml --snapshot --press "<F3>name<Enter><Right>"
+go run ./cmd/kvx/kvx.go tests/sample.yaml --snapshot --press "/name<Enter><Right>"
 ```

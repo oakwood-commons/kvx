@@ -15,7 +15,7 @@ See [docs/development.md](docs/development.md) for build instructions and projec
 ### Flags
 
 - `-i, --interactive` launch the TUI; `--snapshot` renders once and exits using the same layout as the TUI.
-- `--press "<keys>"` script startup keys (e.g., `<F3>name<Enter>`); include `<F10>` to bypass the TUI and emit the non-interactive output.
+- `--press "<keys>"` script startup keys (e.g., `/name<Enter>`); include `<F10>` to bypass the TUI and emit non-interactive output (works regardless of `--keymap`).
 - `-e, --expression <cel>` evaluate CEL against `_` (e.g., `_.items[0].name`, `type(_)`); dotted shorthand stays TUI-only.
 - `--search <text>` search keys/values; seeds search mode in TUI and prints a bordered table in non-interactive runs.
 - `-o, --output table|list|tree|yaml|json|toml|raw|csv` choose output format (default: `table`).
@@ -171,37 +171,4 @@ Prefer **emacs** or **function-key** style bindings? Use `--keymap emacs` or `--
 
 ## Embedding the TUI
 
-kvx's TUI can be embedded into your own Go application. See [docs/embedding.md](docs/embedding.md) for the full guide covering data loading, custom CEL functions, themes, and configuration.
-
-For a working example, see [`examples/embed-tui/`](examples/embed-tui/).
-
-### Core API (Load + Eval + Rows)
-
-If you want to reuse kvx without the TUI, use the minimal core API:
-
-```go
-import (
-  "fmt"
-  "github.com/oakwood-commons/kvx/pkg/core"
-)
-
-func main() {
-  root, err := core.LoadFile("data.yaml")
-  if err != nil {
-    panic(err)
-  }
-
-  engine, err := core.New(core.WithSortOrder(core.SortAscending))
-  if err != nil {
-    panic(err)
-  }
-
-  out, err := engine.Evaluate("_.items[0]", root)
-  if err != nil {
-    panic(err)
-  }
-  fmt.Println(out)
-}
-```
-
-See [`examples/core-cli/`](examples/core-cli/) for a minimal core-only example.
+kvx's TUI can be embedded into your own Go application. See [docs/embedding.md](docs/embedding.md) for the full guide covering data loading, custom CEL functions, themes, and configuration. For a working example, see [`examples/embed-tui/`](examples/embed-tui/).
