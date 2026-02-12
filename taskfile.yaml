@@ -51,6 +51,12 @@ tasks:
         echo "  task coverage  # Runs tests with coverage report"
         echo "  task ci        # mod + lint + test + coverage"
         echo
+        echo "Release:"
+        echo "  task release           # Build snapshot release locally"
+        echo "  task release-dry-run   # Preview release build"
+        echo "  task tag VERSION=v1.0.0      # Create a signed tag"
+        echo "  task tag-push VERSION=v1.0.0 # Create and push a tag"
+        echo
         echo "Variables and Values:"
         echo "  NAME:          {{ .NAME }}"
         echo "  OUTPUT_FILE:   {{ .OUTPUT_FILE }}"
@@ -123,10 +129,12 @@ tasks:
 
   lint:
     desc: Run linters using golangci-lint
+    vars:
+      GOLANGCI_LINT_VERSION: "v2.8.0"
     cmds:
       - |
         if ! command -v golangci-lint >/dev/null 2>&1; then
-          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@{{.GOLANGCI_LINT_VERSION}}
         fi
         golangci-lint run ./...
 
@@ -208,6 +216,33 @@ tasks:
     cmds:
       - goreleaser check
       - goreleaser release --snapshot --clean --skip=publish
+
+  release-check:
+    desc: Validate goreleaser config and preview generated release notes
+    cmds:
+      - goreleaser check
+      - |
+        echo ""
+        echo "=== Release Notes Preview (since last tag) ==="
+        echo ""
+        tag="$(git describe --tags --abbrev=0 2>/dev/null || echo "")"
+        range="${tag:+${tag}..HEAD}"
+        range="${range:-HEAD}"
+        feat=$(git log "$range" --oneline --grep="^feat" --extended-regexp 2>/dev/null)
+        fix=$(git log "$range" --oneline --grep="^fix" --extended-regexp 2>/dev/null)
+        refactor=$(git log "$range" --oneline --grep="^refactor" --extended-regexp 2>/dev/null)
+        docs=$(git log "$range" --oneline --grep="^docs" --extended-regexp 2>/dev/null)
+        perf=$(git log "$range" --oneline --grep="^perf" --extended-regexp 2>/dev/null)
+        misc=$(git log "$range" --oneline --grep="^chore\|^ci\|^build\|^style\|^test" --extended-regexp 2>/dev/null)
+        if [ -n "$feat" ]; then printf "🚀 Features\n%s\n\n" "$feat"; fi
+        if [ -n "$fix" ]; then printf "🐛 Bug Fixes\n%s\n\n" "$fix"; fi
+        if [ -n "$refactor" ]; then printf "🚜 Refactor\n%s\n\n" "$refactor"; fi
+        if [ -n "$docs" ]; then printf "📚 Documentation\n%s\n\n" "$docs"; fi
+        if [ -n "$perf" ]; then printf "⚡ Performance\n%s\n\n" "$perf"; fi
+        if [ -n "$misc" ]; then printf "⚙️ Miscellaneous\n%s\n\n" "$misc"; fi
+        if [ -z "$feat$fix$refactor$docs$perf$misc" ]; then
+          echo "(no conventional commits found since ${tag:-initial commit})"
+        fi
 
   tag:
     desc: "Create a git tag for release (usage: task tag VERSION=v1.0.0)"

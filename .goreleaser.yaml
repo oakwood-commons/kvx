@@ -46,4 +46,30 @@ checksum:
 #       - "--detach-sign"
 #       - "${artifact}"
 changelog:
-  disable: true
+  sort: asc
+  use: git
+  groups:
+    - title: "🚀 Features"
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: "🐛 Bug Fixes"
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: "🚜 Refactor"
+      regexp: '^.*?refactor(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: "📚 Documentation"
+      regexp: '^.*?docs(\([[:word:]]+\))??!?:.+$'
+      order: 3
+    - title: "⚡ Performance"
+      regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
+      order: 4
+    - title: "⚙️ Miscellaneous"
+      regexp: '^.*?(chore|ci|build|style|test)(\([[:word:]]+\))??!?:.+$'
+      order: 5
+    - title: "Other"
+      order: 999
+  filters:
+    exclude:
+      - "^Merge "
+      - "^Initial commit"
