@@ -260,3 +260,56 @@ func TestNavigateToInTableModeShowsPrefix(t *testing.T) {
 		t.Fatalf("expected PathInput to be '_.regions' in table mode, got %q", m2.PathInput.Value())
 	}
 }
+
+// TestUnderscorePrefixedKeyPreservedInExprMode validates that keys starting with underscores
+// (like __hello) are preserved when entering expression mode, not stripped.
+// Regression test for bug where _.__hello was incorrectly displayed as _.hello
+func TestUnderscorePrefixedKeyPreservedInExprMode(t *testing.T) {
+	// Create model with data containing underscore-prefixed keys
+	data := map[string]any{
+		"__hello":   "goodbye",
+		"_internal": "value",
+	}
+	m := InitialModel(data)
+	m.Root = data
+	m.InputFocused = false
+	m.Tbl.Focus()
+
+	// Navigate to __hello key
+	m2 := m.NavigateTo("goodbye", "__hello")
+
+	// Enter expression mode via F6
+	newModel, _ := m2.Update(tea.KeyPressMsg{Code: tea.KeyF6})
+	m3 := newModel.(*Model)
+
+	// Should be in expr mode
+	if !m3.InputFocused {
+		t.Fatalf("expected to be in expr mode after F6")
+	}
+
+	// PathInput should show "_.__hello" not "_.hello"
+	if m3.PathInput.Value() != "_.__hello" {
+		t.Fatalf("expected PathInput to be '_.__hello', got %q (underscore was incorrectly stripped)", m3.PathInput.Value())
+	}
+}
+
+// TestUnderscorePrefixedKeyInTableModeSync validates that table mode sync preserves underscore keys
+func TestUnderscorePrefixedKeyInTableModeSync(t *testing.T) {
+	// Create model with underscore-prefixed key containing a scalar value (not nested)
+	data := map[string]any{
+		"__metadata": "v1.0",
+	}
+	m := InitialModel(data)
+	m.Root = data
+	m.InputFocused = false
+	m.Tbl.Focus()
+
+	// Sync path input at root - cursor should be on __metadata key
+	m.syncPathInputWithCursor()
+
+	// Should show "_.__metadata" not "_.metadata" (underscore preserved)
+	val := m.PathInput.Value()
+	if val != "_.__metadata" {
+		t.Fatalf("expected PathInput to be '_.__metadata', got %q", val)
+	}
+}
