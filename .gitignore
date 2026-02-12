@@ -55,3 +55,4 @@ local/
 temp/
 .task/
 embed-tui
+CHANGELOG-release.md
