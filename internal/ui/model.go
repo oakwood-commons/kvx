@@ -889,17 +889,26 @@ func formatPathForDisplay(path string) string {
 	return b.String()
 }
 
-// splitPathSegments splits a CEL path into segments, removing leading underscores and dots,
-// separating bracketed indices/literals as their own segments, and dropping the leading root marker.
+// splitPathSegments splits a CEL path into segments, removing the leading root marker,
+// separating bracketed indices/literals as their own segments.
+// Only strips the root marker ("_" or "_.") once to preserve underscores in key names.
 func splitPathSegments(s string) []string {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return nil
 	}
-	for strings.HasPrefix(s, "_.") || strings.HasPrefix(s, "_") || strings.HasPrefix(s, ".") {
-		s = strings.TrimPrefix(s, "_.")
-		s = strings.TrimPrefix(s, "_")
-		s = strings.TrimPrefix(s, ".")
+	// Strip root marker only once (not in a loop) to preserve underscores in key names
+	switch {
+	case strings.HasPrefix(s, "_."):
+		s = s[2:]
+	case s == "_":
+		return nil
+	case strings.HasPrefix(s, "_["):
+		s = s[1:]
+	}
+	// Strip leading dots (but not underscores)
+	for strings.HasPrefix(s, ".") {
+		s = s[1:]
 	}
 
 	segments := []string{}
