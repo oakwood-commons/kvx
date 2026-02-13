@@ -26,6 +26,52 @@ import (
 	"github.com/oakwood-commons/kvx/pkg/intellisense"
 )
 
+// lastDotOutsideBrackets finds the index of the last '.' that is NOT inside a bracket-quoted segment ["..."].
+// Returns -1 if no such dot exists.
+func lastDotOutsideBrackets(s string) int {
+	lastDot := -1
+	inBracket := false
+	inQuote := false
+	for i, ch := range s {
+		switch ch {
+		case '[':
+			if !inQuote {
+				inBracket = true
+			}
+		case ']':
+			if !inQuote {
+				inBracket = false
+			}
+		case '"':
+			if inBracket {
+				inQuote = !inQuote
+			}
+		case '.':
+			if !inBracket && !inQuote {
+				lastDot = i
+			}
+		}
+	}
+	return lastDot
+}
+
+// isCompletePath checks if the input represents a complete bracket-quoted path
+// that shouldn't have function completions cycled. This specifically targets
+// paths ending with bracket notation like ["foo.bar"] where dots inside quotes
+// should not trigger function suggestions.
+// Note: We only check for bracket endings, not identifier endings, because
+// partial identifiers like "_.e" should still allow cycling to functions.
+func isCompletePath(input string) bool {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" || trimmed == "_" {
+		return false
+	}
+	// Only consider bracket-quoted endings as "complete"
+	// This prevents stale function suggestions from cycling on paths like _["foo.bar"]
+	// but still allows function cycling for partial identifiers like _.e
+	return strings.HasSuffix(trimmed, "]")
+}
+
 type tabCandidate struct {
 	name   string
 	idx    int
@@ -978,7 +1024,7 @@ func isValidCELIdentifier(s string) bool {
 			}
 			continue
 		}
-		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' && r != '.' {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' {
 			return false
 		}
 	}
@@ -3411,7 +3457,30 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				if m.ShowSuggestions && len(m.FilteredSuggestions) > 0 {
 					currentValue := m.PathInput.Value()
-					lastDotForMatch := strings.LastIndex(currentValue, ".")
+
+					// If the path is already complete (ends with bracket key or valid identifier),
+					// clear stale function suggestions to prevent cycling to functions like .all()
+					if isCompletePath(currentValue) {
+						hasFunctionSuggestions := false
+						for _, s := range m.FilteredSuggestions {
+							if strings.Contains(s, "(") {
+								hasFunctionSuggestions = true
+								break
+							}
+						}
+						if hasFunctionSuggestions {
+							// Re-filter to get fresh suggestions for the current path
+							m.filterSuggestions(true)
+							m.syncSuggestions()
+							// If no suggestions remain, just return without modification
+							if len(m.FilteredSuggestions) == 0 {
+								return m, nil
+							}
+						}
+					}
+
+					// Find last dot that's NOT inside a bracket-quoted segment ["..."]
+					lastDotForMatch := lastDotOutsideBrackets(currentValue)
 					tokenForMatch := ""
 					tokenIsFunction := false
 					if lastDotForMatch >= 0 && !strings.HasSuffix(currentValue, ".") {
@@ -3496,7 +3565,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if baseFuncName == "" {
 							return m, nil
 						}
-						lastDot := strings.LastIndex(currentValue, ".")
+						// Use bracket-aware dot finding to avoid matching dots inside ["..."]
+						lastDot := lastDotOutsideBrackets(currentValue)
 						if lastDot < 0 {
 							return m, nil
 						}
@@ -3522,7 +3592,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, nil
 					}
 
-					isFullPath := !strings.HasPrefix(name, "[") && strings.Contains(name, "[")
+					isFullPath := !strings.HasPrefix(name, "[") && (strings.Contains(name, "[") || strings.HasPrefix(name, "_"))
 					if isFullPath {
 						m.PathInput.SetValue(name)
 						m.PathInput.SetCursor(len(name))
@@ -5838,9 +5908,9 @@ func menuActionExprToggle(m *Model) tea.Cmd {
 	if !m.AllowEditInput {
 		return nil
 	}
-	syncToCursor := !m.InputFocused && (m.AdvancedSearchActive || m.SearchContextActive)
-	if syncToCursor {
-		// Sync expr bar to current selection before switching modes when search context is active
+	// Sync expr bar to current selection when entering expression mode from table mode.
+	// This ensures the expression matches the footer path display for consistency.
+	if !m.InputFocused {
 		m.syncPathInputWithCursor()
 	}
 	m.InputFocused = !m.InputFocused
@@ -6136,9 +6206,26 @@ func removeLastSegment(path string) string {
 		return ""
 	}
 
-	// Find the last dot or bracket
-	lastDotIdx := strings.LastIndex(path, ".")
-	lastBracketIdx := strings.LastIndex(path, "[")
+	// Find the last segment boundary, ignoring dots inside ["..."] brackets
+	lastDotIdx := -1
+	lastBracketIdx := -1
+	inBracket := false
+	inQuote := false
+
+	for i := 0; i < len(path); i++ {
+		ch := path[i]
+		switch {
+		case ch == '[' && !inQuote:
+			inBracket = true
+			lastBracketIdx = i
+		case ch == ']' && !inQuote:
+			inBracket = false
+		case ch == '"' && inBracket:
+			inQuote = !inQuote
+		case ch == '.' && !inBracket && !inQuote:
+			lastDotIdx = i
+		}
+	}
 
 	// If there's a bracket after the last dot, we need to handle it carefully
 	if lastBracketIdx > lastDotIdx {

@@ -99,7 +99,8 @@ func TestSnapshotGoldenSearch(t *testing.T) {
 }
 
 func TestSnapshotGoldenExpressionOverlay(t *testing.T) {
-	output := runSnapshotCLI(t, "tests/sample.yaml", "--no-color", "--width", "80", "--height", "24", "--press", "<F6>_.items[1].name<Enter>")
+	// After F6, PathInput syncs to selected row path. Use Ctrl-U to clear line before typing new expression.
+	output := runSnapshotCLI(t, "tests/sample.yaml", "--no-color", "--width", "80", "--height", "24", "--press", "<F6><C-u>_.items[1].name<Enter>")
 
 	assertGolden(t, snapshotGoldenPath("expr-items-80x24.txt"), strings.TrimRight(output, "\n"))
 }

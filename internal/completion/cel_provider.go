@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	celhelper "github.com/oakwood-commons/kvx/internal/cel"
 
@@ -319,9 +320,11 @@ func (p *CELProvider) FilterCompletions(input string, context CompletionContext)
 			if hasRoot {
 				if containsFunctionCall {
 					// When there's a function call, append to baseExpr instead of rebuilding
-					// Use bracket notation for numeric indices
+					// Use bracket notation for numeric indices or invalid identifiers
 					if _, err := strconv.Atoi(key); err == nil {
 						completionText = baseExpr + "[" + key + "]"
+					} else if !isValidCELIdentifier(key) {
+						completionText = baseExpr + `["` + key + `"]`
 					} else {
 						completionText = baseExpr + "." + key
 					}
@@ -621,6 +624,63 @@ func listKeys(node interface{}) []string {
 	}
 }
 
+// isValidCELIdentifier checks if a string is a valid CEL identifier.
+// Valid identifiers start with a letter or underscore, and contain only letters, digits, or underscores.
+// Keys with dots, spaces, hyphens, or other special characters require bracket notation ["key"].
+func isValidCELIdentifier(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		if i == 0 {
+			if !unicode.IsLetter(r) && r != '_' {
+				return false
+			}
+			continue
+		}
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+// appendSegment appends a segment to a path builder, using bracket notation for invalid identifiers.
+func appendSegment(b *strings.Builder, seg string) {
+	if seg == "" || seg == "_" {
+		return
+	}
+
+	// Check if segment is already quoted (from splitPathSegments extracting bracket notation)
+	// e.g., when parsing _["foo.bar"], the segment is extracted as "foo.bar" with quotes
+	isAlreadyQuoted := len(seg) >= 2 && seg[0] == '"' && seg[len(seg)-1] == '"'
+	if isAlreadyQuoted {
+		// Use bracket notation with existing quotes
+		b.WriteString("[")
+		b.WriteString(seg)
+		b.WriteString("]")
+		return
+	}
+
+	if _, err := strconv.Atoi(seg); err == nil {
+		// Numeric segment - use bracket notation
+		b.WriteString("[")
+		b.WriteString(seg)
+		b.WriteString("]")
+	} else if !isValidCELIdentifier(seg) {
+		// Invalid identifier (contains dots, spaces, etc) - use bracket notation with quotes
+		b.WriteString(`["`)
+		b.WriteString(seg)
+		b.WriteString(`"]`)
+	} else {
+		// Valid identifier - use dot notation
+		if b.Len() > 0 {
+			b.WriteString(".")
+		}
+		b.WriteString(seg)
+	}
+}
+
 func buildCompletion(seg string, baseSegs []string, hasRoot bool) string {
 	// Filter out "_" from baseSegs since it's the root marker
 	filteredSegs := make([]string, 0, len(baseSegs))
@@ -636,34 +696,11 @@ func buildCompletion(seg string, baseSegs []string, hasRoot bool) string {
 	}
 
 	for _, s := range filteredSegs {
-		if _, err := strconv.Atoi(s); err == nil {
-			// Numeric segment - use bracket notation
-			b.WriteString("[")
-			b.WriteString(s)
-			b.WriteString("]")
-		} else {
-			// Non-numeric segment - use dot notation
-			// But only add dot if we already have content (i.e., not the first segment without root)
-			if b.Len() > 0 {
-				b.WriteString(".")
-			}
-			b.WriteString(s)
-		}
+		appendSegment(&b, s)
 	}
 
 	// Append the new segment
-	if seg != "" && seg != "_" {
-		if _, err := strconv.Atoi(seg); err == nil {
-			b.WriteString("[")
-			b.WriteString(seg)
-			b.WriteString("]")
-		} else {
-			if b.Len() > 0 {
-				b.WriteString(".")
-			}
-			b.WriteString(seg)
-		}
-	}
+	appendSegment(&b, seg)
 
 	return b.String()
 }

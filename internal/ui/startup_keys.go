@@ -156,6 +156,8 @@ func keyMsgsFromToken(token string) ([]tea.KeyPressMsg, bool) {
 			return []tea.KeyPressMsg{{Code: 0x03}}, true // Ctrl+C
 		case "c-d":
 			return []tea.KeyPressMsg{{Code: 0x04}}, true // Ctrl+D
+		case "c-u":
+			return []tea.KeyPressMsg{{Code: 0x15}}, true // Ctrl+U
 		}
 		if strings.HasPrefix(lower, "f") {
 			num := strings.TrimPrefix(lower, "f")
