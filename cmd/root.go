@@ -21,6 +21,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/go-logr/logr"
 	"github.com/pelletier/go-toml/v2"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -364,24 +365,10 @@ func isCSVFile(filePath string) bool {
 	return ext == ".csv"
 }
 
-// isTOMLFile checks if a file path appears to be a TOML file based on extension.
-func isTOMLFile(filePath string) bool {
-	ext := strings.ToLower(filepath.Ext(filePath))
-	return ext == ".toml"
-}
-
-// parseTOML converts TOML data into a map structure for exploration.
-func parseTOML(data []byte) (any, error) {
-	var result any
-	if err := toml.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse TOML: %w", err)
-	}
-	return result, nil
-}
-
 // loadInputData reads input data from a file or stdin (or defaults to "{}").
 // It returns the parsed root object and whether stdin was used.
-func loadInputData(args []string, expr string, debugLog bool, dc *debugCollector) (interface{}, bool, error) {
+// The logger is forwarded to the loader so fallback parse attempts are logged.
+func loadInputData(args []string, expr string, debugLog bool, dc *debugCollector, lgr logr.Logger) (interface{}, bool, error) {
 	var data []byte
 	var fromStdin bool
 	var err error
@@ -447,10 +434,8 @@ func loadInputData(args []string, expr string, debugLog bool, dc *debugCollector
 
 	// Check if this is a CSV file (by extension for files, or by content for stdin)
 	isCSV := false
-	isTOML := false
 	if filePath != "" {
 		isCSV = isCSVFile(filePath)
-		isTOML = isTOMLFile(filePath)
 	} else if fromStdin {
 		// For stdin, try to detect CSV by attempting to parse it
 		// CSV typically has comma-separated values with multiple columns
@@ -485,26 +470,16 @@ func loadInputData(args []string, expr string, debugLog bool, dc *debugCollector
 		return root, fromStdin, nil
 	}
 
-	if isTOML {
-		if debugLog {
-			dc.Println("DBG: Parsing as TOML...")
-		}
-		var err error
-		root, err = parseTOML(data)
-		if err != nil {
-			return nil, fromStdin, fmt.Errorf("failed to parse TOML: %w", err)
-		}
-		if debugLog {
-			dc.Printf("DBG: Parsed successfully, root type: %T\n", root)
-		}
-		return root, fromStdin, nil
-	}
-
-	// Try parsing as multi-doc YAML, NDJSON, TOML, or single JSON/YAML
+	// Parse using the loader which honours file extensions, applies
+	// content heuristics, and falls through remaining parsers on failure.
 	if debugLog {
-		dc.Println("DBG: Parsing as YAML/JSON (supports multi-doc YAML, NDJSON, TOML)...")
+		dc.Println("DBG: Parsing input (auto-detect with fallback)...")
 	}
-	root, err = core.LoadRootBytes(data)
+	if filePath != "" {
+		root, err = core.LoadFileWithLogger(filePath, lgr)
+	} else {
+		root, err = core.LoadRootBytesWithLogger(data, lgr)
+	}
 	if err != nil {
 		return nil, fromStdin, fmt.Errorf("failed to parse input: %w", err)
 	}
@@ -2484,7 +2459,7 @@ var rootCmd = &cobra.Command{
 			if appName == "" {
 				appName = "kvx"
 			}
-			rootData, _, err := loadInputData(args, expression, debugLog, dc)
+			rootData, _, err := loadInputData(args, expression, debugLog, dc, *logger.FromContext(rootCtx))
 			if err != nil {
 				if errors.Is(err, errShowHelp) {
 					_ = cmd.Help()
@@ -2844,7 +2819,7 @@ var rootCmd = &cobra.Command{
 			cfg = cfgFile
 		}
 
-		root, _, err = loadInputData(args, expression, debugLog, dc)
+		root, _, err = loadInputData(args, expression, debugLog, dc, *logger.FromContext(rootCtx))
 		if err != nil {
 			if errors.Is(err, errShowHelp) {
 				_ = cmd.Help()

@@ -4,13 +4,70 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"strings"
 
+	"github.com/go-logr/logr"
 	"github.com/pelletier/go-toml/v2"
 	"gopkg.in/yaml.v3"
 )
+
+// formatName is used for logging parse attempts.
+type formatName string
+
+const (
+	fmtMultiDocYAML formatName = "multi-doc YAML"
+	fmtNDJSON       formatName = "NDJSON"
+	fmtTOML         formatName = "TOML"
+	fmtJSON         formatName = "JSON"
+	fmtYAML         formatName = "YAML"
+)
+
+var (
+	// tomlSectionPattern matches TOML section headers: [section] or [[array]]
+	// Must start at column 0 (no leading whitespace) — TOML section headers are
+	// always top-level. This prevents matching indented YAML values like
+	// ["legacy"] that appear inside multi-line scalars.
+	// Supports bare keys, quoted keys, and dotted keys:
+	//   [server], [[items]], ["table name"], [database.credentials], [server."host.name"]
+	tomlSectionPattern = regexp.MustCompile(`^\[{1,2}(?:[a-zA-Z_][a-zA-Z0-9_-]*|"[^"]+"|'[^']+')+(?:\.(?:[a-zA-Z_][a-zA-Z0-9_-]*|"[^"]+"|'[^']+'))*\]{1,2}\s*$`)
+
+	// tomlKeyValuePattern matches TOML key = value (not key: value which is YAML)
+	// Must start at column 0 (no leading whitespace). Also requires the line
+	// to start with a bare key or quoted key — not a YAML indicator like '-'.
+	// Supports bare keys, quoted keys, and dotted keys:
+	//   name = "value", "table name" = "value", database.host = "localhost"
+	tomlKeyValuePattern = regexp.MustCompile(`^(?:[a-zA-Z_][a-zA-Z0-9_-]*|"[^"]+"|'[^']+')+(?:\.(?:[a-zA-Z_][a-zA-Z0-9_-]*|"[^"]+"|'[^']+'))*\s*=\s*.+$`)
+)
+
+// parseFunc is a parser that returns parsed data or an error.
+type parseFunc func(string) ([]interface{}, error)
+
+// candidate pairs a format name with a lazy parser. The parser is only
+// invoked when the candidate is actually attempted.
+type candidate struct {
+	name  formatName
+	parse parseFunc
+}
+
+// tryParsers attempts each candidate in order. On the first success it
+// returns the result. On failure it logs the error at V(1) and continues.
+// If all candidates fail, it returns the collected error messages.
+func tryParsers(input string, candidates []candidate, lgr logr.Logger) ([]interface{}, error) {
+	var errs []string
+	for _, c := range candidates {
+		result, err := c.parse(input)
+		if err == nil {
+			return result, nil
+		}
+		lgr.V(1).Info("parse attempt failed, trying next format",
+			"format", string(c.name), "error", err.Error())
+		errs = append(errs, fmt.Sprintf("%s: %s", c.name, err.Error()))
+	}
+	return nil, fmt.Errorf("all parsers failed:\n  %s", strings.Join(errs, "\n  "))
+}
 
 // LoadData loads structured data from a string, auto-detecting format.
 // Supports:
@@ -18,10 +75,20 @@ import (
 // - Single JSON object/array
 // - Newline-delimited JSON (NDJSON): one JSON object per line
 // - YAML: single document or multi-document (separated by ---)
+// - TOML
 //
 // All formats return an []interface{} where each element is a parsed document/object.
 // For single-document inputs, the array contains one element.
+//
+// If the preferred format fails, remaining formats are attempted and
+// failures are logged at verbosity level 1.
 func LoadData(input string) ([]interface{}, error) {
+	return LoadDataWithLogger(input, logr.Discard())
+}
+
+// LoadDataWithLogger is like LoadData but accepts a logger for
+// recording fallback parse attempts.
+func LoadDataWithLogger(input string, lgr logr.Logger) ([]interface{}, error) {
 	input = strings.TrimSpace(input)
 	if input == "" {
 		return nil, fmt.Errorf("empty input")
@@ -32,38 +99,129 @@ func LoadData(input string) ([]interface{}, error) {
 		return loadJWT(input)
 	}
 
-	// Try multi-document YAML first (most restrictive)
-	if strings.Contains(input, "\n---") || strings.HasPrefix(input, "---") {
-		return loadMultiDocYAML(input)
-	}
+	// Build an ordered list of candidates based on heuristics.
+	// The preferred (heuristic-detected) format goes first, followed
+	// by all remaining formats as fallbacks.
+	candidates := buildCandidates(input)
 
-	// Try newline-delimited JSON (check for multiple lines starting with '{' or '[')
-	lines := strings.Split(input, "\n")
-	if len(lines) > 1 {
-		// Heuristic: if multiple lines and each looks like JSON, treat as NDJSON
-		if isLikelyNDJSON(lines) {
-			return loadNDJSON(input)
+	return tryParsers(input, candidates, lgr)
+}
+
+// extToFormat maps common file extensions to format names.
+func extToFormat(ext string) (formatName, bool) {
+	switch strings.ToLower(ext) {
+	case ".yaml", ".yml":
+		return fmtYAML, true
+	case ".json":
+		return fmtJSON, true
+	case ".toml":
+		return fmtTOML, true
+	case ".ndjson", ".jsonl":
+		return fmtNDJSON, true
+	default:
+		return "", false
+	}
+}
+
+// parsersForFormat returns the primary parser for a given format name,
+// followed by all other parsers as fallbacks (in heuristic order).
+func parsersForFormat(name formatName, input string) []candidate {
+	// For YAML, decide between single-doc and multi-doc based on content.
+	if name == fmtYAML {
+		if strings.Contains(input, "\n---") || strings.HasPrefix(input, "---") {
+			name = fmtMultiDocYAML
 		}
 	}
 
-	// Check for TOML before JSON - TOML [section] headers look like JSON arrays
-	// but are distinct (e.g., "[server]" vs "[1, 2, 3]")
+	primary := candidate{name: name, parse: parserFor(name)}
+
+	// Build remaining candidates from heuristic order, excluding the primary.
+	heuristic := buildCandidates(input)
+	others := make([]candidate, 0, len(heuristic))
+	for _, c := range heuristic {
+		if c.name != name {
+			others = append(others, c)
+		}
+	}
+
+	return append([]candidate{primary}, others...)
+}
+
+// parserFor returns the parse function for a given format name.
+func parserFor(name formatName) parseFunc {
+	switch name {
+	case fmtMultiDocYAML:
+		return loadMultiDocYAML
+	case fmtNDJSON:
+		return loadNDJSON
+	case fmtTOML:
+		return loadTOML
+	case fmtJSON:
+		return loadJSON
+	case fmtYAML:
+		return loadYAML
+	default:
+		return loadYAML
+	}
+}
+
+// buildCandidates returns an ordered list of format candidates based
+// on content heuristics. The most-likely format appears first.
+func buildCandidates(input string) []candidate {
+	var primary []candidate
+	used := map[formatName]bool{}
+
+	// Multi-document YAML (most restrictive signal)
+	if strings.Contains(input, "\n---") || strings.HasPrefix(input, "---") {
+		primary = append(primary, candidate{fmtMultiDocYAML, loadMultiDocYAML})
+		used[fmtMultiDocYAML] = true
+	}
+
+	// Newline-delimited JSON
+	lines := strings.Split(input, "\n")
+	if len(lines) > 1 && isLikelyNDJSON(lines) {
+		primary = append(primary, candidate{fmtNDJSON, loadNDJSON})
+		used[fmtNDJSON] = true
+	}
+
+	// TOML
 	if isLikelyTOML(input) {
-		return loadTOML(input)
+		primary = append(primary, candidate{fmtTOML, loadTOML})
+		used[fmtTOML] = true
 	}
 
-	// Fall back to single JSON object/array
+	// Single JSON
 	if strings.HasPrefix(input, "{") || strings.HasPrefix(input, "[") {
-		return loadJSON(input)
+		primary = append(primary, candidate{fmtJSON, loadJSON})
+		used[fmtJSON] = true
 	}
 
-	// Fall back to single YAML document
-	return loadYAML(input)
+	// Remaining formats as fallbacks in a stable order.
+	// Note: NDJSON is excluded from unconditional fallbacks because loadNDJSON
+	// never errors (it treats invalid JSON lines as plain strings), which would
+	// silently accept malformed inputs and prevent stricter parsers from running.
+	allFormats := []candidate{
+		{fmtMultiDocYAML, loadMultiDocYAML},
+		{fmtTOML, loadTOML},
+		{fmtJSON, loadJSON},
+		{fmtYAML, loadYAML},
+	}
+	for _, c := range allFormats {
+		if !used[c.name] {
+			primary = append(primary, c)
+		}
+	}
+	return primary
 }
 
 // LoadRoot parses input into a single root node. Multi-document inputs are returned as a slice.
 func LoadRoot(input string) (interface{}, error) {
-	results, err := LoadData(input)
+	return LoadRootWithLogger(input, logr.Discard())
+}
+
+// LoadRootWithLogger is like LoadRoot but accepts a logger.
+func LoadRootWithLogger(input string, lgr logr.Logger) (interface{}, error) {
+	results, err := LoadDataWithLogger(input, lgr)
 	if err != nil {
 		return nil, err
 	}
@@ -78,13 +236,46 @@ func LoadRootBytes(data []byte) (interface{}, error) {
 	return LoadRoot(string(data))
 }
 
+// LoadRootBytesWithLogger is like LoadRootBytes but accepts a logger.
+func LoadRootBytesWithLogger(data []byte, lgr logr.Logger) (interface{}, error) {
+	return LoadRootWithLogger(string(data), lgr)
+}
+
 // LoadFile reads a file and parses it into a single root node.
+// When the file extension is recognized (.yaml, .yml, .json, .toml, .ndjson,
+// .jsonl) the corresponding parser is tried first. If it fails, the
+// remaining parsers are attempted as fallbacks and failures are logged.
 func LoadFile(path string) (interface{}, error) {
+	return LoadFileWithLogger(path, logr.Discard())
+}
+
+// LoadFileWithLogger is like LoadFile but accepts a logger.
+func LoadFileWithLogger(path string, lgr logr.Logger) (interface{}, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	return LoadRootBytes(data)
+
+	input := string(data)
+
+	// Honor the file extension first.
+	ext := filepath.Ext(path)
+	if fmtName, ok := extToFormat(ext); ok {
+		lgr.V(1).Info("file extension detected, trying preferred format",
+			"ext", ext, "format", string(fmtName))
+		candidates := parsersForFormat(fmtName, input)
+		results, parseErr := tryParsers(input, candidates, lgr)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		if len(results) == 1 {
+			return results[0], nil
+		}
+		return results, nil
+	}
+
+	// No recognized extension — fall back to content heuristics.
+	return LoadRootWithLogger(input, lgr)
 }
 
 // LoadObject accepts an already parsed object (maps, slices, structs, etc.).
@@ -289,17 +480,6 @@ func isLikelyNDJSON(lines []string) bool {
 func isLikelyTOML(input string) bool {
 	lines := strings.Split(input, "\n")
 
-	// Pattern for TOML section headers: [section] or [[array]]
-	// Supports bare keys, quoted keys, and dotted keys:
-	//   [server], [[items]], ["table name"], [database.credentials], [server."host.name"]
-	// Excludes JSON arrays like [1, 2, 3] which have spaces/commas without quotes
-	sectionPattern := regexp.MustCompile(`^\s*\[{1,2}(?:[a-zA-Z_][a-zA-Z0-9_-]*|"[^"]+"|'[^']+')+(?:\.(?:[a-zA-Z_][a-zA-Z0-9_-]*|"[^"]+"|'[^']+'))*\]{1,2}\s*$`)
-
-	// Pattern for TOML key = value (not key: value which is YAML)
-	// Supports bare keys, quoted keys, and dotted keys:
-	//   name = "value", "table name" = "value", database.host = "localhost"
-	keyValuePattern := regexp.MustCompile(`^\s*(?:[a-zA-Z_][a-zA-Z0-9_-]*|"[^"]+"|'[^']+')+(?:\.(?:[a-zA-Z_][a-zA-Z0-9_-]*|"[^"]+"|'[^']+'))*\s*=\s*.+$`)
-
 	sectionCount := 0
 	keyValueCount := 0
 	nonEmptyCount := 0
@@ -311,18 +491,20 @@ func isLikelyTOML(input string) bool {
 		}
 		nonEmptyCount++
 
-		if sectionPattern.MatchString(line) {
+		if tomlSectionPattern.MatchString(line) {
 			sectionCount++
 		}
-		if keyValuePattern.MatchString(line) {
+		if tomlKeyValuePattern.MatchString(line) {
 			keyValueCount++
 		}
 	}
 
-	// Consider it TOML if we have sections, or if majority of lines are key=value
+	// Section headers at column 0 are a strong TOML signal (the pattern
+	// rejects indented YAML values like ["legacy"] that appear in multi-line scalars).
 	if sectionCount > 0 {
 		return true
 	}
+	// Key-value-only TOML (no section headers): require a clear majority.
 	if nonEmptyCount > 0 && keyValueCount > nonEmptyCount/2 {
 		return true
 	}

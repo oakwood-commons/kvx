@@ -27,12 +27,6 @@ func TestLoadJSON(t *testing.T) {
 			wantLen: 1,
 			wantErr: false,
 		},
-		{
-			name:    "invalid JSON",
-			input:   `{invalid}`,
-			wantLen: 0,
-			wantErr: true,
-		},
 	}
 
 	for _, tt := range tests {
@@ -46,6 +40,14 @@ func TestLoadJSON(t *testing.T) {
 			assert.Equal(t, tt.wantLen, len(got))
 		})
 	}
+
+	t.Run("invalid JSON falls back to YAML", func(t *testing.T) {
+		got, err := LoadData(`{invalid}`)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		// YAML parses {invalid} as a flow mapping with key "invalid" and nil value
+		assert.Equal(t, map[string]interface{}{"invalid": nil}, got[0])
+	})
 }
 
 func TestLoadYAML(t *testing.T) {
@@ -327,6 +329,19 @@ value = "test"`,
 			input: `[1, 2, 3]`,
 			want:  false,
 		},
+		{
+			name: "indented JSON-style array not mistaken for TOML section",
+			input: `            - when: _.gcpArchitecture == "2.0"
+              expression: |
+                ["legacy"]`,
+			want: false,
+		},
+		{
+			name: "section header alone without key-value lines",
+			input: `[server]
+some text that is not a kv pair`,
+			want: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -487,6 +502,76 @@ func TestLoadFile(t *testing.T) {
 	root, err := LoadFile(path)
 	require.NoError(t, err)
 	assert.IsType(t, map[string]interface{}{}, root)
+}
+
+func TestLoadFileHonorsExtension(t *testing.T) {
+	dir := t.TempDir()
+
+	t.Run("yaml extension parsed as YAML", func(t *testing.T) {
+		path := dir + "/data.yml"
+		require.NoError(t, os.WriteFile(path, []byte("name: test\nvalue: 42\n"), 0o644))
+
+		root, err := LoadFile(path)
+		require.NoError(t, err)
+		m, ok := root.(map[string]interface{})
+		require.True(t, ok)
+		assert.Equal(t, "test", m["name"])
+	})
+
+	t.Run("json extension parsed as JSON", func(t *testing.T) {
+		path := dir + "/data.json"
+		require.NoError(t, os.WriteFile(path, []byte(`{"key":"val"}`), 0o644))
+
+		root, err := LoadFile(path)
+		require.NoError(t, err)
+		m, ok := root.(map[string]interface{})
+		require.True(t, ok)
+		assert.Equal(t, "val", m["key"])
+	})
+
+	t.Run("toml extension parsed as TOML", func(t *testing.T) {
+		path := dir + "/data.toml"
+		require.NoError(t, os.WriteFile(path, []byte("[server]\nhost = \"localhost\"\n"), 0o644))
+
+		root, err := LoadFile(path)
+		require.NoError(t, err)
+		m, ok := root.(map[string]interface{})
+		require.True(t, ok)
+		assert.Contains(t, m, "server")
+	})
+}
+
+func TestLoadDataFallsThrough(t *testing.T) {
+	t.Run("YAML with indented JSON arrays not misdetected as TOML", func(t *testing.T) {
+		// This input has an indented ["legacy"] that previously triggered
+		// a false-positive TOML detection, causing a parse failure.
+		input := `items:
+  - when: arch == "2.0"
+    expression: |
+      ["legacy"]
+  - when: arch == "3.0"
+    expression: |
+      ["modern"]`
+
+		got, err := LoadData(input)
+		require.NoError(t, err)
+		assert.Len(t, got, 1)
+		assert.IsType(t, map[string]interface{}{}, got[0])
+	})
+
+	t.Run("wrong extension falls back to correct parser", func(t *testing.T) {
+		// Write valid JSON content with a .toml extension — the TOML
+		// parser should fail, then fallback should succeed with JSON.
+		dir := t.TempDir()
+		path := dir + "/oops.toml"
+		require.NoError(t, os.WriteFile(path, []byte(`{"key":"val"}`), 0o644))
+
+		root, err := LoadFile(path)
+		require.NoError(t, err)
+		m, ok := root.(map[string]interface{})
+		require.True(t, ok)
+		assert.Equal(t, "val", m["key"])
+	})
 }
 
 func TestLoadObject(t *testing.T) {
