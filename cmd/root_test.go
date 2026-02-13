@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-logr/logr"
+
 	"sync/atomic"
 	"time"
 
@@ -1054,62 +1056,8 @@ func TestIsCSVFile(t *testing.T) {
 	}
 }
 
-func TestIsTOMLFile(t *testing.T) {
-	tests := []struct {
-		filePath string
-		want     bool
-	}{
-		{"config.toml", true},
-		{"config.TOML", true},
-		{"settings.toml", true},
-		{"test.yaml", false},
-		{"test.json", false},
-		{"test", false},
-		{"/path/to/file.toml", true},
-		{"/path/to/file.txt", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.filePath, func(t *testing.T) {
-			got := isTOMLFile(tt.filePath)
-			if got != tt.want {
-				t.Fatalf("isTOMLFile(%q) = %v, want %v", tt.filePath, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestParseTOML(t *testing.T) {
-	tomlData := []byte(`title = "Test"
-
-[server]
-host = "localhost"
-port = 8080
-
-[[users]]
-name = "Alice"
-`)
-	root, err := parseTOML(tomlData)
-	if err != nil {
-		t.Fatalf("parseTOML failed: %v", err)
-	}
-	m, ok := root.(map[string]any)
-	if !ok {
-		t.Fatalf("expected map[string]any, got %T", root)
-	}
-	if m["title"] != "Test" {
-		t.Fatalf("expected title=Test, got %v", m["title"])
-	}
-	server, ok := m["server"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected server to be map[string]any, got %T", m["server"])
-	}
-	if server["host"] != "localhost" {
-		t.Fatalf("expected host=localhost, got %v", server["host"])
-	}
-	if server["port"] != int64(8080) {
-		t.Fatalf("expected port=8080, got %v", server["port"])
-	}
-}
+// TestIsTOMLFile and TestParseTOML removed — TOML extension/parsing
+// is now handled inside the loader package with fallback support.
 
 // Test debug collector basic functionality
 func TestDebugCollector_Record(t *testing.T) {
@@ -1215,7 +1163,7 @@ func TestIsAlphaNumOrUnderscore(t *testing.T) {
 // Test loadInputData with no args and no stdin returns errShowHelp
 func TestLoadInputData_NoInputShowsHelp(t *testing.T) {
 	dc := newDebugCollector(false, 100)
-	_, _, err := loadInputData([]string{}, "", false, dc)
+	_, _, err := loadInputData([]string{}, "", false, dc, logr.Discard())
 	if !errors.Is(err, errShowHelp) {
 		t.Errorf("expected errShowHelp, got %v", err)
 	}
@@ -1237,7 +1185,7 @@ func TestLoadInputData_WithFile(t *testing.T) {
 	tmpFile.Close()
 
 	dc := newDebugCollector(false, 100)
-	root, fromStdin, err := loadInputData([]string{tmpFile.Name()}, "", false, dc)
+	root, fromStdin, err := loadInputData([]string{tmpFile.Name()}, "", false, dc, logr.Discard())
 	if err != nil {
 		t.Errorf("loadInputData with file failed: %v", err)
 	}
@@ -1268,7 +1216,7 @@ func TestLoadInputData_WithCSVFile(t *testing.T) {
 	tmpFile.Close()
 
 	dc := newDebugCollector(false, 100)
-	root, fromStdin, err := loadInputData([]string{tmpFile.Name()}, "", false, dc)
+	root, fromStdin, err := loadInputData([]string{tmpFile.Name()}, "", false, dc, logr.Discard())
 	if err != nil {
 		t.Errorf("loadInputData with CSV failed: %v", err)
 	}
@@ -1289,7 +1237,7 @@ func TestLoadInputData_WithCSVFile(t *testing.T) {
 // Test loadInputData with expression but no input
 func TestLoadInputData_WithExpressionNoInput(t *testing.T) {
 	dc := newDebugCollector(false, 100)
-	root, fromStdin, err := loadInputData([]string{}, "_.test", false, dc)
+	root, fromStdin, err := loadInputData([]string{}, "_.test", false, dc, logr.Discard())
 	if err != nil {
 		t.Errorf("loadInputData with expression failed: %v", err)
 	}

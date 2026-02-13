@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 
+	"github.com/go-logr/logr"
 	"github.com/oakwood-commons/kvx/internal/cel"
 	"github.com/oakwood-commons/kvx/internal/formatter"
 	"github.com/oakwood-commons/kvx/internal/navigator"
@@ -109,9 +110,21 @@ func LoadRootBytes(data []byte) (interface{}, error) {
 	return loader.LoadRootBytes(data)
 }
 
+// LoadRootBytesWithLogger is like LoadRootBytes but accepts a logger for
+// recording fallback parse attempts.
+func LoadRootBytesWithLogger(data []byte, lgr logr.Logger) (interface{}, error) {
+	return loader.LoadRootBytesWithLogger(data, lgr)
+}
+
 // LoadFile reads a file and parses it into a single root node.
 func LoadFile(path string) (interface{}, error) {
 	return loader.LoadFile(path)
+}
+
+// LoadFileWithLogger is like LoadFile but accepts a logger for recording
+// fallback parse attempts and extension-based dispatch.
+func LoadFileWithLogger(path string, lgr logr.Logger) (interface{}, error) {
+	return loader.LoadFileWithLogger(path, lgr)
 }
 
 // LoadObject accepts an already parsed object and returns it directly.
