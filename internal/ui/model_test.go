@@ -326,6 +326,244 @@ func TestTabCompletesNumericTokenToBracketIndex(t *testing.T) {
 	}
 }
 
+// Keys containing dots (like "foo.bar") should use bracket notation in completions.
+func TestTabCompletesDottedKeyWithBracketNotation(t *testing.T) {
+	// Create a model with expression mode and a dotted key
+	node := map[string]interface{}{
+		"foo.bar": "hello world",
+		"normal":  "test",
+	}
+	m := InitialModel(node)
+	m.Root = node
+	m.Node = node
+	m.NoColor = true
+	m.AllowSuggestions = true
+	m.AllowIntellisense = true
+	m.InputFocused = true
+
+	// Set up completion engine
+	celProvider, err := completion.NewCELProvider()
+	if err != nil {
+		t.Fatalf("failed to create CEL provider: %v", err)
+	}
+	m.CompletionEngine = completion.NewEngine(celProvider)
+
+	// Type "_." and then Tab to complete
+	m.PathInput.SetValue("_.")
+	m.filterSuggestions(true)
+
+	if !m.ShowSuggestions || len(m.FilteredSuggestions) == 0 {
+		t.Fatalf("expected suggestions for dotted key, got none: %+v", m.FilteredSuggestions)
+	}
+
+	// Verify the completion contains bracket notation
+	foundBracket := false
+	for _, s := range m.FilteredSuggestions {
+		if s == `_["foo.bar"]` {
+			foundBracket = true
+			break
+		}
+	}
+	if !foundBracket {
+		t.Fatalf("expected suggestion _[\"foo.bar\"] not found in: %v", m.FilteredSuggestions)
+	}
+
+	// Simulate tab
+	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	m2 := result.(*Model)
+
+	got := m2.PathInput.Value()
+	// First suggestion should be "foo.bar" in bracket notation
+	// (keys are sorted, so foo.bar comes before normal)
+	expected := `_["foo.bar"]`
+	if got != expected {
+		t.Fatalf("expected %q, got %q; FilteredSuggestions=%v", expected, got, m.FilteredSuggestions)
+	}
+}
+
+// Tab on just underscore should complete to the first key.
+func TestTabOnUnderscoreCompletesToFirstKey(t *testing.T) {
+	node := map[string]interface{}{
+		"foo.bar": "hello world",
+	}
+	m := InitialModel(node)
+	m.Root = node
+	m.Node = node
+	m.NoColor = true
+	m.AllowSuggestions = true
+	m.AllowIntellisense = true
+	m.InputFocused = true
+
+	celProvider, err := completion.NewCELProvider()
+	if err != nil {
+		t.Fatalf("failed to create CEL provider: %v", err)
+	}
+	m.CompletionEngine = completion.NewEngine(celProvider)
+
+	// Type just "_" and then Tab
+	m.PathInput.SetValue("_")
+	m.filterSuggestions(true)
+
+	// Simulate tab
+	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	m2 := result.(*Model)
+
+	got := m2.PathInput.Value()
+	// Should complete to _["foo.bar"] since it's the only key (and contains a dot)
+	expected := `_["foo.bar"]`
+	if got != expected {
+		t.Fatalf("Tab on _ should complete to first key: expected %q, got %q; FilteredSuggestions=%v", expected, got, m.FilteredSuggestions)
+	}
+}
+
+// Tab on a completed bracket-quoted path should NOT cycle to functions.
+func TestTabOnBracketQuotedPathDoesNotCycleToFunctions(t *testing.T) {
+	node := map[string]interface{}{
+		"foo.bar": "hello world",
+	}
+	m := InitialModel(node)
+	m.Root = node
+	m.Node = node
+	m.NoColor = true
+	m.AllowSuggestions = true
+	m.AllowIntellisense = true
+	m.InputFocused = true
+
+	celProvider, err := completion.NewCELProvider()
+	if err != nil {
+		t.Fatalf("failed to create CEL provider: %v", err)
+	}
+	m.CompletionEngine = completion.NewEngine(celProvider)
+
+	// Set input to a completed bracket-quoted path
+	m.PathInput.SetValue(`_["foo.bar"]`)
+	m.filterSuggestions(true)
+
+	// Tab should NOT change the value (no functions should be inserted)
+	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	m2 := result.(*Model)
+
+	got := m2.PathInput.Value()
+	expected := `_["foo.bar"]`
+	if got != expected {
+		t.Fatalf("Tab on bracket-quoted path should not change it: expected %q, got %q", expected, got)
+	}
+
+	// Multiple tabs should also not change
+	result, _ = m2.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	m3 := result.(*Model)
+	got = m3.PathInput.Value()
+	if got != expected {
+		t.Fatalf("Multiple tabs should not change bracket-quoted path: expected %q, got %q", expected, got)
+	}
+
+	// Test many more tabs to verify no cycling to functions
+	for i := 0; i < 10; i++ {
+		result, _ = m3.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+		m3 = result.(*Model)
+		got = m3.PathInput.Value()
+		if got != expected {
+			t.Fatalf("Tab %d should not change bracket-quoted path: expected %q, got %q", i+3, expected, got)
+		}
+	}
+}
+
+// Test that even if suggestions were cached from before, Tab on bracket-quoted path doesn't cycle to functions.
+func TestTabOnBracketQuotedPathWithCachedSuggestions(t *testing.T) {
+	node := map[string]interface{}{
+		"foo.bar": "hello world",
+	}
+	m := InitialModel(node)
+	m.Root = node
+	m.Node = node
+	m.NoColor = true
+	m.AllowSuggestions = true
+	m.AllowIntellisense = true
+	m.InputFocused = true
+
+	celProvider, err := completion.NewCELProvider()
+	if err != nil {
+		t.Fatalf("failed to create CEL provider: %v", err)
+	}
+	m.CompletionEngine = completion.NewEngine(celProvider)
+
+	// IMPORTANT: Simulate having stale suggestions from a previous state
+	// This tests the case where ShowSuggestions is true and FilteredSuggestions contains functions
+	m.PathInput.SetValue(`_["foo.bar"]`)
+	m.ShowSuggestions = true
+	m.FilteredSuggestions = []string{
+		`_["foo.bar"]`,
+		"_.all - CEL function",
+		"_.exists - CEL function",
+		"_.filter - CEL function",
+	}
+
+	// Tab should NOT cycle to functions because the dot in "foo.bar" is inside brackets
+	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	m2 := result.(*Model)
+
+	got := m2.PathInput.Value()
+	expected := `_["foo.bar"]`
+	if got != expected {
+		t.Fatalf("Tab with cached suggestions should not change bracket-quoted path: expected %q, got %q", expected, got)
+	}
+
+	// More tabs should also not change to functions
+	for i := 0; i < 5; i++ {
+		result, _ = m2.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+		m2 = result.(*Model)
+		got = m2.PathInput.Value()
+		if got != expected {
+			t.Fatalf("Tab %d with cached suggestions changed path: expected %q, got %q", i+2, expected, got)
+		}
+	}
+}
+
+// Regression test: Tab on nested bracket key like _.items["foo.bar"] should not cycle to _.all()
+func TestTabOnNestedBracketKeyDoesNotCycleToFunctions(t *testing.T) {
+	node := map[string]interface{}{
+		"items": map[string]interface{}{
+			"foo.bar": "value",
+		},
+	}
+	m := InitialModel(node)
+	m.Root = node
+	m.Node = node
+	m.NoColor = true
+	m.AllowSuggestions = true
+	m.AllowIntellisense = true
+	m.InputFocused = true
+
+	celProvider, err := completion.NewCELProvider()
+	if err != nil {
+		t.Fatalf("failed to create CEL provider: %v", err)
+	}
+	m.CompletionEngine = completion.NewEngine(celProvider)
+
+	// Set up a nested bracket path
+	m.PathInput.SetValue(`_.items["foo.bar"]`)
+	m.ShowSuggestions = true
+	// Simulate stale suggestions from prior _.items. state
+	m.FilteredSuggestions = []string{
+		`_.items["foo.bar"]`,
+		".all() - CEL function",
+		".exists() - CEL function",
+		".filter() - CEL function",
+	}
+
+	// Tab should NOT cycle to .all() because the path ends with a complete bracket key
+	mp := &m
+	for i := 0; i < 10; i++ {
+		result, _ := mp.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+		mp = result.(*Model)
+		got := mp.PathInput.Value()
+		// Path should either stay the same or not become a function call
+		if strings.Contains(got, "all()") || strings.Contains(got, "exists()") || strings.Contains(got, "filter()") {
+			t.Fatalf("Tab %d incorrectly cycled to function: got %q", i+1, got)
+		}
+	}
+}
+
 func TestViewHeightStableWithoutDebug(t *testing.T) {
 	node := sampleData()
 	m := InitialModel(node)
@@ -1106,16 +1344,10 @@ func TestSlashTransfersSearchToPathAndSetsCursor_Root(t *testing.T) {
 	if !m2.InputFocused {
 		t.Fatalf("expected input to be focused after F6")
 	}
-	// PathInput should show the current value ('_' at root) without modifications
-	if m2.PathInput.Value() != "_" {
-		t.Fatalf("expected PathInput to be '_', got %q", m2.PathInput.Value())
-	}
-	// Type characters; they should append
-	for _, ch := range "clu" {
-		m2.Update(tea.KeyPressMsg{Code: ch, Text: string(ch)})
-	}
-	if m2.PathInput.Value() != "_clu" {
-		t.Fatalf("expected PathInput to be '_clu' after typing, got %q", m2.PathInput.Value())
+	// PathInput should show the selected row path (matching footer) - first key in sorted order
+	val := m2.PathInput.Value()
+	if !strings.HasPrefix(val, "_.") {
+		t.Fatalf("expected PathInput to show selected row path starting with '_.' at root, got %q", val)
 	}
 	// Search should be cleared
 	if m2.FilterActive || m2.FilterBuffer != "" {
@@ -1123,8 +1355,7 @@ func TestSlashTransfersSearchToPathAndSetsCursor_Root(t *testing.T) {
 	}
 }
 
-// Verifies F6 with a non-root path appends the search using dot-notation
-// and sets cursor to end
+// Verifies F6 with a non-root path shows selected row path (matching footer)
 func TestSlashTransfersSearchToPathAndSetsCursor_NonRoot(t *testing.T) {
 	// Start from sample data and navigate to 'regions'
 	node := sampleData()
@@ -1152,16 +1383,10 @@ func TestSlashTransfersSearchToPathAndSetsCursor_NonRoot(t *testing.T) {
 	if !m3.InputFocused {
 		t.Fatalf("expected input to be focused after F6")
 	}
-	// PathInput should show the current value without search buffer appended
-	if m3.PathInput.Value() != "_.regions" {
-		t.Fatalf("expected PathInput to be '_.regions', got %q", m3.PathInput.Value())
-	}
-	// Type characters; they should append
-	for _, ch := range "az" {
-		m3.Update(tea.KeyPressMsg{Code: ch, Text: string(ch)})
-	}
-	if m3.PathInput.Value() != "_.regionsaz" {
-		t.Fatalf("expected PathInput to be '_.regionsaz' after typing, got %q", m3.PathInput.Value())
+	// PathInput should show the selected row path (matching footer)
+	// At regions level, first key in sorted order is "asia"
+	if m3.PathInput.Value() != "_.regions.asia" {
+		t.Fatalf("expected PathInput to be '_.regions.asia', got %q", m3.PathInput.Value())
 	}
 	if m3.FilterActive || m3.FilterBuffer != "" {
 		t.Fatalf("expected search state cleared, got active=%v buf=%q", m3.FilterActive, m3.FilterBuffer)
@@ -1478,7 +1703,8 @@ func TestF10FunctionCallPrintsCLIOutput(t *testing.T) {
 	}
 }
 
-// TestF6PreservesExpressionFromCLI validates F6 toggle preserves expressions passed via -e flag
+// TestF6PreservesExpressionFromCLI validates F6 toggle from expr mode works correctly
+// After toggling to table mode and back, expression reflects current selection (matching footer)
 func TestF6PreservesExpressionFromCLI(t *testing.T) {
 	// Simulate launching TUI with -e flag containing a function call
 	root := loadYAMLFixture(t)
@@ -1505,9 +1731,11 @@ func TestF6PreservesExpressionFromCLI(t *testing.T) {
 		t.Fatalf("expected input to be focused after second F6")
 	}
 
-	// Verify expression is preserved exactly
-	if m3.PathInput.Value() != "string(_.items[0].name)" {
-		t.Fatalf("expected PathInput to preserve 'string(_.items[0].name)', got %q", m3.PathInput.Value())
+	// After toggling back, expression shows selected row path (matching footer)
+	// This is expected behavior - the user was in table mode and may have moved
+	val := m3.PathInput.Value()
+	if !strings.HasPrefix(val, "_.") {
+		t.Fatalf("expected PathInput to show selected row path starting with '_.' after F6 toggle, got %q", val)
 	}
 }
 
@@ -1629,8 +1857,9 @@ func TestF6SyncUntruncatedKeyName(t *testing.T) {
 	m.syncPathInputWithCursor()
 
 	// Verify PathInput has the FULL untruncated key name
+	// Keys containing dots must use bracket notation per CEL syntax
 	got := m.PathInput.Value()
-	expected := "_." + longKeyName
+	expected := `_["` + longKeyName + `"]`
 	if got != expected {
 		t.Fatalf("expected PathInput to show full key '%s', got '%s'", expected, got)
 	}

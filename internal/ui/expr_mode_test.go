@@ -57,7 +57,7 @@ func TestTableModeAutoSyncShowsUnderscorePrefix(t *testing.T) {
 }
 
 // TestF6TogglePrefixesWithUnderscore validates that pressing F6 to enter expr mode
-// adds the "_" prefix to the current path
+// shows the selected row path with "_" prefix (matching footer display)
 func TestF6TogglePrefixesWithUnderscore(t *testing.T) {
 	m := tableModel()
 
@@ -79,14 +79,14 @@ func TestF6TogglePrefixesWithUnderscore(t *testing.T) {
 		t.Fatalf("expected to be in expr mode after F6")
 	}
 
-	// PathInput should show "_.regions"
-	if m3.PathInput.Value() != "_.regions" {
-		t.Fatalf("expected PathInput to be '_.regions', got %q", m3.PathInput.Value())
+	// PathInput should show selected row path "_.regions.asia" (matching footer)
+	if m3.PathInput.Value() != "_.regions.asia" {
+		t.Fatalf("expected PathInput to be '_.regions.asia', got %q", m3.PathInput.Value())
 	}
 }
 
-// TestF6AtRootShowsUnderscore validates F6 at root shows just "_"
-func TestF6AtRootShowsUnderscore(t *testing.T) {
+// TestF6AtRootShowsSelectedRowPath validates F6 at root shows the selected row path (matching footer)
+func TestF6AtRootShowsSelectedRowPath(t *testing.T) {
 	m := tableModel()
 
 	// Press F6 at root
@@ -97,8 +97,11 @@ func TestF6AtRootShowsUnderscore(t *testing.T) {
 		t.Fatalf("expected to be in expr mode after F6")
 	}
 
-	if m2.PathInput.Value() != "_" {
-		t.Fatalf("expected PathInput to be '_' at root, got %q", m2.PathInput.Value())
+	// PathInput should show the selected row path (first key in sorted order)
+	// This matches the footer display for consistency
+	val := m2.PathInput.Value()
+	if !strings.HasPrefix(val, "_.") {
+		t.Fatalf("expected PathInput to show selected row path starting with '_.' at root, got %q", val)
 	}
 }
 

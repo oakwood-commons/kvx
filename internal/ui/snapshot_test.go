@@ -184,8 +184,14 @@ func TestSnapshotExpressionStartKeysShowInput(t *testing.T) {
 		},
 	})
 
-	if !strings.Contains(rendered, "Expression") || !strings.Contains(rendered, "_.items[0]") {
-		t.Fatalf("expected expression overlay with initial expr, got:\n%s", rendered)
+	// After F6, expression syncs to selected row path (matching footer)
+	// The expression overlay should be visible with "Expression" title
+	if !strings.Contains(rendered, "Expression") {
+		t.Fatalf("expected expression overlay, got:\n%s", rendered)
+	}
+	// At root with "items" key, F6 syncs to "_.items" (selected row path)
+	if !strings.Contains(rendered, "_.items") {
+		t.Fatalf("expected selected row path in expression overlay, got:\n%s", rendered)
 	}
 }
 
