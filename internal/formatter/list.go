@@ -80,9 +80,13 @@ func formatArrayAsList(arr []interface{}, opts ListOptions) string {
 				b.WriteString("\n")
 			}
 
-			// Indented properties
+			// Indented properties (only indent when there's a visible header)
+			indent := "  "
+			if headerStr == "" {
+				indent = ""
+			}
 			if m, ok := elem.(map[string]interface{}); ok {
-				b.WriteString(formatMapAsList(m, "  ", opts.NoColor))
+				b.WriteString(formatMapAsList(m, indent, opts.NoColor))
 			}
 		}
 	} else {

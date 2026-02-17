@@ -148,6 +148,38 @@ func TestFormatAsListNoColor(t *testing.T) {
 	}
 }
 
+func TestFormatAsListArrayOfObjectsNoIndex(t *testing.T) {
+	arr := []interface{}{
+		map[string]interface{}{"name": "Alice", "age": 30},
+		map[string]interface{}{"name": "Bob", "age": 25},
+	}
+	// Default style "none" should produce no index headers
+	result := FormatAsList(arr, ListOptions{NoColor: true, ArrayStyle: "none"})
+
+	// Should NOT contain index markers
+	if strings.Contains(result, "[0]") {
+		t.Fatalf("expected no index markers with style 'none', got %q", result)
+	}
+	if strings.Contains(result, "[1]") {
+		t.Fatalf("expected no index markers with style 'none', got %q", result)
+	}
+
+	// Should still contain properties without indent
+	if !strings.Contains(result, "name: Alice") {
+		t.Fatalf("expected 'name: Alice' in output, got %q", result)
+	}
+	if !strings.Contains(result, "age: 25") {
+		t.Fatalf("expected 'age: 25' in output, got %q", result)
+	}
+
+	// Should NOT have leading spaces (no indent when no index)
+	for _, line := range strings.Split(strings.TrimSpace(result), "\n") {
+		if strings.HasPrefix(line, "  ") {
+			t.Fatalf("expected no leading indent with style 'none', got line %q", line)
+		}
+	}
+}
+
 func TestFormatAsListWithColor(t *testing.T) {
 	// Test with noColor=false to ensure color codes are present
 	m := map[string]interface{}{"key": "value"}

@@ -122,7 +122,7 @@ func captureOutput(t *testing.T, fn func()) string {
 
 func resetRootCmdState() {
 	interactive = false
-	output = "table"
+	output = "auto"
 	expression = ""
 	searchTerm = ""
 	debug = false

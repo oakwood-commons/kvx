@@ -1313,6 +1313,49 @@ func printEvalResult(node interface{}, output string, noColor bool, keyColWidth,
 			fmt.Fprintf(os.Stderr, "failed to marshal toml: %v\n", err)
 			os.Exit(1)
 		}
+	case "auto":
+		// Auto mode: use table when readable, fall back to list when columns are too narrow
+		isCollection, isSimpleArray := classifyNode(node)
+
+		switch {
+		case isSimpleArray:
+			for _, elem := range node.([]interface{}) { //nolint:forcetypeassert
+				fmt.Println(formatter.StringifyPreserveNewlines(elem)) //nolint:forbidigo
+			}
+		case !isCollection:
+			fmt.Println(formatter.StringifyPreserveNewlines(node)) //nolint:forbidigo
+		default:
+			if shouldUseColumnar(node, tableOpts.ColumnarMode) {
+				// Check if columnar table is readable at current terminal width
+				termWidth := width
+				if termWidth <= 0 {
+					w, _ := detectTerminalSize()
+					if w <= 0 {
+						termWidth = defaultFallbackTermWidth
+					} else {
+						termWidth = w
+					}
+				}
+
+				columns, rows := navigator.ExtractColumnarData(node, tableOpts.ColumnOrder)
+				readableOpts := formatter.IsColumnarReadableOpts{
+					HiddenColumns:  tableOpts.HiddenColumns,
+					RowNumberStyle: tableOpts.ArrayStyle,
+				}
+				if columns != nil && !formatter.IsColumnarReadable(columns, rows, termWidth-2, tableOpts.ColumnHints, readableOpts) {
+					// Table would be unreadable — fall back to list view
+					listOpts := formatter.ListOptions{
+						NoColor:    noColor,
+						ArrayStyle: arrayStyle,
+					}
+					fmt.Print(formatter.FormatAsList(node, listOpts)) //nolint:forbidigo
+				} else {
+					fmt.Print(renderColumnarBorderedTable(node, noColor, width, appName, path, tableOpts)) //nolint:forbidigo
+				}
+			} else {
+				fmt.Print(renderBorderedTableWithOptions(node, noColor, keyColWidth, valueColWidth, width, appName, path, tableOpts)) //nolint:forbidigo
+			}
+		}
 	case "list":
 		listOpts := formatter.ListOptions{
 			NoColor:    noColor,
@@ -2947,7 +2990,7 @@ var rootCmd = &cobra.Command{
 
 func init() { //nolint:gochecknoinits
 	rootCmd.Flags().BoolVarP(&interactive, "interactive", "i", false, "start interactive TUI")
-	rootCmd.Flags().StringVarP(&output, "output", "o", "table", "output format: table|list|tree|mermaid|yaml|json|toml|csv|raw")
+	rootCmd.Flags().StringVarP(&output, "output", "o", "auto", "output format: auto|table|list|tree|mermaid|yaml|json|toml|csv|raw")
 	rootCmd.Flags().StringVarP(&expression, "expression", "e", "", "CEL expression using '_' as root. Examples: '_.items[0].name', 'type(_)'. For special keys use bracket notation: '_.metadata[\"bad-key\"]'.")
 	rootCmd.Flags().StringVar(&searchTerm, "search", "", "Search keys and values (case-insensitive) and display matches")
 	// --sort requires a value; default comes from config (or none)
@@ -2959,7 +3002,7 @@ func init() { //nolint:gochecknoinits
 	rootCmd.Flags().BoolVar(&debug, "debug", false, "show debug info in status bar")
 	rootCmd.Flags().IntVar(&debugMaxEvents, "debug-max-events", 200, "maximum number of debug events to keep (default: 200)")
 	rootCmd.Flags().BoolVar(&noColor, "no-color", false, "disable color output")
-	rootCmd.Flags().StringVar(&arrayStyle, "array-style", "index", "Array index style: index, numbered, bullet, none")
+	rootCmd.Flags().StringVar(&arrayStyle, "array-style", "none", "Array index style: none, index, numbered, bullet")
 	rootCmd.Flags().BoolVar(&renderSnapshot, "snapshot", false, "render a single TUI snapshot and exit (dev/test); honors --width/--height")
 	rootCmd.Flags().StringVar(&keyMode, "keymap", "", "keybinding mode: vim (default), emacs, or function")
 	rootCmd.Flags().StringArrayVar(&startKeys, "press", nil, "Simulate keys on startup. Use <Key> for special keys (e.g. <F3>, <F6>, <Enter>, <Esc>, <Tab>). Literal text types normally. Examples: --press \"<F3>search\" or --press \"<F6>_.items[0]\"")
