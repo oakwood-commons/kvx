@@ -232,6 +232,69 @@ func TestShrinkByPriority(t *testing.T) {
 	})
 }
 
+func TestIsColumnarReadable(t *testing.T) {
+	t.Run("readable at wide width", func(t *testing.T) {
+		columns := []string{"name", "age", "city"}
+		rows := [][]string{
+			{"Alice", "30", "New York"},
+			{"Bob", "25", "London"},
+		}
+		assert.True(t, IsColumnarReadable(columns, rows, 120, nil, IsColumnarReadableOpts{}))
+	})
+
+	t.Run("unreadable when many columns squeezed", func(t *testing.T) {
+		columns := []string{"name", "email", "address", "phone", "company", "department", "title", "country"}
+		rows := [][]string{
+			{"Alice Johnson", "alice@example.com", "123 Main St", "555-1234", "Acme Corp", "Engineering", "Senior Dev", "United States"},
+		}
+		// At 40 chars wide, 8 substantial columns cannot possibly fit readably
+		assert.False(t, IsColumnarReadable(columns, rows, 40, nil, IsColumnarReadableOpts{}))
+	})
+
+	t.Run("naturally narrow columns are fine", func(t *testing.T) {
+		// Columns whose content is shorter than minReadableWidth should not trigger unreadable
+		columns := []string{"ok", "yn"}
+		rows := [][]string{
+			{"yes", "no"},
+			{"yes", "yes"},
+		}
+		assert.True(t, IsColumnarReadable(columns, rows, 20, nil, IsColumnarReadableOpts{}))
+	})
+
+	t.Run("empty columns readable", func(t *testing.T) {
+		assert.True(t, IsColumnarReadable(nil, nil, 80, nil, IsColumnarReadableOpts{}))
+	})
+
+	t.Run("hidden columns make table fit", func(t *testing.T) {
+		columns := []string{"name", "email", "address", "phone", "company", "department"}
+		rows := [][]string{
+			{"Alice Johnson", "alice@example.com", "123 Main St", "555-1234", "Acme Corp", "Engineering"},
+		}
+		// Unreadable at 50 with all columns
+		assert.False(t, IsColumnarReadable(columns, rows, 50, nil, IsColumnarReadableOpts{}))
+		// Readable when most columns hidden
+		assert.True(t, IsColumnarReadable(columns, rows, 50, nil, IsColumnarReadableOpts{
+			HiddenColumns: []string{"address", "phone", "company", "department"},
+		}))
+	})
+
+	t.Run("row numbers reduce available width", func(t *testing.T) {
+		// Use 5 columns with 10-char data. Natural width = 10*5 = 50, plus 4 seps = 58 min.
+		// The key is to find a width where it's readable without row nums but not with.
+		columns := []string{"column_aaa", "column_bbb", "column_ccc", "column_ddd", "column_eee"}
+		rows := [][]string{
+			{"value_1234", "value_5678", "value_9abc", "value_defg", "value_hijk"},
+		}
+		// At 50 chars: without row nums, columns get shrunk but stay above 8
+		// With row nums (~5 chars including sep), available space shrinks further
+		assert.True(t, IsColumnarReadable(columns, rows, 50, nil, IsColumnarReadableOpts{RowNumberStyle: "none"}))
+		// At tight 45 chars with row numbers, columns must shrink below 8
+		assert.False(t, IsColumnarReadable(columns, rows, 45, nil, IsColumnarReadableOpts{RowNumberStyle: "numbered"}))
+		// With ample width, always readable
+		assert.True(t, IsColumnarReadable(columns, rows, 70, nil, IsColumnarReadableOpts{RowNumberStyle: "numbered"}))
+	})
+}
+
 func TestRenderColumnarTable_WithHints(t *testing.T) {
 	columns := []string{"name", "value"}
 	rows := [][]string{

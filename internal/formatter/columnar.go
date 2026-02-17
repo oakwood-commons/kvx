@@ -495,6 +495,87 @@ func shrinkByPriority(columns []string, widths []int, usableWidth int, hints map
 	return widths
 }
 
+// minReadableWidth is the minimum column width before data becomes unreadable.
+// Below this, columns show mostly ellipsis (e.g. "ab...") which is useless.
+const minReadableWidth = 8
+
+// IsColumnarReadableOpts configures the readability check to match the renderer.
+type IsColumnarReadableOpts struct {
+	HiddenColumns  []string // columns to exclude (same as ColumnarOptions.HiddenColumns)
+	RowNumberStyle string   // "none" means no row number column; otherwise accounts for its width
+}
+
+// IsColumnarReadable checks whether a columnar table can be rendered readably
+// within the given available width. It returns false if any column whose natural
+// width exceeds minReadableWidth would be shrunk below that threshold, meaning
+// the table data would be effectively truncated to the point of being unusable.
+//
+// This function applies the same transformations as RenderColumnarTable:
+// filtering hidden columns and accounting for the row-number column width.
+func IsColumnarReadable(columns []string, rows [][]string, availableWidth int, hints map[string]ColumnHint, opts IsColumnarReadableOpts) bool {
+	if len(columns) == 0 {
+		return true
+	}
+
+	// Filter hidden columns (same as the renderer does)
+	visibleCols, visibleRows := filterColumns(columns, rows, opts.HiddenColumns)
+	if len(visibleCols) == 0 {
+		return true
+	}
+
+	// Account for row number column (same calculation as RenderColumnarTable)
+	showRowNum := opts.RowNumberStyle != "none" && opts.RowNumberStyle != ""
+	rowNumWidth := 0
+	if showRowNum {
+		maxRowNum := len(visibleRows)
+		if maxRowNum == 0 {
+			maxRowNum = 1
+		}
+		rowNumWidth = len(fmt.Sprintf("%d", maxRowNum)) + 2 // padding
+		if opts.RowNumberStyle == "bullet" {
+			rowNumWidth = 3 // "• " plus padding
+		}
+	}
+
+	const sepWidth = 2
+	effectiveWidth := availableWidth - rowNumWidth
+	if showRowNum {
+		effectiveWidth -= sepWidth
+	}
+
+	if effectiveWidth < minReadableWidth {
+		return false
+	}
+
+	// Calculate natural widths to know each column's unconstrained size
+	naturalWidths := make([]int, len(visibleCols))
+	for i, col := range visibleCols {
+		naturalWidths[i] = lipgloss.Width(col)
+	}
+	for _, row := range visibleRows {
+		for i, val := range row {
+			if i < len(naturalWidths) {
+				if w := lipgloss.Width(val); w > naturalWidths[i] {
+					naturalWidths[i] = w
+				}
+			}
+		}
+	}
+
+	// Calculate assigned widths using the same algorithm the renderer uses
+	assigned := calculateColumnWidths(visibleCols, visibleRows, effectiveWidth, hints)
+
+	// Check if any column that naturally needs more than minReadableWidth
+	// was shrunk below that threshold
+	for i, w := range assigned {
+		if naturalWidths[i] >= minReadableWidth && w < minReadableWidth {
+			return false
+		}
+	}
+
+	return true
+}
+
 // padLeft right-aligns s within the given width, padding with spaces on the left.
 func padLeft(s string, width int) string {
 	w := lipgloss.Width(s)
