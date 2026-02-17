@@ -89,6 +89,11 @@ func LoadData(input string) ([]interface{}, error) {
 // LoadDataWithLogger is like LoadData but accepts a logger for
 // recording fallback parse attempts.
 func LoadDataWithLogger(input string, lgr logr.Logger) ([]interface{}, error) {
+	// Normalize line endings: \r\n → \n, then standalone \r → \n
+	// This handles Windows line endings and carriage returns from
+	// progress indicators (e.g., CLI tools that overwrite lines).
+	input = strings.ReplaceAll(input, "\r\n", "\n")
+	input = strings.ReplaceAll(input, "\r", "\n")
 	input = strings.TrimSpace(input)
 	if input == "" {
 		return nil, fmt.Errorf("empty input")
@@ -256,7 +261,11 @@ func LoadFileWithLogger(path string, lgr logr.Logger) (interface{}, error) {
 		return nil, err
 	}
 
-	input := string(data)
+	// Normalize line endings: \r\n → \n, then standalone \r → \n
+	// This handles Windows line endings and carriage returns from
+	// progress indicators (e.g., CLI tools that overwrite lines).
+	input := strings.ReplaceAll(string(data), "\r\n", "\n")
+	input = strings.ReplaceAll(input, "\r", "\n")
 
 	// Honor the file extension first.
 	ext := filepath.Ext(path)

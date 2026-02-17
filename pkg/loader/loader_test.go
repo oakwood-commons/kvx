@@ -420,6 +420,59 @@ another string
 	assert.Equal(t, "another string", got[3])
 }
 
+func TestLoadNDJSONWithCarriageReturns(t *testing.T) {
+	t.Run("carriage return separates lines from CLI progress indicators", func(t *testing.T) {
+		// CLI tools sometimes use \r to overwrite lines (progress indicators),
+		// mixing with JSON log output
+		input := "{\"level\":\"debug\"}\r❌ error message\n{\"level\":\"info\"}"
+		got, err := LoadData(input)
+		require.NoError(t, err)
+		// Should parse as 3 items: 2 JSON objects + 1 string
+		assert.Equal(t, 3, len(got))
+		assert.IsType(t, map[string]interface{}{}, got[0])
+		assert.IsType(t, "", got[1])
+		assert.IsType(t, map[string]interface{}{}, got[2])
+		assert.Equal(t, "❌ error message", got[1])
+	})
+
+	t.Run("Windows CRLF line endings", func(t *testing.T) {
+		input := "{\"id\":1}\r\n{\"id\":2}\r\n{\"id\":3}"
+		got, err := LoadData(input)
+		require.NoError(t, err)
+		assert.Equal(t, 3, len(got))
+	})
+
+	t.Run("mixed line endings", func(t *testing.T) {
+		input := "{\"a\":1}\n{\"b\":2}\r\n{\"c\":3}\r{\"d\":4}"
+		got, err := LoadData(input)
+		require.NoError(t, err)
+		assert.Equal(t, 4, len(got))
+	})
+
+	t.Run("file with .ndjson extension and carriage returns", func(t *testing.T) {
+		// Ensure LoadFile (extension-based parsing) also normalizes CR
+		tmpFile, err := os.CreateTemp("", "test-*.ndjson")
+		require.NoError(t, err)
+		defer os.Remove(tmpFile.Name())
+
+		content := "{\"level\":\"debug\"}\r❌ error message\n{\"level\":\"info\"}"
+		_, err = tmpFile.WriteString(content)
+		require.NoError(t, err)
+		tmpFile.Close()
+
+		got, err := LoadFile(tmpFile.Name())
+		require.NoError(t, err)
+
+		// Should parse as slice of 3 items
+		gotSlice, ok := got.([]interface{})
+		require.True(t, ok, "expected slice, got %T", got)
+		assert.Equal(t, 3, len(gotSlice))
+		assert.IsType(t, map[string]interface{}{}, gotSlice[0])
+		assert.IsType(t, "", gotSlice[1])
+		assert.IsType(t, map[string]interface{}{}, gotSlice[2])
+	})
+}
+
 func TestLoadYAMLWithListItems(t *testing.T) {
 	t.Run("YAML with many bare list items is not misdetected as NDJSON", func(t *testing.T) {
 		input := `linters:
