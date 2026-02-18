@@ -437,7 +437,25 @@ func renderColumnarTable(node any, opts TableOptions, termWidth int) string {
 	tableWidth := termWidth
 	if opts.Bordered {
 		showRowNum := rowNumStyle != ArrayStyleNone
-		naturalContentWidth := formatter.CalculateNaturalColumnarWidth(columns, rows, showRowNum, len(rows))
+		// Build formatter-level hints for width calculation
+		var fmtHintsForWidth map[string]formatter.ColumnHint
+		if len(opts.ColumnHints) > 0 {
+			fmtHintsForWidth = make(map[string]formatter.ColumnHint, len(opts.ColumnHints))
+			for name, h := range opts.ColumnHints {
+				fmtHintsForWidth[name] = formatter.ColumnHint{
+					MaxWidth:    h.MaxWidth,
+					DisplayName: h.DisplayName,
+				}
+			}
+		}
+		// Merge hidden columns from hints early so the width calculation excludes them
+		allHidden := opts.HiddenColumns
+		for name, hint := range opts.ColumnHints {
+			if hint.Hidden {
+				allHidden = append(allHidden, name)
+			}
+		}
+		naturalContentWidth := formatter.CalculateNaturalColumnarWidthWithHints(columns, rows, showRowNum, len(rows), fmtHintsForWidth, allHidden)
 		naturalTableWidth := naturalContentWidth + 2 // +2 for side borders
 		if naturalTableWidth < termWidth {
 			tableWidth = naturalTableWidth
@@ -479,39 +497,31 @@ func renderColumnarTable(node any, opts TableOptions, termWidth int) string {
 		}
 	}
 
-	// Apply display name overrides to column headers
-	displayColumns := make([]string, len(columns))
-	copy(displayColumns, columns)
-	if len(opts.ColumnHints) > 0 {
-		for i, col := range columns {
-			if hint, ok := opts.ColumnHints[col]; ok && hint.DisplayName != "" {
-				displayColumns[i] = hint.DisplayName
-			}
-		}
-	}
-
-	// Build formatter-level column hints keyed by original column name
+	// Build formatter-level column hints keyed by original column name.
+	// The formatter owns display-name remapping via ColumnHint.DisplayName.
 	var fmtHints map[string]formatter.ColumnHint
 	if len(opts.ColumnHints) > 0 {
 		fmtHints = make(map[string]formatter.ColumnHint, len(opts.ColumnHints))
 		for name, h := range opts.ColumnHints {
 			fmtHints[name] = formatter.ColumnHint{
-				MaxWidth: h.MaxWidth,
-				Priority: h.Priority,
-				Align:    h.Align,
+				MaxWidth:    h.MaxWidth,
+				Priority:    h.Priority,
+				Align:       h.Align,
+				DisplayName: h.DisplayName,
 			}
 		}
 	}
 
-	// Render columnar content
-	tableView := formatter.RenderColumnarTable(displayColumns, rows, formatter.ColumnarOptions{
+	// Render columnar content — pass original column names so that
+	// filterColumns matches HiddenColumns correctly and the formatter
+	// applies DisplayName overrides in a single place.
+	tableView := formatter.RenderColumnarTable(columns, rows, formatter.ColumnarOptions{
 		NoColor:        opts.NoColor,
 		TotalWidth:     contentWidth,
 		RowNumberStyle: rowNumStyle,
 		ColumnOrder:    opts.ColumnOrder,
 		HiddenColumns:  hiddenCols,
 		ColumnHints:    fmtHints,
-		OriginalNames:  columns,
 	})
 
 	if !opts.Bordered {

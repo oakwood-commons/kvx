@@ -186,6 +186,66 @@ tui.RenderTable(root, tui.TableOptions{
 })
 ```
 
+### Column display hints (schema)
+
+Control column headers, widths, alignment, and visibility using `ColumnHints`.
+You can build hints programmatically or parse them from a JSON Schema:
+
+```go
+// Option 1: Build hints directly
+hints := map[string]tui.ColumnHint{
+    "user_id":   {DisplayName: "ID", MaxWidth: 10},
+    "full_name": {DisplayName: "Name"},
+    "score":     {Align: "right"},           // right-align numbers
+    "internal":  {Hidden: true},             // hide this column
+}
+
+output := tui.RenderTable(root, tui.TableOptions{
+    Bordered:    true,
+    ColumnOrder: []string{"full_name", "user_id", "score"},
+    ColumnHints: hints,
+})
+```
+
+```go
+// Option 2: Parse from JSON Schema
+schemaJSON := []byte(`{
+    "type": "array",
+    "items": {
+        "type": "object",
+        "required": ["id", "name"],
+        "properties": {
+            "id":    {"title": "ID", "type": "string", "maxLength": 10},
+            "name":  {"title": "Name", "type": "string"},
+            "price": {"type": "number"},
+            "legacy": {"deprecated": true}
+        }
+    }
+}`)
+
+hints, err := tui.ParseSchema(schemaJSON)
+if err != nil {
+    log.Fatal(err)
+}
+
+output := tui.RenderTable(root, tui.TableOptions{
+    Bordered:    true,
+    ColumnHints: hints,
+})
+```
+
+`ParseSchema` derives hints from standard JSON Schema fields:
+
+| JSON Schema Field | ColumnHint Effect |
+|-------------------|-------------------|
+| `title` | `DisplayName` — column header text |
+| `maxLength` | `MaxWidth` — cap column width |
+| `enum` | `MaxWidth` — longest enum value |
+| `format` (date, uuid, etc.) | `MaxWidth` — auto-calculated |
+| `type: integer/number` | `Align: "right"` |
+| `deprecated: true` | `Hidden: true` |
+| `required` array | `Priority` boost |
+
 ### Unified `Render` function
 
 If you want to let the caller choose the output format at runtime (table, list, YAML, JSON),

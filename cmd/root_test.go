@@ -368,6 +368,119 @@ func TestCLI_EvaluatesMapLiteralWithJSONOutput(t *testing.T) {
 	}
 }
 
+func TestCLI_SchemaAppliesColumnHints(t *testing.T) {
+	// Create temp directory with test data and schema
+	tmpDir := t.TempDir()
+
+	// Create test data file with array of objects
+	dataFile := filepath.Join(tmpDir, "data.json")
+	dataContent := `[
+		{"user_id": "u001", "full_name": "Alice", "internal_code": "X123", "score": 95},
+		{"user_id": "u002", "full_name": "Bob", "internal_code": "Y456", "score": 87}
+	]`
+	err := os.WriteFile(dataFile, []byte(dataContent), 0o644)
+	require.NoError(t, err)
+
+	// Create schema file with display hints
+	schemaFile := filepath.Join(tmpDir, "schema.json")
+	schemaContent := `{
+		"type": "array",
+		"items": {
+			"type": "object",
+			"required": ["user_id", "full_name"],
+			"properties": {
+				"user_id": {
+					"type": "string",
+					"title": "ID"
+				},
+				"full_name": {
+					"type": "string",
+					"title": "Name"
+				},
+				"internal_code": {
+					"type": "string",
+					"deprecated": true
+				},
+				"score": {
+					"type": "integer"
+				}
+			}
+		}
+	}`
+	err = os.WriteFile(schemaFile, []byte(schemaContent), 0o644)
+	require.NoError(t, err)
+
+	t.Run("title renames column headers", func(t *testing.T) {
+		out := runCLI(t, []string{"kvx", dataFile, "--no-color", "--schema", schemaFile, "-o", "table"})
+		// Schema title "ID" should replace "user_id"
+		if !strings.Contains(out, "ID") {
+			t.Errorf("expected column header 'ID' from schema title, got:\n%s", out)
+		}
+		// Schema title "Name" should replace "full_name"
+		if !strings.Contains(out, "Name") {
+			t.Errorf("expected column header 'Name' from schema title, got:\n%s", out)
+		}
+	})
+
+	t.Run("deprecated hides column", func(t *testing.T) {
+		out := runCLI(t, []string{"kvx", dataFile, "--no-color", "--schema", schemaFile, "-o", "table"})
+		// deprecated: true should hide internal_code column
+		if strings.Contains(out, "internal_code") || strings.Contains(out, "X123") || strings.Contains(out, "Y456") {
+			t.Errorf("expected deprecated column 'internal_code' to be hidden, got:\n%s", out)
+		}
+	})
+
+	t.Run("data values still present", func(t *testing.T) {
+		out := runCLI(t, []string{"kvx", dataFile, "--no-color", "--schema", schemaFile, "-o", "table"})
+		// Actual data values should be present
+		if !strings.Contains(out, "Alice") || !strings.Contains(out, "Bob") {
+			t.Errorf("expected data values Alice and Bob, got:\n%s", out)
+		}
+		if !strings.Contains(out, "u001") || !strings.Contains(out, "u002") {
+			t.Errorf("expected user IDs u001 and u002, got:\n%s", out)
+		}
+	})
+
+	t.Run("integer type right-aligns score column", func(t *testing.T) {
+		out := runCLI(t, []string{"kvx", dataFile, "--no-color", "--schema", schemaFile, "-o", "table"})
+		// "score" is type: integer → right-aligned.
+		// Right-aligned "87" in a column that fits "score" (5 chars) should have leading space.
+		lines := strings.Split(out, "\n")
+		found := false
+		for _, line := range lines {
+			if strings.Contains(line, "Bob") && strings.Contains(line, "87") {
+				idx := strings.Index(line, "87")
+				if idx > 0 && line[idx-1] == ' ' {
+					found = true
+				}
+			}
+		}
+		require.True(t, found, "score column should be right-aligned; output:\n%s", out)
+	})
+
+	t.Run("maxLength caps column width", func(t *testing.T) {
+		// Create a schema with maxLength on full_name
+		schemaWithMax := filepath.Join(tmpDir, "schema_max.json")
+		err := os.WriteFile(schemaWithMax, []byte(`{
+			"type": "array",
+			"items": {
+				"type": "object",
+				"properties": {
+					"full_name": {
+						"type": "string",
+						"maxLength": 4
+					}
+				}
+			}
+		}`), 0o644)
+		require.NoError(t, err)
+
+		out := runCLI(t, []string{"kvx", dataFile, "--no-color", "--schema", schemaWithMax, "-o", "table"})
+		// "Alice" (5 chars) should be truncated to 4 chars by maxLength cap
+		require.NotContains(t, out, "Alice", "full_name should be truncated by maxLength 4; output:\n%s", out)
+	})
+}
+
 func TestGetProgramOptions_PipedUsesTTYAndCleansUp(t *testing.T) {
 	origIsPiped := stdinIsPiped
 	origOpenTTY := openTerminalIOFn

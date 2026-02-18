@@ -40,7 +40,19 @@ func DefaultTableFormatOptions() TableFormatOptions {
 // CalculateNaturalColumnarWidth calculates the natural width needed for a columnar table
 // without truncation. Returns the width needed for all columns including separators.
 func CalculateNaturalColumnarWidth(columns []string, rows [][]string, showRowNum bool, numRows int) int {
+	return CalculateNaturalColumnarWidthWithHints(columns, rows, showRowNum, numRows, nil, nil)
+}
+
+// CalculateNaturalColumnarWidthWithHints is like CalculateNaturalColumnarWidth but
+// accounts for hidden columns, display-name overrides, and MaxWidth caps from hints.
+func CalculateNaturalColumnarWidthWithHints(columns []string, rows [][]string, showRowNum bool, numRows int, hints map[string]ColumnHint, hiddenColumns []string) int {
 	if len(columns) == 0 {
+		return 0
+	}
+
+	// Filter out hidden columns
+	visCols, visRows := filterColumns(columns, rows, hiddenColumns)
+	if len(visCols) == 0 {
 		return 0
 	}
 
@@ -52,12 +64,16 @@ func CalculateNaturalColumnarWidth(columns []string, rows [][]string, showRowNum
 		rowNumWidth = len(fmt.Sprintf("%d", numRows)) + 2 // padding
 	}
 
-	// Calculate natural width for each column (header + max data)
-	colWidths := make([]int, len(columns))
-	for i, col := range columns {
-		colWidths[i] = lipgloss.Width(col)
+	// Calculate natural width for each column (header or display name + max data)
+	colWidths := make([]int, len(visCols))
+	for i, col := range visCols {
+		header := col
+		if h, ok := hints[col]; ok && h.DisplayName != "" {
+			header = h.DisplayName
+		}
+		colWidths[i] = lipgloss.Width(header)
 	}
-	for _, row := range rows {
+	for _, row := range visRows {
 		for i, val := range row {
 			if i < len(colWidths) {
 				w := lipgloss.Width(val)
@@ -65,6 +81,13 @@ func CalculateNaturalColumnarWidth(columns []string, rows [][]string, showRowNum
 					colWidths[i] = w
 				}
 			}
+		}
+	}
+
+	// Apply MaxWidth caps from hints
+	for i, col := range visCols {
+		if h, ok := hints[col]; ok && h.MaxWidth > 0 && colWidths[i] > h.MaxWidth {
+			colWidths[i] = h.MaxWidth
 		}
 	}
 
@@ -107,11 +130,6 @@ type ColumnarOptions struct {
 	// ColumnHints provides per-column display hints for width, priority, and alignment.
 	// Keys are the original field names (before any display name remapping).
 	ColumnHints map[string]ColumnHint
-
-	// OriginalNames maps display column names back to original field names.
-	// Used to look up ColumnHints when display names differ from field names.
-	// If nil, column names are used as-is for hint lookup.
-	OriginalNames []string
 }
 
 // RenderColumnarTable renders data as a multi-column table with field names as headers.
@@ -128,24 +146,22 @@ func RenderColumnarTable(columns []string, rows [][]string, opts ColumnarOptions
 		return ""
 	}
 
-	// Build per-column hint lookup for visible columns.
-	// OriginalNames maps display names → original field names for hint lookup.
+	// Apply DisplayName overrides to visible columns for headers.
+	// Keep track of original names for hint lookup.
+	displayCols := make([]string, len(visibleCols))
+	for i, col := range visibleCols {
+		displayCols[i] = col
+		if h, ok := opts.ColumnHints[col]; ok && h.DisplayName != "" {
+			displayCols[i] = h.DisplayName
+		}
+	}
+
+	// Build per-column alignment lookup.
+	// visibleCols are original field names, matching ColumnHints keys.
 	colAligns := make([]string, len(visibleCols))
 	if len(opts.ColumnHints) > 0 {
 		for i, col := range visibleCols {
-			origName := col
-			if opts.OriginalNames != nil {
-				// Find the original name for this visible column
-				for oi, oc := range columns {
-					if oc == col || (oi < len(opts.OriginalNames) && opts.OriginalNames[oi] == col) {
-						if oi < len(opts.OriginalNames) {
-							origName = opts.OriginalNames[oi]
-						}
-						break
-					}
-				}
-			}
-			if h, ok := opts.ColumnHints[origName]; ok {
+			if h, ok := opts.ColumnHints[col]; ok {
 				colAligns[i] = h.Align
 			}
 		}
@@ -175,12 +191,12 @@ func RenderColumnarTable(columns []string, rows [][]string, opts ColumnarOptions
 	if showRowNum {
 		availableWidth -= sepWidth
 	}
-	colWidths := calculateColumnWidths(visibleCols, visibleRows, availableWidth, resolveHints(visibleCols, columns, opts))
+	colWidths := calculateColumnWidths(displayCols, visibleRows, availableWidth, resolveHints(visibleCols, opts))
 
 	var b strings.Builder
 
 	// Render header
-	headerRow := renderHeader(visibleCols, colWidths, sepWidth, rowNumWidth, showRowNum, opts.NoColor)
+	headerRow := renderHeader(displayCols, colWidths, sepWidth, rowNumWidth, showRowNum, opts.NoColor)
 	b.WriteString(headerRow + "\n")
 
 	// Separator line - width needs to match header width including row number separator
@@ -244,7 +260,7 @@ func filterColumns(columns []string, rows [][]string, hidden []string) ([]string
 	return visibleCols, visibleRows
 }
 
-func calculateColumnWidths(columns []string, rows [][]string, availableWidth int, hints map[string]ColumnHint) []int {
+func calculateColumnWidths(columns []string, rows [][]string, availableWidth int, hints []ColumnHint) []int {
 	numCols := len(columns)
 	if numCols == 0 {
 		return nil
@@ -270,9 +286,9 @@ func calculateColumnWidths(columns []string, rows [][]string, availableWidth int
 	}
 
 	// Apply MaxWidth caps from hints before any shrinking
-	for i, col := range columns {
-		if h, ok := hints[col]; ok && h.MaxWidth > 0 && widths[i] > h.MaxWidth {
-			widths[i] = h.MaxWidth
+	for i := range columns {
+		if i < len(hints) && hints[i].MaxWidth > 0 && widths[i] > hints[i].MaxWidth {
+			widths[i] = hints[i].MaxWidth
 		}
 	}
 
@@ -290,7 +306,7 @@ func calculateColumnWidths(columns []string, rows [][]string, availableWidth int
 	if totalNeeded > usableWidth && usableWidth > 0 {
 		if len(hints) > 0 {
 			// Priority-based shrinking: shrink lowest-priority columns first
-			widths = shrinkByPriority(columns, widths, usableWidth, hints)
+			widths = shrinkByPriority(widths, usableWidth, hints)
 		} else {
 			// Original behavior: cap then proportional shrink
 			maxColWidth := 40
@@ -417,28 +433,21 @@ func renderDataRow(rowIndex int, values []string, widths []int, sepWidth, rowNum
 	return strings.Join(parts, sep)
 }
 
-// resolveHints maps visible (display) column names to their ColumnHint using
-// OriginalNames for lookup when display names differ from field names.
-func resolveHints(visibleCols, allCols []string, opts ColumnarOptions) map[string]ColumnHint {
+// resolveHints builds a per-column hint slice so that calculateColumnWidths
+// and shrinkByPriority can look up hints by index, avoiding collisions when
+// multiple columns share the same display name.
+//
+// visibleCols: original field names after hidden-column filtering.
+// opts:        ColumnarOptions carrying the ColumnHints map (keyed by original field name).
+func resolveHints(visibleCols []string, opts ColumnarOptions) []ColumnHint {
 	if len(opts.ColumnHints) == 0 {
 		return nil
 	}
 
-	result := make(map[string]ColumnHint, len(visibleCols))
-	for _, vc := range visibleCols {
-		origName := vc
-		if opts.OriginalNames != nil {
-			for oi, ac := range allCols {
-				if ac == vc || (oi < len(opts.OriginalNames) && opts.OriginalNames[oi] == vc) {
-					if oi < len(opts.OriginalNames) {
-						origName = opts.OriginalNames[oi]
-					}
-					break
-				}
-			}
-		}
-		if h, ok := opts.ColumnHints[origName]; ok {
-			result[vc] = h
+	result := make([]ColumnHint, len(visibleCols))
+	for i, vc := range visibleCols {
+		if h, ok := opts.ColumnHints[vc]; ok {
+			result[i] = h
 		}
 	}
 	return result
@@ -447,7 +456,7 @@ func resolveHints(visibleCols, allCols []string, opts ColumnarOptions) map[strin
 // shrinkByPriority reduces column widths to fit within usableWidth by shrinking
 // lowest-priority columns first. Higher Priority values mean the column is more
 // important and will be shrunk last.
-func shrinkByPriority(columns []string, widths []int, usableWidth int, hints map[string]ColumnHint) []int {
+func shrinkByPriority(widths []int, usableWidth int, hints []ColumnHint) []int {
 	const minColWidth = 3
 	total := 0
 	for _, w := range widths {
@@ -463,11 +472,11 @@ func shrinkByPriority(columns []string, widths []int, usableWidth int, hints map
 		idx      int
 		priority int
 	}
-	cols := make([]colPri, len(columns))
-	for i, col := range columns {
+	cols := make([]colPri, len(widths))
+	for i := range widths {
 		pri := 0
-		if h, ok := hints[col]; ok {
-			pri = h.Priority
+		if i < len(hints) {
+			pri = hints[i].Priority
 		}
 		cols[i] = colPri{idx: i, priority: pri}
 	}
@@ -562,8 +571,19 @@ func IsColumnarReadable(columns []string, rows [][]string, availableWidth int, h
 		}
 	}
 
+	// Convert hints map to slice for calculateColumnWidths
+	var hintSlice []ColumnHint
+	if len(hints) > 0 {
+		hintSlice = make([]ColumnHint, len(visibleCols))
+		for i, col := range visibleCols {
+			if h, ok := hints[col]; ok {
+				hintSlice[i] = h
+			}
+		}
+	}
+
 	// Calculate assigned widths using the same algorithm the renderer uses
-	assigned := calculateColumnWidths(visibleCols, visibleRows, effectiveWidth, hints)
+	assigned := calculateColumnWidths(visibleCols, visibleRows, effectiveWidth, hintSlice)
 
 	// Check if any column that naturally needs more than minReadableWidth
 	// was shrunk below that threshold

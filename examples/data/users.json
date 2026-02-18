@@ -1,0 +1,7 @@
+[
+  {"user_id": "u001", "full_name": "Alice Smith", "score": 95, "internal_code": "X123", "department": "Engineering"},
+  {"user_id": "u002", "full_name": "Bob Jones", "score": 87, "internal_code": "Y456", "department": "Sales"},
+  {"user_id": "u003", "full_name": "Carol White", "score": 92, "internal_code": "Z789", "department": "Engineering"},
+  {"user_id": "u004", "full_name": "David Lee", "score": 78, "internal_code": "W012", "department": "Marketing"},
+  {"user_id": "u005", "full_name": "Eva Brown", "score": 99, "internal_code": "V345", "department": "Engineering"}
+]
