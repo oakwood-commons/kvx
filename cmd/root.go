@@ -1011,9 +1011,9 @@ func renderColumnarBorderedTable(node interface{}, noColor bool, widthHint int, 
 		return renderBorderedTable(node, noColor, 0, 0, termWidth, appName, path)
 	}
 
-	// Calculate natural content width (no caps, no truncation)
+	// Calculate natural content width accounting for hidden columns and display name overrides
 	showRowNum := tableOpts.ArrayStyle != "none"
-	naturalContentWidth := formatter.CalculateNaturalColumnarWidth(columns, rows, showRowNum, len(rows))
+	naturalContentWidth := formatter.CalculateNaturalColumnarWidthWithHints(columns, rows, showRowNum, len(rows), tableOpts.ColumnHints, tableOpts.HiddenColumns)
 
 	// Table width: use natural width if it fits, otherwise use terminal width
 	tableWidth := termWidth
@@ -1468,9 +1468,10 @@ func tableFormatOptionsFromConfig(cfg ui.ThemeConfigFile) formatter.TableFormatO
 		opts.ColumnHints = make(map[string]formatter.ColumnHint, len(schemaHints))
 		for k, h := range schemaHints {
 			opts.ColumnHints[k] = formatter.ColumnHint{
-				MaxWidth: h.MaxWidth,
-				Priority: h.Priority,
-				Align:    h.Align,
+				MaxWidth:    h.MaxWidth,
+				Priority:    h.Priority,
+				Align:       h.Align,
+				DisplayName: h.DisplayName,
 			}
 			if h.Hidden {
 				opts.HiddenColumns = append(opts.HiddenColumns, k)

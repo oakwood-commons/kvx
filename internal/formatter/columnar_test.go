@@ -159,8 +159,9 @@ func TestCalculateColumnWidths_WithHints(t *testing.T) {
 	t.Run("MaxWidth cap applied", func(t *testing.T) {
 		columns := []string{"short", "long_col"}
 		rows := [][]string{{"hi", "a very long value that should be capped"}}
-		hints := map[string]ColumnHint{
-			"long_col": {MaxWidth: 10},
+		hints := []ColumnHint{
+			{}, // short - no hint
+			{MaxWidth: 10},
 		}
 
 		widths := calculateColumnWidths(columns, rows, 100, hints)
@@ -175,9 +176,9 @@ func TestCalculateColumnWidths_WithHints(t *testing.T) {
 			"012345678901234567890123456789",
 			"012345678901234567890123456789",
 		}}
-		hints := map[string]ColumnHint{
-			"important":   {Priority: 10},
-			"unimportant": {Priority: 0},
+		hints := []ColumnHint{
+			{Priority: 10}, // important
+			{Priority: 0},  // unimportant
 		}
 
 		// Available width is much less than needed (30+30+2sep = 62, give only 40)
@@ -191,15 +192,14 @@ func TestCalculateColumnWidths_WithHints(t *testing.T) {
 
 func TestShrinkByPriority(t *testing.T) {
 	t.Run("shrinks lowest priority first", func(t *testing.T) {
-		columns := []string{"a", "b", "c"}
 		widths := []int{20, 20, 20} // total=60
-		hints := map[string]ColumnHint{
-			"a": {Priority: 10},
-			"b": {Priority: 5},
-			"c": {Priority: 0},
+		hints := []ColumnHint{
+			{Priority: 10}, // a
+			{Priority: 5},  // b
+			{Priority: 0},  // c
 		}
 
-		result := shrinkByPriority(columns, widths, 45, hints)
+		result := shrinkByPriority(widths, 45, hints)
 		// Need to shed 15 from total 60 to reach 45
 		// c (priority 0) should shrink first (20→5, can shed 17)
 		assert.Equal(t, 20, result[0], "highest priority should keep its width")
@@ -208,15 +208,14 @@ func TestShrinkByPriority(t *testing.T) {
 	})
 
 	t.Run("spreads across columns when lowest cant absorb all", func(t *testing.T) {
-		columns := []string{"high", "low1", "low2"}
 		widths := []int{20, 10, 10} // total=40
-		hints := map[string]ColumnHint{
-			"high": {Priority: 10},
-			"low1": {Priority: 0},
-			"low2": {Priority: 0},
+		hints := []ColumnHint{
+			{Priority: 10}, // high
+			{Priority: 0},  // low1
+			{Priority: 0},  // low2
 		}
 
-		result := shrinkByPriority(columns, widths, 20, hints)
+		result := shrinkByPriority(widths, 20, hints)
 		// Need to shed 20. low1 can shed 7 (10→3), low2 can shed 7 (10→3), high sheds 6 (20→14)
 		assert.Equal(t, 3, result[1], "low1 should shrink to min")
 		assert.Equal(t, 3, result[2], "low2 should shrink to min")
@@ -224,9 +223,8 @@ func TestShrinkByPriority(t *testing.T) {
 	})
 
 	t.Run("no shrink needed", func(t *testing.T) {
-		columns := []string{"a", "b"}
 		widths := []int{10, 10}
-		result := shrinkByPriority(columns, widths, 30, nil)
+		result := shrinkByPriority(widths, 30, nil)
 		assert.Equal(t, 10, result[0])
 		assert.Equal(t, 10, result[1])
 	})
@@ -345,5 +343,80 @@ func TestRenderColumnarTable_WithHints(t *testing.T) {
 				assert.NotContains(t, line, "A very long name that exceeds the cap")
 			}
 		}
+	})
+
+	t.Run("DisplayName renames header", func(t *testing.T) {
+		result := RenderColumnarTable(columns, rows, ColumnarOptions{
+			NoColor:        true,
+			TotalWidth:     40,
+			RowNumberStyle: "none",
+			ColumnHints: map[string]ColumnHint{
+				"name": {DisplayName: "Full Name"},
+			},
+		})
+		assert.Contains(t, result, "Full Name")
+		assert.NotContains(t, result, "name  ")
+	})
+
+	t.Run("DisplayName with MaxWidth applies cap to renamed column", func(t *testing.T) {
+		longRows := [][]string{
+			{"A really long name here", "val"},
+		}
+		result := RenderColumnarTable(columns, longRows, ColumnarOptions{
+			NoColor:        true,
+			TotalWidth:     100,
+			RowNumberStyle: "none",
+			ColumnHints: map[string]ColumnHint{
+				"name": {DisplayName: "Full Name", MaxWidth: 10},
+			},
+		})
+		assert.Contains(t, result, "Full Name")
+		lines := strings.Split(result, "\n")
+		for _, line := range lines {
+			if strings.Contains(line, "val") {
+				// The full long value should be truncated
+				assert.NotContains(t, line, "A really long name here",
+					"MaxWidth should cap the renamed column")
+			}
+		}
+	})
+
+	t.Run("DisplayName with Align applies alignment to renamed column", func(t *testing.T) {
+		result := RenderColumnarTable(columns, rows, ColumnarOptions{
+			NoColor:        true,
+			TotalWidth:     40,
+			RowNumberStyle: "none",
+			ColumnHints: map[string]ColumnHint{
+				"value": {DisplayName: "Score", Align: "right"},
+			},
+		})
+		assert.Contains(t, result, "Score")
+		// Right-aligned "123" should have leading space
+		lines := strings.Split(result, "\n")
+		found := false
+		for _, line := range lines {
+			if strings.Contains(line, "Alice") && strings.Contains(line, "123") {
+				idx := strings.Index(line, "123")
+				if idx > 0 && line[idx-1] == ' ' {
+					found = true
+				}
+			}
+		}
+		assert.True(t, found, "renamed column should still be right-aligned")
+	})
+
+	t.Run("hidden column with DisplayName is still hidden", func(t *testing.T) {
+		result := RenderColumnarTable(columns, rows, ColumnarOptions{
+			NoColor:        true,
+			TotalWidth:     40,
+			RowNumberStyle: "none",
+			HiddenColumns:  []string{"name"},
+			ColumnHints: map[string]ColumnHint{
+				"name": {DisplayName: "Full Name"},
+			},
+		})
+		assert.NotContains(t, result, "Full Name")
+		assert.NotContains(t, result, "name")
+		assert.Contains(t, result, "value")
 	})
 }

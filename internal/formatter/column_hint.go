@@ -13,4 +13,8 @@ type ColumnHint struct {
 
 	// Align controls text alignment: "right" or "left" (default).
 	Align string
+
+	// DisplayName overrides the column header text.
+	// Empty string means use the original field name.
+	DisplayName string
 }

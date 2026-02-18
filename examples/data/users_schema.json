@@ -1,0 +1,36 @@
+{
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["user_id", "full_name"],
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "title": "ID",
+        "description": "Unique user identifier",
+        "maxLength": 8
+      },
+      "full_name": {
+        "type": "string",
+        "title": "Name",
+        "description": "User's full name"
+      },
+      "score": {
+        "type": "integer",
+        "title": "Score",
+        "description": "Performance score (0-100)"
+      },
+      "department": {
+        "type": "string",
+        "title": "Dept",
+        "description": "Department name",
+        "enum": ["Engineering", "Sales", "Marketing", "Support"]
+      },
+      "internal_code": {
+        "type": "string",
+        "deprecated": true,
+        "description": "Legacy internal code - hidden from output"
+      }
+    }
+  }
+}

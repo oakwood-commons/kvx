@@ -68,3 +68,126 @@ Prefer **emacs** or **function-key** style bindings? Use `--keymap emacs` or `--
 - Built-ins: midnight (default), dark, warm, cool — loaded from `internal/ui/default_config.yaml`.
 - Select with `--theme <name>`; `--no-color` disables colors/box drawing.
 - User config merges with defaults; custom themes can be added via config; `--config` prints the merged config for editing.
+
+## Schema-driven column hints
+
+Use `--schema <path>` to provide a JSON Schema file that controls how table columns are displayed. This is useful for customizing column headers, widths, alignment, and visibility.
+
+### How it works
+
+kvx reads standard JSON Schema properties and derives display hints:
+
+| JSON Schema Field | Effect |
+|-------------------|--------|
+| `title` | Override column header text |
+| `maxLength` | Cap column width (characters) |
+| `enum` | Cap width to longest enum value |
+| `format` | Auto-width for known formats (date=10, uuid=36, email=40, etc.) |
+| `type: integer/number` | Right-align the column |
+| `deprecated: true` | Hide the column |
+| `required` array | Boost priority (+10) for required fields |
+| Property order | Priority tiebreaker (first declared = highest) |
+
+### Example schema (object)
+
+```json
+{
+  "type": "object",
+  "required": ["id", "name"],
+  "properties": {
+    "id": {
+      "title": "ID",
+      "type": "string",
+      "maxLength": 8
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "price": {
+      "title": "Price",
+      "type": "number"
+    },
+    "legacy_field": {
+      "deprecated": true
+    }
+  }
+}
+```
+
+### Example schema (array)
+
+For data that is an array of objects, wrap the properties inside `items`:
+
+```json
+{
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["user_id", "full_name"],
+    "properties": {
+      "user_id": {
+        "title": "ID",
+        "type": "string",
+        "maxLength": 8
+      },
+      "full_name": {
+        "title": "Name",
+        "type": "string"
+      },
+      "score": {
+        "type": "integer"
+      },
+      "internal_code": {
+        "deprecated": true
+      }
+    }
+  }
+}
+```
+
+kvx automatically detects both formats through the `items` wrapper.
+```
+
+### Usage
+
+```bash
+# CLI flag
+kvx data.json --schema ./schema.json -o table
+
+# With interactive TUI
+kvx data.json --schema ./schema.json -i
+```
+
+### Config file options
+
+You can also specify schemas in your config file (`~/.config/kvx/config.yaml`):
+
+```yaml
+formatting:
+  table:
+    # Path to external schema file
+    schema_file: ./my-schema.json
+
+    # Or inline schema
+    schema:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          title: ID
+          maxLength: 8
+        name:
+          title: Name
+```
+
+**Priority**: CLI `--schema` > config `schema_file` > config inline `schema`.
+
+### Related options
+
+- `formatting.table.column_order: [name, id, ...]` — reorder columns
+- `formatting.table.hidden_columns: [internal_id, ...]` — hide specific columns
+
+### Library usage
+
+When using kvx as a library, you can pass schema hints programmatically via `tui.TableOptions.ColumnHints`. See [library-usage.md](library-usage.md#column-display-hints-schema) and the [examples/schema_hints](../examples/schema_hints/) example.
