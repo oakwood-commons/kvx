@@ -124,6 +124,10 @@ func panelLayoutStateFromModel(m *Model, opts PanelLayoutModelOptions) PanelLayo
 		if infoMessage == "" && m.ShowSuggestionSummary && m.SuggestionSummary != "" {
 			infoMessage = m.SuggestionSummary
 		}
+	} else if m.DecodedActive {
+		infoMessage = "✓ decoded"
+	} else if hint := m.decodeHintForSelectedRow(); hint != "" {
+		infoMessage = hint
 	}
 
 	return PanelLayoutState{

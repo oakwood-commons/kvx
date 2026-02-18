@@ -49,6 +49,7 @@ func navigationHelpRows(keyMode KeyMode, descs map[string]string) [][]string {
 		rows = [][]string{
 			{"j/k", descs["navigate_up_down"]},
 			{"h/l", descs["navigate_back_forward"]},
+			{"Enter/l", "decode serialized scalar"},
 			{"/", "search/filter"},
 			{"n/N", "next/prev match"},
 			{"gg/G", "go to top/bottom"},
@@ -62,6 +63,7 @@ func navigationHelpRows(keyMode KeyMode, descs map[string]string) [][]string {
 		rows = [][]string{
 			{"C-n/C-p", descs["navigate_up_down"]},
 			{"C-b/C-f", descs["navigate_back_forward"]},
+			{"C-f/Enter", "decode serialized scalar"},
 			{"C-s", "search/filter"},
 			{"C-r", "prev match"},
 			{"M-</M->", "go to top/bottom"},
@@ -76,6 +78,7 @@ func navigationHelpRows(keyMode KeyMode, descs map[string]string) [][]string {
 		rows = [][]string{
 			{"↑/↓", descs["navigate_up_down"]},
 			{"←/→", descs["navigate_back_forward"]},
+			{"→/Enter", "decode serialized scalar"},
 			{"Home/End", "go to top/bottom"},
 		}
 	}

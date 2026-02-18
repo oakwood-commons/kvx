@@ -32,6 +32,7 @@ import (
 	"github.com/oakwood-commons/kvx/internal/navigator"
 	"github.com/oakwood-commons/kvx/internal/ui"
 	"github.com/oakwood-commons/kvx/pkg/core"
+	"github.com/oakwood-commons/kvx/pkg/loader"
 	"github.com/oakwood-commons/kvx/pkg/logger"
 	"github.com/oakwood-commons/kvx/pkg/tui"
 )
@@ -214,6 +215,9 @@ var (
 
 	// Mermaid output options
 	mermaidDirection string
+
+	// Decode options
+	autoDecode string // "" = manual only, "lazy" = on navigate, "eager" = at load
 )
 
 var (
@@ -1263,6 +1267,10 @@ func applySnapshotConfigToModel(m *ui.Model, cfg ui.ThemeConfigFile) {
 	}
 	if cfg.Performance.VirtualScrolling != nil {
 		m.VirtualScrolling = *cfg.Performance.VirtualScrolling
+	}
+	// Apply auto-decode setting from CLI flag
+	if autoDecode != "" {
+		m.AutoDecode = autoDecode
 	}
 }
 
@@ -2417,6 +2425,12 @@ var rootCmd = &cobra.Command{
 			os.Exit(2)
 		}
 
+		// Validate auto-decode flag
+		if autoDecode != "" && autoDecode != "lazy" && autoDecode != "eager" && autoDecode != "disabled" {
+			fmt.Fprintf(os.Stderr, "Error: invalid --auto-decode value %q (expected 'lazy', 'eager', or 'disabled')\n", autoDecode)
+			os.Exit(2)
+		}
+
 		limitCfg := limiter.Config{
 			Limit:  limitRecords,
 			Offset: offsetRecords,
@@ -2511,6 +2525,12 @@ var rootCmd = &cobra.Command{
 				fmt.Fprintln(os.Stderr, err)
 				os.Exit(2)
 			}
+			// Eager auto-decode: recursively decode all serialized scalars before
+			// expression evaluation so that CEL can see the decoded structures.
+			if autoDecode == "eager" {
+				rootData = loader.RecursiveDecode(rootData)
+			}
+
 			// Evaluate expression for snapshot parity with CLI limiting
 			snapshotNode := rootData
 			if expression != "" {
@@ -2534,6 +2554,15 @@ var rootCmd = &cobra.Command{
 					dc.Printf("DBG: Snapshot expression result type: %T\n", n)
 				}
 				snapshotNode = n
+			}
+
+			// Lazy auto-decode: decode the expression result if it's a serialized scalar
+			if autoDecode == "lazy" {
+				if s, ok := snapshotNode.(string); ok {
+					if decoded, ok := loader.TryDecode(s); ok {
+						snapshotNode = decoded
+					}
+				}
 			}
 
 			// Apply limiting after expression for snapshot mode
@@ -2872,6 +2901,12 @@ var rootCmd = &cobra.Command{
 			os.Exit(2)
 		}
 
+		// Eager auto-decode: recursively decode all serialized scalars before
+		// expression evaluation so that CEL can see the decoded structures.
+		if autoDecode == "eager" {
+			root = loader.RecursiveDecode(root)
+		}
+
 		// All interactive and snapshot flows are handled earlier; reaching here should
 		// always mean non-interactive CLI output.
 		if interactive || renderSnapshot {
@@ -2906,6 +2941,15 @@ var rootCmd = &cobra.Command{
 			node = n
 		} else if debug {
 			dc.Println("DBG: No expression provided, using root")
+		}
+
+		// Lazy auto-decode: decode the expression result if it's a serialized scalar
+		if autoDecode == "lazy" {
+			if s, ok := node.(string); ok {
+				if decoded, ok := loader.TryDecode(s); ok {
+					node = decoded
+				}
+			}
 		}
 
 		// Apply record limiting after expression evaluation
@@ -3019,6 +3063,7 @@ func init() { //nolint:gochecknoinits
 	rootCmd.Flags().IntVar(&treeMaxStringLen, "tree-max-string", 0, "Max string length in tree output (0=auto, -1=unlimited)")
 	// Mermaid output options
 	rootCmd.Flags().StringVar(&mermaidDirection, "mermaid-direction", "TD", "Mermaid diagram direction: TD, LR, BT, RL")
+	rootCmd.Flags().StringVar(&autoDecode, "auto-decode", "", "Auto-decode serialized scalars: 'lazy' (on navigate), 'eager' (at load), or 'disabled' (default, manual via Enter)")
 	_ = rootCmd.Flags().MarkHidden("snapshot-width")
 	_ = rootCmd.Flags().MarkHidden("snapshot-height")
 	// Hide legacy --config flag from help; use `kvx config` instead

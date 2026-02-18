@@ -11,6 +11,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/oakwood-commons/kvx/internal/formatter"
+	"github.com/oakwood-commons/kvx/internal/navigator"
 )
 
 var (
@@ -479,7 +480,7 @@ func renderSearchTable(hits []searchHit, keyWidth, valueWidth int, noColor bool)
 	for _, h := range hits {
 		displayKey := h.Key
 		if !isCompositeNode(h.Node) {
-			displayKey = "(value)"
+			displayKey = navigator.ScalarValueKey
 		}
 		if strings.TrimSpace(displayKey) == "" {
 			displayKey = h.FullPath

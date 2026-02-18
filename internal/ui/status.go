@@ -33,6 +33,7 @@ type StatusModel struct {
 	SuggestionSummary     string                  // One-shot summary of functions after typing a trailing dot
 	ShowSuggestionSummary bool                    // Whether to render the trailing-dot summary in the status bar
 	InputValue            string                  // Current input value to check if it ends with "."
+	DecodeHint            string                  // Contextual hint shown when the selected value is decodable
 	NoColor               bool
 	Width                 int
 }
@@ -144,8 +145,13 @@ func (m StatusModel) View() string {
 		}
 	default:
 		statusStyle = statusStyle.Foreground(CurrentTheme().StatusColor)
-		if m.TotalRows > 0 && m.CursorIndex > 0 {
+		switch {
+		case m.DecodeHint != "" && m.TotalRows > 0 && m.CursorIndex > 0:
+			message = fmt.Sprintf("%d/%d  %s", m.CursorIndex, m.TotalRows, m.DecodeHint)
+		case m.TotalRows > 0 && m.CursorIndex > 0:
 			message = fmt.Sprintf("%d/%d", m.CursorIndex, m.TotalRows)
+		case m.DecodeHint != "":
+			message = m.DecodeHint
 		}
 	}
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/oakwood-commons/kvx/internal/formatter"
 	"github.com/oakwood-commons/kvx/internal/navigator"
+	"github.com/oakwood-commons/kvx/pkg/loader"
 )
 
 // RunModel starts the Bubble Tea TUI using the Model implementation.
@@ -36,6 +37,15 @@ func RunModel(appName string, root interface{}, helpTitle, helpText string, debu
 
 	if configure != nil {
 		configure(&m)
+	}
+
+	// Eager auto-decode: recursively decode all serialized scalars at load time
+	if m.AllowDecode && m.AutoDecode == "eager" {
+		m.Root = loader.RecursiveDecode(m.Root)
+		m.Node = m.Root
+		// Regenerate table rows from the decoded tree
+		newModel := m.NavigateTo(m.Node, m.Path)
+		m = *newModel
 	}
 
 	applyInitialExpr(&m, initialExpr)

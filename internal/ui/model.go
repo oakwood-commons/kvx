@@ -24,6 +24,7 @@ import (
 	"github.com/oakwood-commons/kvx/internal/formatter"
 	"github.com/oakwood-commons/kvx/internal/navigator"
 	"github.com/oakwood-commons/kvx/pkg/intellisense"
+	"github.com/oakwood-commons/kvx/pkg/loader"
 )
 
 // lastDotOutsideBrackets finds the index of the last '.' that is NOT inside a bracket-quoted segment ["..."].
@@ -158,6 +159,10 @@ type Model struct {
 	HelpPopupJustify           string                          // Alignment for help popup text
 	HelpPopupAnchor            string                          // Anchor for help popup (inline|top)
 	AllowFilter                bool                            // Whether type-ahead filter is enabled
+	AllowDecode                bool                            // Whether Enter/Right can decode serialized scalars
+	DecodedActive              bool                            // Whether the current view is inside a decoded (deserialized) subtree
+	DecodedPath                string                          // Path where the last decode happened (meaningful only when DecodedActive is true)
+	AutoDecode                 string                          // Auto-decode mode: "" (manual), "lazy" (on navigate), "eager" (at load)
 	AllowSuggestions           bool                            // Whether suggestions/intellisense are shown
 	AllowIntellisense          bool                            // Whether to show CEL/intellisense dropdown hints
 	HelpAboutTitle             string                          // About section title
@@ -348,6 +353,7 @@ func (m *Model) navigateBack() (tea.Model, tea.Cmd) {
 			}
 		}
 		newModel := m.NavigateTo(newNode, newPath)
+		newModel.updateDecodedState()
 		newModel.applyLayout(true)
 		newModel.restoreCursorForPath(newModel.Path)
 		return newModel, nil
@@ -363,8 +369,11 @@ func (m *Model) navigateForward() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// If user drills into a scalar value, do nothing
-	if selectedKey == "(value)" {
+	// If user drills into a scalar value, try to decode it
+	if selectedKey == navigator.ScalarValueKey {
+		if result, decoded := m.tryDecodeAndNavigate(); decoded {
+			return result, nil
+		}
 		return m, nil
 	}
 
@@ -382,8 +391,163 @@ func (m *Model) navigateForward() (tea.Model, tea.Cmd) {
 
 	newModel := m.NavigateTo(newNode, normalizePathForModel(newPath))
 	newModel.PathKeys = parsePathKeys(newModel.Path)
+	newModel.updateDecodedState()
 	newModel.applyLayout(true)
+	if m.AutoDecode == "lazy" {
+		if isScalar, _ := isScalarNode(newModel.Node); isScalar {
+			if result, decoded := newModel.tryDecodeAndNavigate(); decoded {
+				return result, nil
+			}
+		}
+	}
+
 	return newModel, nil
+}
+
+// tryDecodeAndNavigate attempts to decode the current scalar node as serialized data.
+// If the node is a string that can be parsed into structured data (map/slice), it
+// mutates the parent container to replace the scalar with the decoded structure and
+// navigates into it. Returns (model, true) on success or (nil, false) if the node
+// cannot be decoded. Respects the AllowDecode flag — returns false when decoding is disabled.
+func (m *Model) tryDecodeAndNavigate() (tea.Model, bool) {
+	if !m.AllowDecode {
+		return nil, false
+	}
+	strVal, ok := m.Node.(string)
+	if !ok {
+		return nil, false
+	}
+
+	decoded, ok := loader.TryDecode(strVal)
+	if !ok {
+		return nil, false
+	}
+
+	// Mutate the parent container in-place so that navigator.Resolve works
+	// when navigating back and forth through the decoded path.
+	m.replaceNodeInParent(decoded)
+
+	// Navigate into the decoded structure using the current path (no artificial [decoded] segment).
+	// Since the tree is mutated in-place, the current path now resolves to the decoded structure.
+	m.storeCursorForPath(m.Path)
+	newModel := m.NavigateTo(decoded, normalizePathForModel(m.Path))
+	newModel.PathKeys = parsePathKeys(newModel.Path)
+	newModel.DecodedActive = true
+	newModel.DecodedPath = m.Path
+	newModel.applyLayout(true)
+	return newModel, true
+}
+
+// updateDecodedState recomputes DecodedActive based on whether the current path
+// is still within the subtree where the last decode happened. If the user has
+// navigated out of that subtree, the decoded indicator is cleared.
+func (m *Model) updateDecodedState() {
+	if !m.DecodedActive {
+		return
+	}
+	if m.DecodedPath == "" {
+		// Decoded at root — every path is within the decoded subtree.
+		return
+	}
+	if m.Path == m.DecodedPath {
+		// At the decode point itself — only keep decoded active if we're
+		// viewing the decoded structure (a map/slice), not still looking
+		// at the parent key from one level up.  When the node at this path
+		// is structured, we're inside the decoded data.
+		switch m.Node.(type) {
+		case map[string]any, []any:
+			// Inside the decoded structure — keep badge.
+			return
+		}
+		m.DecodedActive = false
+		m.DecodedPath = ""
+		return
+	}
+	if strings.HasPrefix(m.Path, m.DecodedPath+".") ||
+		strings.HasPrefix(m.Path, m.DecodedPath+"[") {
+		return
+	}
+	m.DecodedActive = false
+	m.DecodedPath = ""
+}
+
+// replaceNodeInParent replaces the current node in its parent container with newNode.
+// This is used by decode to mutate the tree in-place so that path resolution continues
+// to work after a scalar is replaced with its decoded structure.
+//
+// WARNING: This function mutates m.Root in-place. The original tree structure is
+// permanently modified. This is intentional for decode because we want the expanded
+// structure to persist in the session.
+func (m *Model) replaceNodeInParent(newNode any) {
+	if m.Path == "" {
+		// At root level — replace root directly
+		m.Root = newNode
+		return
+	}
+
+	parentPath := removeLastSegment(m.Path)
+	var parent any
+	var err error
+	if parentPath == "" {
+		parent = m.Root
+	} else {
+		parent, err = navigator.Resolve(m.Root, parentPath)
+		if err != nil {
+			return
+		}
+	}
+
+	// Determine the key to replace in the parent
+	lastKey := lastPathSegment(m.Path)
+	if lastKey == "" {
+		return
+	}
+
+	switch p := parent.(type) {
+	case map[string]any:
+		// Unquote bracketed keys: ["a.b"] yields "a.b", need a.b
+		p[unquoteSegment(lastKey)] = newNode
+	case []any:
+		// Parse numeric index from the key (strip brackets if present)
+		idx := parseArrayIndex(lastKey)
+		if idx >= 0 && idx < len(p) {
+			p[idx] = newNode
+		}
+	}
+}
+
+// unquoteSegment strips surrounding double quotes from a path segment.
+// Bracket notation uses quotes for keys with special chars: ["a.b"] → "a.b".
+// Returns the unquoted key (a.b) for use in map access.
+func unquoteSegment(s string) string {
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		return s[1 : len(s)-1]
+	}
+	return s
+}
+
+// lastPathSegment extracts the last segment from a path string.
+// For "_.items[0].token" it returns "token".
+// For "_.items[0]" it returns "[0]".
+func lastPathSegment(path string) string {
+	keys := parsePathKeys(path)
+	if len(keys) == 0 {
+		return ""
+	}
+	return keys[len(keys)-1]
+}
+
+// parseArrayIndex extracts a numeric array index from a path segment.
+// Handles both "[0]" and "0" formats. Returns -1 if not a valid index.
+func parseArrayIndex(segment string) int {
+	// Strip surrounding brackets if present
+	s := strings.TrimPrefix(segment, "[")
+	s = strings.TrimSuffix(s, "]")
+	idx, err := strconv.Atoi(s)
+	if err != nil {
+		return -1
+	}
+	return idx
 }
 
 // styleRows applies consistent styling to table rows: cyan keys, gray values
@@ -719,6 +883,7 @@ func InitialModel(node interface{}) Model {
 		ConfiguredKeyColWidth:      30,
 		AllowEditInput:             true,
 		AllowFilter:                true,
+		AllowDecode:                true,
 		AllowSuggestions:           true,
 		AllowIntellisense:          true,
 		HelpPopupJustify:           "center",
@@ -1265,7 +1430,7 @@ func (m *Model) selectedRowPath() string {
 		return ""
 	}
 	selectedKey, ok := m.selectedRowKey()
-	if !ok || strings.TrimSpace(selectedKey) == "" || selectedKey == "(value)" {
+	if !ok || strings.TrimSpace(selectedKey) == "" || selectedKey == navigator.ScalarValueKey {
 		return m.Path
 	}
 	return buildPathWithKey(m.Path, selectedKey)
@@ -2568,7 +2733,7 @@ func SearchRows(node interface{}, query string) [][]string {
 	for _, res := range results {
 		key := res.Key
 		if !isCompositeNode(res.Node) {
-			key = "(value)"
+			key = navigator.ScalarValueKey
 		}
 		if strings.TrimSpace(key) == "" {
 			key = res.FullPath
@@ -2608,7 +2773,7 @@ func (m *Model) navigateExprForward() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if selectedKey == "(value)" {
+	if selectedKey == navigator.ScalarValueKey {
 		// Scalar: stay put but keep input focused
 		formattedPath := formatPathForDisplay(m.Path)
 		m.PathInput.SetValue(formattedPath)
@@ -2670,6 +2835,7 @@ func (m *Model) navigateExprBackward() (tea.Model, tea.Cmd) {
 	}
 
 	newModel := m.NavigateTo(newNode, normalizePathForModel(newPath))
+	newModel.updateDecodedState()
 	newModel.InputFocused = true
 	formatted := formatPathForDisplay(newModel.Path)
 	newModel.setExprResult(formatted, newModel.Node)
@@ -3290,6 +3456,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// For CEL expressions (containing filter, map, etc.), going back returns to root
 			if strings.Contains(m.Path, "filter(") || strings.Contains(m.Path, "map(") {
 				newModel := m.NavigateTo(m.Root, "")
+				newModel.updateDecodedState()
 				newModel.applyLayout(true)
 				return newModel, nil
 			} // For regular paths, remove the last segment from the path string
@@ -3307,6 +3474,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 				newModel := m.NavigateTo(newNode, newPath)
+				newModel.updateDecodedState()
 				newModel.applyLayout(true)
 				newModel.restoreCursorForPath(newModel.Path)
 				return newModel, nil
@@ -4479,7 +4647,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// If we're at a scalar value and filter is active, clear filter on Enter even if table is empty
 			if m.FilterActive {
 				originalKeys := m.AllRowKeys
-				if len(originalKeys) == 1 && originalKeys[0] == "(value)" {
+				if len(originalKeys) == 1 && originalKeys[0] == navigator.ScalarValueKey {
 					m.FilterActive = false
 					m.FilterBuffer = ""
 					// Use SyncTableState() to restore table state consistently
@@ -4496,13 +4664,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-			// If user drills into a scalar value, do nothing; use F5/F10 actions instead
-			if selectedKey == "(value)" {
-				// Clear search state and keep expression stable (avoid appending dots)
+			// If user drills into a scalar value, try to decode it
+			if selectedKey == navigator.ScalarValueKey {
+				if result, decoded := m.tryDecodeAndNavigate(); decoded {
+					return result, nil
+				}
+				// Decode failed — clear search state and keep expression stable
 				if m.FilterActive {
 					m.FilterActive = false
 					m.FilterBuffer = ""
-					// Use SyncTableState() to restore table state consistently
 					m.SyncTableState()
 				}
 				formattedPath := formatPathForDisplay(m.Path)
@@ -4535,6 +4705,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Use NavigateTo which updates existing model to avoid flicker
 			newModel := m.NavigateTo(newNode, normalizePathForModel(navigatePath))
 			newModel.PathKeys = parsePathKeys(newModel.Path)
+			newModel.updateDecodedState()
 			newModel.LastKey = m.LastKey
 			// Ensure search context is preserved (NavigateTo should preserve it, but be explicit)
 			if searchContextActive {
@@ -5608,6 +5779,35 @@ func (m *Model) syncStatus() {
 		m.Status.CursorIndex = 0
 	}
 	m.Status.TotalRows = totalRows
+
+	// Compute decode hint: when the selected row's underlying value is a
+	// decodable string, show a contextual hint so users know they can press
+	// Enter/→ to expand it.
+	m.Status.DecodeHint = m.decodeHintForSelectedRow()
+}
+
+// decodeHintForSelectedRow returns a short hint string (e.g. "↵ decode")
+// if the currently selected row's value is a string that can be decoded
+// into structured data. Returns "" otherwise.
+func (m *Model) decodeHintForSelectedRow() string {
+	if !m.AllowDecode || m.InputFocused || m.AdvancedSearchActive || m.HelpVisible {
+		return ""
+	}
+
+	selectedKey, ok := m.selectedRowKey()
+	if !ok || selectedKey != navigator.ScalarValueKey {
+		return ""
+	}
+
+	strVal, isStr := m.Node.(string)
+	if !isStr || strVal == "" {
+		return ""
+	}
+
+	if _, canDecode := loader.TryDecode(strVal); canDecode {
+		return "↵ decode"
+	}
+	return ""
 }
 
 // detectFunctionHelp detects the function being typed or at cursor position and returns its help text
