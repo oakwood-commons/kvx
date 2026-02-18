@@ -37,6 +37,8 @@ type Config struct {
 	ExprModeEntryHelp          string            // Help text shown when entering expression mode (default: "Tab: complete | Type: show help | Enter: evaluate")
 	FunctionHelpOverrides      map[string]string // Custom help text for specific functions (e.g., {"filter": "Custom help for filter"})
 	HelpNavigationDescriptions map[string]string // Custom help navigation descriptions (keys: "navigate_up_down", "navigate_back_forward", "go_to_key", "cycle_suggestions", "keys_cel_functions", "array_indices", "quit")
+	AllowDecode                *bool             // Whether Enter/Right can decode serialized scalars (default: true)
+	AutoDecode                 string            // Auto-decode mode: "" (manual only), "lazy" (on navigate), "eager" (at load)
 }
 
 // DefaultConfig returns a baseline TUI config with the same defaults as the CLI.
@@ -47,6 +49,7 @@ func DefaultConfig() Config {
 	allowFilter := true
 	allowSuggestions := true
 	allowIntel := true
+	allowDecode := true
 	if err == nil {
 		if embedded.Features.AllowEditInput != nil {
 			allowEdit = *embedded.Features.AllowEditInput
@@ -80,6 +83,7 @@ func DefaultConfig() Config {
 		Menu:                 &menu,
 		AllowEditInput:       &allowEdit,
 		AllowFilter:          &allowFilter,
+		AllowDecode:          &allowDecode,
 		AllowSuggestions:     &allowSuggestions,
 		AllowIntellisense:    &allowIntel,
 		KeyHeader:            "KEY",

@@ -204,7 +204,7 @@ func TestNodeToRowsScalar(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 row for scalar, got %d", len(rows))
 	}
-	if rows[0][0] != "(value)" {
+	if rows[0][0] != ScalarValueKey {
 		t.Fatalf("expected '(value)' label, got %v", rows[0][0])
 	}
 	if rows[0][1] != "simple string" {
@@ -218,7 +218,7 @@ func TestNodeToRowsEmptyMap(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 row for empty map, got %d", len(rows))
 	}
-	if rows[0][0] != "(value)" {
+	if rows[0][0] != ScalarValueKey {
 		t.Fatalf("expected '(value)' label for empty map, got %v", rows[0][0])
 	}
 }
@@ -229,7 +229,7 @@ func TestNodeToRowsEmptyArray(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 row for empty array, got %d", len(rows))
 	}
-	if rows[0][0] != "(value)" {
+	if rows[0][0] != ScalarValueKey {
 		t.Fatalf("expected '(value)' label for empty array, got %v", rows[0][0])
 	}
 }

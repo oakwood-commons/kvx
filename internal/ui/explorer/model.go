@@ -105,7 +105,7 @@ func (m *Model) Update(msg tea.Msg) (ui.ChildModel, tea.Cmd) {
 				key := (*row)[0]
 
 				// Skip scalar value indicator
-				if key == "(value)" {
+				if key == navigator.ScalarValueKey {
 					return m, nil
 				}
 

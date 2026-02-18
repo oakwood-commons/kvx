@@ -1,0 +1,11 @@
+{
+  "app": "order-service",
+  "version": "3.1.0",
+  "config": "{\"database\":{\"host\":\"db.example.com\",\"port\":5432,\"ssl\":true},\"cache\":{\"ttl\":300,\"maxSize\":1024}}",
+  "lastEvent": "{\"type\":\"order.created\",\"timestamp\":\"2026-02-18T10:30:00Z\",\"payload\":{\"orderId\":\"ORD-9281\",\"amount\":149.99,\"items\":[{\"sku\":\"TEA-001\",\"qty\":2},{\"sku\":\"MUG-042\",\"qty\":1}]}}",
+  "jwt": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
+  "metadata": {
+    "region": "us-east-1",
+    "tags": "{\"env\":\"production\",\"team\":\"backend\",\"oncall\":\"alice\"}"
+  }
+}

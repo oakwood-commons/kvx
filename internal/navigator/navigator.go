@@ -21,6 +21,12 @@ const (
 	SortDescending SortOrder = "descending"
 )
 
+// ScalarValueKey is the display key used for scalar (non-map, non-array) values
+// in table rows. This signals that the row represents the value itself rather
+// than a named field. Used by decode logic to detect when the user is viewing
+// a scalar value that might contain decodable serialized data.
+const ScalarValueKey = "(value)"
+
 var currentSortOrder = SortAscending
 
 // SetSortOrder updates the global sort order for map key rendering and returns the previous value.
@@ -318,7 +324,7 @@ func NodeToRows(node interface{}) [][]string {
 	case map[string]interface{}:
 		// Treat empty maps as scalar values
 		if len(t) == 0 {
-			rows = append(rows, []string{"(value)", formatter.Stringify(node)})
+			rows = append(rows, []string{ScalarValueKey, formatter.Stringify(node)})
 			return rows
 		}
 		keys := make([]string, 0, len(t))
@@ -341,7 +347,7 @@ func NodeToRows(node interface{}) [][]string {
 	case []interface{}:
 		// Treat empty arrays as scalar values
 		if len(t) == 0 {
-			rows = append(rows, []string{"(value)", formatter.Stringify(node)})
+			rows = append(rows, []string{ScalarValueKey, formatter.Stringify(node)})
 			return rows
 		}
 		for i, v := range t {
@@ -352,7 +358,7 @@ func NodeToRows(node interface{}) [][]string {
 		rv := reflect.ValueOf(node)
 		if rv.Kind() == reflect.Map && rv.IsValid() && rv.Type().Key().Kind() == reflect.String {
 			if rv.Len() == 0 {
-				rows = append(rows, []string{"(value)", formatter.Stringify(node)})
+				rows = append(rows, []string{ScalarValueKey, formatter.Stringify(node)})
 				return rows
 			}
 			keys := make([]string, 0, rv.Len())
@@ -380,7 +386,7 @@ func NodeToRows(node interface{}) [][]string {
 				rows = append(rows, []string{fmt.Sprintf("[%d]", i), formatter.Stringify(v)})
 			}
 		} else {
-			rows = append(rows, []string{"(value)", formatter.Stringify(node)})
+			rows = append(rows, []string{ScalarValueKey, formatter.Stringify(node)})
 		}
 	}
 	return rows
@@ -416,7 +422,7 @@ func NodeToRowsWithOptions(node interface{}, opts RowOptions) [][]string {
 	case map[string]interface{}:
 		// Treat empty maps as scalar values
 		if len(t) == 0 {
-			rows = append(rows, []string{"(value)", formatter.Stringify(node)})
+			rows = append(rows, []string{ScalarValueKey, formatter.Stringify(node)})
 			return rows
 		}
 		keys := make([]string, 0, len(t))
@@ -438,7 +444,7 @@ func NodeToRowsWithOptions(node interface{}, opts RowOptions) [][]string {
 	case []interface{}:
 		// Treat empty arrays as scalar values
 		if len(t) == 0 {
-			rows = append(rows, []string{"(value)", formatter.Stringify(node)})
+			rows = append(rows, []string{ScalarValueKey, formatter.Stringify(node)})
 			return rows
 		}
 		for i, v := range t {
@@ -449,7 +455,7 @@ func NodeToRowsWithOptions(node interface{}, opts RowOptions) [][]string {
 		rv := reflect.ValueOf(node)
 		if rv.Kind() == reflect.Map && rv.IsValid() && rv.Type().Key().Kind() == reflect.String {
 			if rv.Len() == 0 {
-				rows = append(rows, []string{"(value)", formatter.Stringify(node)})
+				rows = append(rows, []string{ScalarValueKey, formatter.Stringify(node)})
 				return rows
 			}
 			keys := make([]string, 0, rv.Len())
@@ -478,7 +484,7 @@ func NodeToRowsWithOptions(node interface{}, opts RowOptions) [][]string {
 				rows = append(rows, []string{key, formatter.Stringify(v)})
 			}
 		} else {
-			rows = append(rows, []string{"(value)", formatter.Stringify(node)})
+			rows = append(rows, []string{ScalarValueKey, formatter.Stringify(node)})
 		}
 	}
 	return rows

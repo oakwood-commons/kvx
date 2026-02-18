@@ -1,6 +1,10 @@
 package ui
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/oakwood-commons/kvx/pkg/loader"
+)
 
 // ModelSnapshotConfig configures snapshot rendering using the Model implementation.
 type ModelSnapshotConfig struct {
@@ -45,6 +49,13 @@ func renderModelLayoutSnapshot(node interface{}, cfg ModelSnapshotConfig) string
 	}
 	if cfg.Configure != nil {
 		cfg.Configure(&m)
+	}
+	// Eager auto-decode: recursively decode all serialized scalars at load time
+	if m.AllowDecode && m.AutoDecode == "eager" {
+		m.Root = loader.RecursiveDecode(m.Root)
+		m.Node = m.Root
+		newModel := m.NavigateTo(m.Node, m.Path)
+		m = *newModel
 	}
 	if len(cfg.StartKeys) > 0 {
 		ApplyStartupKeys(&m, cfg.StartKeys)

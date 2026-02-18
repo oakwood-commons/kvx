@@ -224,6 +224,7 @@ func TestRenderTableArray(t *testing.T) {
 func TestRenderTableScalar(t *testing.T) {
 	node := "simple value"
 	result := RenderTable(node, true, 0, 0)
+	// Check for "(value)" label - matches navigator.ScalarValueKey
 	if !strings.Contains(result, "(value)") {
 		t.Fatalf("expected '(value)' label, got %q", result)
 	}

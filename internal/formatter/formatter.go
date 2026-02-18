@@ -422,7 +422,7 @@ func RenderTable(node any, noColor bool, keyColWidth, valueColWidth int) string 
 				b.WriteString(keyStr + sep + valStr + "\n")
 			}
 		} else {
-			// scalar value
+			// scalar value - must match navigator.ScalarValueKey (can't import due to cycle)
 			keyStr := padRight("(value)", keyWidth)
 			valStr := padRight(truncate(Stringify(node), valueWidth), valueWidth)
 			if !noColor {
