@@ -146,8 +146,12 @@ func (p *CELProvider) parseFunctionDoc(doc string) FunctionMetadata {
 	}
 	name = strings.TrimSpace(name)
 
-	// Determine if this is a method (appears after a dot)
+	// Determine if this is a method (called on an object with dot syntax).
+	// Check description keywords first, then use known method names.
 	isMethod := strings.Contains(description, "method") || strings.Contains(strings.ToLower(description), "called on")
+	if !isMethod {
+		isMethod = isKnownMethod(name)
+	}
 
 	// Categorize based on common patterns
 	category := categorizeFunction(name, description)
@@ -784,6 +788,52 @@ func contains(s string, substrs ...string) bool {
 		}
 	}
 	return false
+}
+
+// knownMethods lists CEL functions that use dot-method syntax (receiver.method()).
+// These are called on a value rather than as standalone functions.
+var knownMethods = map[string]bool{
+	// List/array methods
+	"all":        true,
+	"exists":     true,
+	"exists_one": true,
+	"filter":     true,
+	"map":        true,
+	"size":       true,
+	"slice":      true,
+	"flatten":    true,
+	"sort":       true,
+	"sortBy":     true,
+	"reverse":    true,
+	"distinct":   true,
+
+	// String methods
+	"contains":    true,
+	"endsWith":    true,
+	"startsWith":  true,
+	"matches":     true,
+	"upper":       true,
+	"lower":       true,
+	"trim":        true,
+	"split":       true,
+	"join":        true,
+	"replace":     true,
+	"substring":   true,
+	"indexOf":     true,
+	"lastIndexOf": true,
+	"charAt":      true,
+	"lowerAscii":  true,
+	"upperAscii":  true,
+	"format":      true,
+
+	// Map methods
+	"keys":   true,
+	"values": true,
+}
+
+// isKnownMethod returns true if the function name is a known dot-method.
+func isKnownMethod(name string) bool {
+	return knownMethods[name]
 }
 
 func inferReturnType(_ string, desc string) string {

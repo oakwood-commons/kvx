@@ -26,24 +26,12 @@ func testFunctions() []completion.FunctionMetadata {
 	}
 }
 
-// newTestPalette creates a palette preloaded with test functions.
+// newTestPalette creates a palette preloaded with test functions via the registry.
 func newTestPalette() FunctionPaletteModel {
 	p := NewFunctionPaletteModel()
-	p.AllFunctions = testFunctions()
-	p.FuncsByCategory = make(map[string][]completion.FunctionMetadata)
-	for _, fn := range p.AllFunctions {
-		cat := fn.Category
-		if cat == "" {
-			cat = "general"
-		}
-		p.FuncsByCategory[cat] = append(p.FuncsByCategory[cat], fn)
-	}
-	// Build ordered categories.
-	for _, cat := range categoryOrder {
-		if len(p.FuncsByCategory[cat]) > 0 {
-			p.Categories = append(p.Categories, cat)
-		}
-	}
+	registry := completion.NewFunctionRegistry()
+	registry.LoadFunctions(testFunctions())
+	p.LoadFunctions(registry)
 	p.Width = 80
 	p.Height = 24
 	p.NoColor = true
@@ -318,6 +306,27 @@ func TestInsertPaletteFunction(t *testing.T) {
 			expected: "_.items.sort(",
 		},
 		{
+			name:     "method replaces partial token",
+			current:  "_.items.filt",
+			text:     ".filter(",
+			isMethod: true,
+			expected: "_.items.filter(",
+		},
+		{
+			name:     "method replaces partial token short",
+			current:  "_.items.ma",
+			text:     ".map(",
+			isMethod: true,
+			expected: "_.items.map(",
+		},
+		{
+			name:     "method on complete call keeps expression intact",
+			current:  "_.items.filter(x, x.active)",
+			text:     ".map(",
+			isMethod: true,
+			expected: "_.items.filter(x, x.active).map(",
+		},
+		{
 			name:     "global function empty input",
 			current:  "",
 			text:     "int(",
@@ -325,11 +334,32 @@ func TestInsertPaletteFunction(t *testing.T) {
 			expected: "int(",
 		},
 		{
-			name:     "namespaced global",
+			name:     "namespaced global wraps expression",
 			current:  "_.value",
 			text:     "math.abs(",
 			isMethod: false,
 			expected: "math.abs(_.value",
+		},
+		{
+			name:     "namespace trailing dot completes function name",
+			current:  "math.",
+			text:     "math.abs(",
+			isMethod: false,
+			expected: "math.abs(",
+		},
+		{
+			name:     "partial namespace token completes function name",
+			current:  "math.sq",
+			text:     "math.sqrt(",
+			isMethod: false,
+			expected: "math.sqrt(",
+		},
+		{
+			name:     "base64 namespace trailing dot completes function name",
+			current:  "base64.",
+			text:     "base64.encode(",
+			isMethod: false,
+			expected: "base64.encode(",
 		},
 	}
 
@@ -420,5 +450,123 @@ func TestPaletteViewWithSearch(t *testing.T) {
 		assert.True(t,
 			strings.Contains(lowerName, "f") || strings.Contains(lowerDesc, "f"),
 			"all results should match filter: %s", fn.Name)
+	}
+}
+
+func TestPaletteMethodsOnlyMode(t *testing.T) {
+	p := newTestPalette()
+	p.OpenMethodsOnly()
+	assert.True(t, p.Visible)
+	assert.True(t, p.MethodsOnly)
+
+	// Should only show methods (filter, map, sort, contains are methods in test data)
+	funcs := p.filteredFunctions()
+	require.NotEmpty(t, funcs)
+	for _, fn := range funcs {
+		assert.True(t, fn.IsMethod, "expected only methods, got %s (IsMethod=%v)", fn.Name, fn.IsMethod)
+	}
+
+	// Verify non-methods are excluded
+	for _, fn := range funcs {
+		assert.NotEqual(t, "int", fn.Name, "int is not a method")
+		assert.NotEqual(t, "type", fn.Name, "type is not a method")
+	}
+
+	// Search within methods-only mode
+	p.SearchQuery = "filt"
+	filtered := p.filteredFunctions()
+	require.Len(t, filtered, 1)
+	assert.Equal(t, "filter", filtered[0].Name)
+
+	// Close resets methods-only
+	p.Close()
+	assert.False(t, p.MethodsOnly)
+}
+
+func TestPaletteMethodsOnlyView(t *testing.T) {
+	p := newTestPalette()
+	p.OpenMethodsOnly()
+	view := p.View()
+	assert.Contains(t, view, "Methods", "should show Methods header")
+	// Should show method functions
+	assert.Contains(t, view, "filter")
+}
+
+func TestPaletteSelectFunction(t *testing.T) {
+	p := newTestPalette()
+	p.Toggle()
+
+	// Select a function that exists in "list" category
+	found := p.SelectFunction("filter")
+	assert.True(t, found)
+	sel := p.SelectedFunction()
+	require.NotNil(t, sel)
+	assert.Equal(t, "filter", sel.Name)
+
+	// Verify category switched to "list"
+	assert.Equal(t, "list", p.Categories[p.SelectedCategory])
+
+	// Select function in another category
+	found = p.SelectFunction("math.abs")
+	assert.True(t, found)
+	assert.Equal(t, "math", p.Categories[p.SelectedCategory])
+
+	// Non-existent function returns false
+	found = p.SelectFunction("bogus")
+	assert.False(t, found)
+}
+
+func TestPaletteSelectFunctionMethodsOnly(t *testing.T) {
+	p := newTestPalette()
+	p.OpenMethodsOnly()
+
+	found := p.SelectFunction("filter")
+	assert.True(t, found)
+	sel := p.SelectedFunction()
+	require.NotNil(t, sel)
+	assert.Equal(t, "filter", sel.Name)
+
+	// Non-method should not be found in methods-only mode
+	found = p.SelectFunction("int")
+	assert.False(t, found)
+}
+
+func TestFunctionAtCursor(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"_.items.exists()", "exists"},
+		{"_.items.exists(x, x > 1)", "exists"},
+		{"_.items.map(x, x.name)", "map"},
+		{"int(_.value)", "int"},
+		{"_.items", ""},
+		{"", ""},
+		{"_.items.filter(x, x.size() > 0)", "filter"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			assert.Equal(t, tt.expected, functionAtCursor(tt.input))
+		})
+	}
+}
+
+func TestPartialFunctionAtCursor(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"_.items.exist", "exist"},
+		{"_.items.ma", "ma"},
+		{"_.items.", ""}, // trailing dot, not a partial
+		{"_.items", ""},  // no dot-prefix partial
+		{"", ""},
+		{"_.items.filter(", ""}, // has parens, not a partial
+		{"_.items.filt", "filt"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			assert.Equal(t, tt.expected, partialFunctionAtCursor(tt.input))
+		})
 	}
 }

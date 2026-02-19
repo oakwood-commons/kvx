@@ -225,6 +225,36 @@ ui:
            examples:
              - "'  hello  '.trim() => 'hello'"
              - "_.input.trim()"
+         charAt:
+           description: "Method: string.charAt(index). Get the character at a position."
+           examples:
+             - "'hello'.charAt(0) => 'h'"
+             - "'hello'.charAt(4) => 'o'"
+         indexOf:
+           description: "Method: string.indexOf(substring). Find the first index of a substring (-1 if not found)."
+           examples:
+             - "'hello'.indexOf('ll') => 2"
+             - "'hello'.indexOf('x') => -1"
+         lastIndexOf:
+           description: "Method: string.lastIndexOf(substring). Find the last index of a substring (-1 if not found)."
+           examples:
+             - "'hello world hello'.lastIndexOf('hello') => 12"
+             - "'abc'.lastIndexOf('x') => -1"
+         join:
+           description: "Method: list.join(separator). Join list elements into a string."
+           examples:
+             - "['a','b','c'].join(',') => 'a,b,c'"
+             - "['hello','world'].join(' ') => 'hello world'"
+         format:
+           description: "Method: string.format(args). Format a string with arguments."
+           examples:
+             - "'%s is %d'.format(['test', 42]) => 'test is 42'"
+             - "'value: %s'.format([_.name])"
+         reverse:
+           description: "Method: list.reverse() / string.reverse(). Reverse elements or characters."
+           examples:
+             - "[3,1,2].reverse() => [2,1,3]"
+             - "'hello'.reverse() => 'olleh'"
          # Type conversion
          # string() is the canonical CEL conversion; toString is not available in our env.
          int:
@@ -250,6 +280,27 @@ ui:
            examples:
              - "bytes('hello')"
              - "string(bytes('hello')) => 'hello'"
+         bool:
+           description: "Global: bool(value). Convert a value to a boolean."
+           examples:
+             - "bool('true') => true"
+             - "bool('false') => false"
+         dyn:
+           description: "Global: dyn(value). Wrap a value as a dynamic type."
+           examples:
+             - "dyn(42)"
+             - "dyn({'key': 'val'})"
+         type:
+           description: "Global: type(value). Get the runtime type of a value."
+           examples:
+             - "type(42) => int"
+             - "type('hello') => string"
+             - "type(_.items) => list"
+         uint:
+           description: "Global: uint(value). Convert a value to an unsigned integer."
+           examples:
+             - "uint(42)"
+             - "uint('100')"
          # Map methods
          has:
            description: "Global: has(obj.field). Check if a field is present."
@@ -314,20 +365,74 @@ ui:
            description: "Method: list.slice(start, end). Slice a list by index."
            examples:
              - "[1,2,3,4].slice(1, 3) => [2,3]"
+         distinct:
+           description: "Method: list.distinct(). Remove duplicate elements from a list."
+           examples:
+             - "[1,2,2,3,3].distinct() => [1,2,3]"
+             - "_.items.map(x, x.status).distinct()"
+         sortBy:
+           description: "Method: list.sortBy(x, key). Sort list elements by a key expression."
+           examples:
+             - "_.items.sortBy(x, x.name)"
+             - "_.users.sortBy(u, u.age)"
          # Math helpers (global)
          math.greatest:
-           description: "Global: math.greatest(list). Get the greatest numeric value."
+           description: "Global: math.greatest(a, b, ...). Get the greatest numeric value."
            examples:
+             - "math.greatest(1, 5, 3) => 5"
              - "math.greatest([1,2,3]) => 3"
          math.least:
-           description: "Global: math.least(list). Get the least numeric value."
+           description: "Global: math.least(a, b, ...). Get the least numeric value."
            examples:
+             - "math.least(1, 5, 3) => 1"
              - "math.least([1,2,3]) => 1"
          math.sqrt:
            description: "Global: math.sqrt(value). Compute square root."
            examples:
              - "math.sqrt(9) => 3"
              - "math.sqrt(2.25) => 1.5"
+         math.sign:
+           description: "Global: math.sign(number). Return -1, 0, or 1 based on sign."
+           examples:
+             - "math.sign(-5) => -1"
+             - "math.sign(0) => 0"
+             - "math.sign(3) => 1"
+         math.isNaN:
+           description: "Global: math.isNaN(value). Check if a value is NaN."
+           examples:
+             - "math.isNaN(0.0/0.0) => true"
+         math.isInf:
+           description: "Global: math.isInf(value). Check if a value is infinity."
+           examples:
+             - "math.isInf(1.0/0.0) => true"
+         math.isFinite:
+           description: "Global: math.isFinite(value). Check if a value is finite (not NaN or Inf)."
+           examples:
+             - "math.isFinite(3.14) => true"
+         math.bitAnd:
+           description: "Global: math.bitAnd(a, b). Bitwise AND of two integers."
+           examples:
+             - "math.bitAnd(3, 5) => 1"
+         math.bitOr:
+           description: "Global: math.bitOr(a, b). Bitwise OR of two integers."
+           examples:
+             - "math.bitOr(3, 5) => 7"
+         math.bitXor:
+           description: "Global: math.bitXor(a, b). Bitwise XOR of two integers."
+           examples:
+             - "math.bitXor(3, 5) => 6"
+         math.bitNot:
+           description: "Global: math.bitNot(a). Bitwise NOT of an integer."
+           examples:
+             - "math.bitNot(0) => -1"
+         math.bitShiftLeft:
+           description: "Global: math.bitShiftLeft(a, n). Shift bits left by n positions."
+           examples:
+             - "math.bitShiftLeft(1, 3) => 8"
+         math.bitShiftRight:
+           description: "Global: math.bitShiftRight(a, n). Shift bits right by n positions."
+           examples:
+             - "math.bitShiftRight(8, 3) => 1"
   # Display and layout settings
   display:
     key_col_width: 30

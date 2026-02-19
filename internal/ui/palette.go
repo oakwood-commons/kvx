@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -35,6 +34,7 @@ type FunctionPaletteModel struct {
 	SelectedCategory int    // Currently selected category tab
 	SelectedIndex    int    // Selected function within category
 	SearchQuery      string // Filter query typed while palette is open
+	MethodsOnly      bool   // When true, show only methods (context-aware: expression ends with ".")
 	Width            int
 	Height           int
 	NoColor          bool
@@ -49,56 +49,24 @@ func NewFunctionPaletteModel() FunctionPaletteModel {
 	}
 }
 
-// LoadFunctions populates the palette with functions from the completion engine.
-// Functions are deduplicated by name so that overloads (e.g. int(string), int(double))
-// appear as a single entry with the best available description.
-func (m *FunctionPaletteModel) LoadFunctions(engine *completion.CompletionEngine) {
-	if engine == nil {
+// LoadFunctions populates the palette with functions from the completion registry.
+// The registry provides deduplicated, sorted functions grouped by category.
+func (m *FunctionPaletteModel) LoadFunctions(registry *completion.FunctionRegistry) {
+	if registry == nil {
 		return
 	}
 
-	rawFuncs := engine.GetFunctions()
-
-	// Deduplicate by function name — keep one entry per name with the best description.
-	deduped := make(map[string]completion.FunctionMetadata, len(rawFuncs))
-	for i := range rawFuncs {
-		fn := rawFuncs[i]
-		existing, ok := deduped[fn.Name]
-		if !ok {
-			deduped[fn.Name] = fn
-			continue
-		}
-		// Prefer the entry with examples, or longer description.
-		if len(fn.Examples) > len(existing.Examples) ||
-			(len(fn.Examples) == len(existing.Examples) && len(fn.Description) > len(existing.Description)) {
-			deduped[fn.Name] = fn
-		}
-	}
-	allFuncs := make([]completion.FunctionMetadata, 0, len(deduped))
-	for _, fn := range deduped {
-		allFuncs = append(allFuncs, fn)
-	}
-
-	m.AllFunctions = allFuncs
+	// Get all deduplicated functions from the registry
+	m.AllFunctions = registry.GetAll()
 	m.FuncsByCategory = make(map[string][]completion.FunctionMetadata)
 
-	for i := range allFuncs {
-		fn := &allFuncs[i]
-		cat := fn.Category
-		if cat == "" {
-			cat = "general"
-		}
-		m.FuncsByCategory[cat] = append(m.FuncsByCategory[cat], *fn)
+	// Populate FuncsByCategory from registry
+	for _, cat := range registry.GetCategories() {
+		m.FuncsByCategory[cat] = registry.GetByCategory(cat)
 	}
 
-	// Sort functions within each category alphabetically.
-	for cat := range m.FuncsByCategory {
-		sort.Slice(m.FuncsByCategory[cat], func(i, j int) bool {
-			return m.FuncsByCategory[cat][i].Name < m.FuncsByCategory[cat][j].Name
-		})
-	}
-
-	// Build ordered category list (only categories that have functions).
+	// Build ordered category list using our display order preference,
+	// only including categories that have functions.
 	m.Categories = make([]string, 0, len(categoryOrder))
 	for _, cat := range categoryOrder {
 		if len(m.FuncsByCategory[cat]) > 0 {
@@ -123,7 +91,17 @@ func (m *FunctionPaletteModel) Toggle() {
 	if m.Visible {
 		m.SearchQuery = ""
 		m.SelectedIndex = 0
+		m.MethodsOnly = false
 	}
+}
+
+// OpenMethodsOnly opens the palette in methods-only mode, useful when
+// the expression ends with "." and the user wants to discover available methods.
+func (m *FunctionPaletteModel) OpenMethodsOnly() {
+	m.Visible = true
+	m.SearchQuery = ""
+	m.SelectedIndex = 0
+	m.MethodsOnly = true
 }
 
 // Close hides the palette.
@@ -131,10 +109,16 @@ func (m *FunctionPaletteModel) Close() {
 	m.Visible = false
 	m.SearchQuery = ""
 	m.SelectedIndex = 0
+	m.MethodsOnly = false
 }
 
 // filteredFunctions returns functions for the current category filtered by search query.
+// When MethodsOnly is true, returns only methods across all categories.
 func (m *FunctionPaletteModel) filteredFunctions() []completion.FunctionMetadata {
+	if m.MethodsOnly {
+		return m.methodsFiltered()
+	}
+
 	if len(m.Categories) == 0 {
 		return nil
 	}
@@ -161,9 +145,29 @@ func (m *FunctionPaletteModel) filteredFunctions() []completion.FunctionMetadata
 	return filtered
 }
 
+// methodsFiltered returns all methods, optionally filtered by search query.
+func (m *FunctionPaletteModel) methodsFiltered() []completion.FunctionMetadata {
+	var result []completion.FunctionMetadata
+	query := strings.ToLower(m.SearchQuery)
+	for _, fn := range m.AllFunctions {
+		if !fn.IsMethod {
+			continue
+		}
+		if query == "" ||
+			strings.Contains(strings.ToLower(fn.Name), query) ||
+			strings.Contains(strings.ToLower(fn.Description), query) {
+			result = append(result, fn)
+		}
+	}
+	return result
+}
+
 // allFilteredFunctions returns functions across ALL categories matching the search query.
 // When a search query is active, this shows results from every category.
 func (m *FunctionPaletteModel) allFilteredFunctions() []completion.FunctionMetadata {
+	if m.MethodsOnly {
+		return m.methodsFiltered()
+	}
 	if m.SearchQuery == "" {
 		return m.filteredFunctions()
 	}
@@ -241,6 +245,39 @@ func (m *FunctionPaletteModel) PrevCategory() {
 	m.SelectedIndex = 0
 }
 
+// SelectFunction finds a function by name and selects it in the palette.
+// It switches to the correct category and sets the selection index.
+// Returns true if the function was found.
+func (m *FunctionPaletteModel) SelectFunction(name string) bool {
+	if name == "" {
+		return false
+	}
+	lower := strings.ToLower(name)
+
+	// In methods-only mode, search the flat methods list.
+	if m.MethodsOnly {
+		for i, fn := range m.methodsFiltered() {
+			if strings.ToLower(fn.Name) == lower {
+				m.SelectedIndex = i
+				return true
+			}
+		}
+		return false
+	}
+
+	// Search each category for the function.
+	for catIdx, cat := range m.Categories {
+		for fnIdx, fn := range m.FuncsByCategory[cat] {
+			if strings.ToLower(fn.Name) == lower {
+				m.SelectedCategory = catIdx
+				m.SelectedIndex = fnIdx
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // HandleSearchKey processes a typed character for filtering.
 func (m *FunctionPaletteModel) HandleSearchKey(key string) {
 	if key == "backspace" {
@@ -300,8 +337,17 @@ func (m *FunctionPaletteModel) View() string {
 		fixedInner = 18
 	}
 
-	// Category tabs.
-	tabLine := m.renderCategoryTabs(innerWidth)
+	// Category tabs (or "Methods" header in methods-only mode).
+	tabLine := ""
+	if m.MethodsOnly {
+		label := "▸ Methods"
+		if !m.NoColor {
+			label = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6")).Render(label)
+		}
+		tabLine = label
+	} else {
+		tabLine = m.renderCategoryTabs(innerWidth)
+	}
 
 	// Search indicator.
 	searchLine := ""
@@ -312,15 +358,17 @@ func (m *FunctionPaletteModel) View() string {
 		}
 	}
 
-	// Budget: tabs(1) + [search(1)] + separator(1) + detail(4) + separator(1) + hint(1) = 8-9
-	// Function list gets the remaining lines.
-	overhead := 7 // blank + sig + desc + 2 examples (detail area) + blank + hint
+	// Fixed layout: tabs(1) + [search(1)] + list(up to 6) + blank + detail(3: sig+desc+examples) + blank + hint
+	overhead := 6 // blank + sig + desc + examples + blank + hint
 	if searchLine != "" {
 		overhead++
 	}
 	maxVisible := fixedInner - 1 - overhead // 1 for tab line
 	if maxVisible < 3 {
 		maxVisible = 3
+	}
+	if maxVisible > 6 {
+		maxVisible = 6
 	}
 
 	// Function list.
@@ -373,7 +421,7 @@ func (m *FunctionPaletteModel) View() string {
 		// Split detail into separate lines so line count is accurate for padding.
 		lines = append(lines, strings.Split(detailLine, "\n")...)
 	}
-	// Navigation hint.
+	// Navigation hint (always pinned to the last line).
 	hint := "↑↓ navigate  Tab category  Enter insert  Esc close"
 	if m.SearchQuery == "" {
 		hint = "↑↓ navigate  Tab category  Enter insert  type to filter  Esc close"
@@ -381,15 +429,16 @@ func (m *FunctionPaletteModel) View() string {
 	if !m.NoColor {
 		hint = lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render(hint)
 	}
-	lines = append(lines, "", hint)
 
-	// Pad or trim to exactly fixedInner lines so the palette never changes height.
-	for len(lines) < fixedInner {
+	// Pad content so the hint always lands on the last line of fixedInner.
+	targetContentLines := fixedInner - 1 // reserve 1 line for the hint
+	for len(lines) < targetContentLines {
 		lines = append(lines, "")
 	}
-	if len(lines) > fixedInner {
-		lines = lines[:fixedInner]
+	if len(lines) > targetContentLines {
+		lines = lines[:targetContentLines]
 	}
+	lines = append(lines, hint)
 
 	content := strings.Join(lines, "\n")
 
@@ -518,23 +567,26 @@ func (m *FunctionPaletteModel) renderFunctionDetail(fn *completion.FunctionMetad
 		parts = append(parts, desc)
 	}
 
-	// Examples.
+	// Examples (joined on one line with | separator).
 	if len(fn.Examples) > 0 {
-		maxExamples := 2
-		if maxExamples > len(fn.Examples) {
-			maxExamples = len(fn.Examples)
+		clean := make([]string, 0, len(fn.Examples))
+		for _, ex := range fn.Examples {
+			ex = strings.TrimSpace(ex)
+			if ex != "" {
+				clean = append(clean, ex)
+			}
 		}
-		for i := 0; i < maxExamples; i++ {
-			ex := fn.Examples[i]
-			if len(ex) > width-4 {
-				ex = ex[:width-5] + "…"
+		if len(clean) > 0 {
+			exLine := strings.Join(clean, " | ")
+			if len(exLine) > width-4 {
+				exLine = exLine[:width-5] + "\u2026"
 			}
 			if !m.NoColor {
-				ex = lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Italic(true).Render("  " + ex)
+				exLine = lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Italic(true).Render("  " + exLine)
 			} else {
-				ex = "  " + ex
+				exLine = "  " + exLine
 			}
-			parts = append(parts, ex)
+			parts = append(parts, exLine)
 		}
 	}
 

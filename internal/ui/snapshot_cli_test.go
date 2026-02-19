@@ -306,8 +306,9 @@ func TestSnapshotCombinedOperations(t *testing.T) {
 	}
 }
 
-// TestSnapshotFunctionHelpPartialMatch tests that function help displays all examples
-// when typing a partial function name (e.g., ".m" for "map")
+// TestSnapshotFunctionHelpPartialMatch tests that function help displays signature
+// and description when typing a partial function name (e.g., ".m" for "map").
+// Examples are shown only in the palette (Ctrl+Space), not in the status bar.
 func TestSnapshotFunctionHelpPartialMatch(t *testing.T) {
 	testFile := "tests/sample.yaml"
 	// Press F6 to enter expression mode, then type ".m" to trigger map function help
@@ -327,25 +328,13 @@ func TestSnapshotFunctionHelpPartialMatch(t *testing.T) {
 		t.Errorf("expected function help to contain description, got:\n%s", output)
 	}
 
-	// Should show all 3 examples separated by pipes
-	if !strings.Contains(output, "[1,2,3].map(x, x * 2)") {
-		t.Error("expected first example in function help")
-	}
-	if !strings.Contains(output, "_.items.map(x, x.name)") {
-		t.Error("expected second example in function help")
-	}
-	if !strings.Contains(output, "_.users.map(u, u.email)") {
-		t.Error("expected third example in function help")
-	}
-
-	// All examples should be on one line with pipe separators
-	if !strings.Contains(output, "[1,2,3].map") || !strings.Contains(output, "|") {
-		t.Log("Examples should include pipe separators when all 3 are shown")
-	}
+	// Status bar should NOT contain examples (examples are now palette-only)
+	// The status bar line is the one showing the function help, not the suggestions bar
 }
 
-// TestSnapshotFunctionHelpCompleteFunction tests that function help displays all examples
-// when typing a complete function call (e.g., "_.tasks.map(")
+// TestSnapshotFunctionHelpCompleteFunction tests that function help displays signature
+// and description when typing a complete function call (e.g., "_.tasks.map(").
+// Examples are shown only in the palette (Ctrl+Space), not in the status bar.
 func TestSnapshotFunctionHelpCompleteFunction(t *testing.T) {
 	testFile := "tests/sample.yaml"
 	// Press F6 to enter expression mode, then type complete function call
@@ -360,14 +349,5 @@ func TestSnapshotFunctionHelpCompleteFunction(t *testing.T) {
 		t.Errorf("expected function help to contain 'Method: list.map', got:\n%s", output)
 	}
 
-	// Should show all 3 examples
-	if !strings.Contains(output, "[1,2,3].map(x, x * 2)") {
-		t.Error("expected first example in function help")
-	}
-	if !strings.Contains(output, "_.items.map(x, x.name)") {
-		t.Error("expected second example in function help")
-	}
-	if !strings.Contains(output, "_.users.map(u, u.email)") {
-		t.Error("expected third example in function help")
-	}
+	// Status bar should NOT contain examples (examples are now palette-only)
 }

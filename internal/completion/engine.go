@@ -88,15 +88,22 @@ type CompletionContext struct {
 // CompletionEngine wraps a Provider and adds common filtering/scoring logic.
 type CompletionEngine struct {
 	provider Provider
+	registry *FunctionRegistry
 }
 
 //revive:enable:exported
 
 // NewEngine creates a new completion engine with the given provider.
 func NewEngine(provider Provider) *CompletionEngine {
-	return &CompletionEngine{
+	e := &CompletionEngine{
 		provider: provider,
+		registry: NewFunctionRegistry(),
 	}
+	// Initialize registry from provider
+	if provider != nil {
+		e.registry.LoadFromProvider(provider)
+	}
+	return e
 }
 
 // GetCompletions returns filtered and scored completions for the current input.
@@ -104,9 +111,14 @@ func (e *CompletionEngine) GetCompletions(input string, context CompletionContex
 	return e.provider.FilterCompletions(input, context)
 }
 
-// GetFunctions returns all available functions.
+// GetFunctions returns all available functions (deduplicated via registry).
 func (e *CompletionEngine) GetFunctions() []FunctionMetadata {
-	return e.provider.DiscoverFunctions()
+	return e.registry.GetAll()
+}
+
+// GetRegistry returns the function registry for direct access to metadata.
+func (e *CompletionEngine) GetRegistry() *FunctionRegistry {
+	return e.registry
 }
 
 // InferType returns the inferred type of the expression.

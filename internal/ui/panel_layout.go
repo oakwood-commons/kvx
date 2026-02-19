@@ -513,7 +513,7 @@ func RenderPanelLayout(state PanelLayoutState) string {
 	// Build footer unless hidden
 	var bottomLines []string
 	if !state.HideFooter {
-		leftFooter := renderFooter(state.NoColor, state.AllowEditInput, bottomWidth, state.KeyMode)
+		leftFooter := renderFooter(state.NoColor, state.AllowEditInput, state.ExprMode, bottomWidth, state.KeyMode)
 		if strings.TrimSpace(leftFooter) == "" {
 			leftFooter = "F1 help"
 		}
