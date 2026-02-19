@@ -155,6 +155,7 @@ func panelLayoutStateFromModel(m *Model, opts PanelLayoutModelOptions) PanelLayo
 		SearchActive:    m.AdvancedSearchActive,
 		SearchResults:   searchResults,
 		MapFilterActive: m.MapFilterActive,
+		PaletteContent:  paletteContent(m),
 		DisplayNode:     displayNode,
 		Node:            m.Node,
 		RowCount:        rowCount,
@@ -182,4 +183,14 @@ func helpPopupText(m *Model) string {
 		return ""
 	}
 	return strings.TrimSpace(m.HelpPopupText)
+}
+
+func paletteContent(m *Model) string {
+	if m == nil || !m.FunctionPalette.Visible {
+		return ""
+	}
+	// Sync palette dimensions with current window size so it matches the other panels.
+	m.FunctionPalette.Width = m.WinWidth
+	m.FunctionPalette.Height = m.WinHeight
+	return m.FunctionPalette.View()
 }

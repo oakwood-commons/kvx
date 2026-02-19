@@ -56,7 +56,7 @@ Prefer **emacs** or **function-key** style bindings? Use `--keymap emacs` or `--
     - Navigate with expression: `--press ":_.items[0]"`
     - Open help then close: `--press "?<Esc>"`
     - Multiple operations: `--press "/test<Esc>me"`
-  - Available special keys: `<Enter>`, `<Esc>`, `<Tab>`, `<Space>`, `<BS>` (backspace), `<Left>`, `<Right>`, `<Up>`, `<Down>`, `<Home>`, `<End>`, `<C-c>`, `<C-d>`, `<F1>`–`<F12>`
+  - Available special keys: `<Enter>`, `<Esc>`, `<Tab>`, `<Space>`, `<BS>` (backspace), `<Left>`, `<Right>`, `<Up>`, `<Down>`, `<Home>`, `<End>`, `<C-c>`, `<C-d>`, `<C-u>`, `<C-Space>`, `<F1>`–`<F12>`
 - Include `<F10>` in `--press` to bypass the interactive loop and emit the non-interactive output directly (works regardless of `--keymap`).
 
 ## Debug

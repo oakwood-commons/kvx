@@ -229,6 +229,7 @@ type Model struct {
 	HelpText                   string                          // Help text for panel layout rendering
 	KeyMode                    KeyMode                         // Keybinding mode: vim, emacs, or function
 	PendingVimKey              string                          // Pending key for multi-key sequences (e.g., "g" for gg)
+	FunctionPalette            FunctionPaletteModel            // Function palette overlay (Ctrl+Space)
 
 	// Map filter mode ('f' key) - real-time filter of current map's keys only
 	MapFilterActive bool            // Whether map filter mode is active
@@ -296,6 +297,35 @@ func (m *Model) clearSearchContext() {
 	m.SearchContextResults = nil
 	m.SearchContextQuery = ""
 	m.SearchContextBasePath = ""
+}
+
+// insertPaletteFunction inserts the selected function text from the palette
+// into the expression input. For methods, it appends ".name(" to the current
+// expression. For global functions, it wraps the current expression or inserts
+// directly at cursor.
+func (m *Model) insertPaletteFunction(text string, isMethod bool) {
+	current := m.PathInput.Value()
+	if current == "" {
+		current = "_"
+	}
+
+	var newValue string
+	if isMethod {
+		// Method: append to current expression (e.g. "_.items" → "_.items.sort(")
+		newValue = strings.TrimSuffix(current, ".") + text
+	} else {
+		// Global function: wrap the current expression (e.g. "type(" + "_.mykey" → "type(_.mykey")
+		// Or if the user hasn't typed anything meaningful, just insert the function
+		name := strings.TrimSuffix(text, "(")
+		if current == "_" || current == "" {
+			newValue = text
+		} else {
+			newValue = name + "(" + current
+		}
+	}
+
+	m.PathInput.SetValue(newValue)
+	m.PathInput.SetCursor(len(newValue))
 }
 
 func (m *Model) setStickyError(msg string) {
@@ -852,6 +882,11 @@ func InitialModel(node interface{}) Model {
 		completionEngine = completion.NewEngine(provider)
 	}
 
+	palette := NewFunctionPaletteModel()
+	if completionEngine != nil {
+		palette.LoadFunctions(completionEngine)
+	}
+
 	return Model{
 		Tbl:                        t,
 		AllRows:                    rows,
@@ -905,6 +940,7 @@ func InitialModel(node interface{}) Model {
 		HelpNavigationDescriptions: nil,
 		TruncateTableCells:         true,
 		FunctionExamples:           functionExamples,
+		FunctionPalette:            palette,
 		KeyMode:                    KeyModeVim, // Default to vim-style keybindings
 		// Performance defaults
 		SearchDebounceMs:  150,  // 150ms debounce for search input
@@ -3165,6 +3201,40 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// When function palette is visible, route keys to the palette.
+		if m.FunctionPalette.Visible {
+			switch keyStr {
+			case "esc", "ctrl+space":
+				m.FunctionPalette.Close()
+				return m, nil
+			case "ctrl+c":
+				return m, tea.Quit
+			case "up":
+				m.FunctionPalette.MoveUp()
+				return m, nil
+			case "down":
+				m.FunctionPalette.MoveDown()
+				return m, nil
+			case "tab":
+				m.FunctionPalette.NextCategory()
+				return m, nil
+			case "shift+tab":
+				m.FunctionPalette.PrevCategory()
+				return m, nil
+			case "enter":
+				if fn := m.FunctionPalette.SelectedFunction(); fn != nil {
+					text := InsertText(fn)
+					m.insertPaletteFunction(text, fn.IsMethod)
+				}
+				m.FunctionPalette.Close()
+				return m, nil
+			default:
+				// Route printable characters and backspace to palette search.
+				m.FunctionPalette.HandleSearchKey(keyStr)
+				return m, nil
+			}
+		}
+
 		if handled, cmd := m.handleMenuKey(keyStr); handled {
 			return m, cmd
 		}
@@ -3511,6 +3581,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				keyStr = "ctrl+c"
 			case 0x15: // Ctrl+U
 				keyStr = "ctrl+u"
+			case tea.KeySpace:
+				if msg.Key().Mod&tea.ModCtrl != 0 {
+					keyStr = "ctrl+space"
+				}
 			default:
 				// Other key types are handled by default keyStr value
 			}
@@ -4168,6 +4242,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.ShowSuggestions = true
 					m.SelectedSuggestion = 0
 				}
+				return m, nil
+			case "ctrl+space":
+				// Ctrl+Space: toggle function palette overlay
+				m.FunctionPalette.Width = m.WinWidth
+				m.FunctionPalette.Height = m.WinHeight
+				m.FunctionPalette.NoColor = m.NoColor
+				m.FunctionPalette.Toggle()
 				return m, nil
 			case "f5":
 				// Copy current expression with quoting

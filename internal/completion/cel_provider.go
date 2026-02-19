@@ -743,6 +743,15 @@ func categorizeFunction(name, desc string) string {
 	nameLower := strings.ToLower(name)
 	descLower := strings.ToLower(desc)
 
+	// Type conversion functions (int, double, string, bytes, type, bool, uint, dyn).
+	if contains(nameLower, "int", "double", "bytes", "type", "bool", "uint", "dyn") &&
+		!strings.Contains(nameLower, ".") {
+		return "conversion"
+	}
+	// Date/time functions (timestamp, duration).
+	if contains(nameLower, "timestamp", "duration") {
+		return "datetime"
+	}
 	if strings.Contains(descLower, "string") ||
 		contains(nameLower, "string", "upper", "lower", "trim", "split", "join") {
 		return "string"
