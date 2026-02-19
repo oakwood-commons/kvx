@@ -52,7 +52,8 @@ type PanelLayoutState struct {
 
 	SearchActive    bool
 	SearchResults   []searchHit
-	MapFilterActive bool // 'f' key filter mode for maps
+	MapFilterActive bool   // 'f' key filter mode for maps
+	PaletteContent  string // Pre-rendered function palette overlay
 
 	DisplayNode interface{}
 	Node        interface{}
@@ -494,9 +495,15 @@ func RenderPanelLayout(state PanelLayoutState) string {
 
 	topLines = split(infoPanel)
 	helpLines := split(helpPanel)
+	paletteLines := split(state.PaletteContent)
 	dataLines := split(dataPanel)
 	p3Lines := split(statusPanel)
-	mainLines := append(append(helpLines, dataLines...), p3Lines...)
+	// When the function palette is open, it replaces the help panel area.
+	overlayLines := helpLines
+	if len(paletteLines) > 0 {
+		overlayLines = paletteLines
+	}
+	mainLines := append(append(overlayLines, dataLines...), p3Lines...)
 	inputLines := split(inputPanel)
 	bottomWidth := state.WinWidth
 	if bottomWidth < 1 {
@@ -506,7 +513,7 @@ func RenderPanelLayout(state PanelLayoutState) string {
 	// Build footer unless hidden
 	var bottomLines []string
 	if !state.HideFooter {
-		leftFooter := renderFooter(state.NoColor, state.AllowEditInput, bottomWidth, state.KeyMode)
+		leftFooter := renderFooter(state.NoColor, state.AllowEditInput, state.ExprMode, bottomWidth, state.KeyMode)
 		if strings.TrimSpace(leftFooter) == "" {
 			leftFooter = "F1 help"
 		}

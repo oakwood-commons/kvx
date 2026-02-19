@@ -229,6 +229,7 @@ type Model struct {
 	HelpText                   string                          // Help text for panel layout rendering
 	KeyMode                    KeyMode                         // Keybinding mode: vim, emacs, or function
 	PendingVimKey              string                          // Pending key for multi-key sequences (e.g., "g" for gg)
+	FunctionPalette            FunctionPaletteModel            // Function palette overlay (Ctrl+Space)
 
 	// Map filter mode ('f' key) - real-time filter of current map's keys only
 	MapFilterActive bool            // Whether map filter mode is active
@@ -296,6 +297,60 @@ func (m *Model) clearSearchContext() {
 	m.SearchContextResults = nil
 	m.SearchContextQuery = ""
 	m.SearchContextBasePath = ""
+}
+
+// insertPaletteFunction inserts the selected function text from the palette
+// into the expression input. For methods, it appends ".name(" to the current
+// expression. For global functions, it wraps the current expression or inserts
+// directly at cursor.
+func (m *Model) insertPaletteFunction(text string, isMethod bool) {
+	current := m.PathInput.Value()
+	if current == "" {
+		current = "_"
+	}
+
+	var newValue string
+	if isMethod {
+		// Method: insert after stripping any trailing partial token.
+		//
+		// Three cases for the expression base:
+		//   "_.items."      → trailing dot:     strip dot          → "_.items"
+		//   "_.items.filt"  → partial token:    strip "filt"       → "_.items"
+		//   "_.items.filter(x, x.active)" → no partial (contains parens) → keep as-is
+		base := current
+		if strings.HasSuffix(base, ".") {
+			base = strings.TrimSuffix(base, ".")
+		} else if idx := strings.LastIndex(base, "."); idx >= 0 {
+			afterDot := base[idx+1:]
+			// Only treat as a partial if it's a plain identifier (no parens,
+			// brackets, spaces, commas) AND the expression has at least two dots.
+			// This mirrors the partialFunctionAtCursor guard: a single "_.field"
+			// is field navigation, not a partial function token.
+			if !strings.ContainsAny(afterDot, "()[] ,;") && strings.Count(base, ".") >= 2 {
+				base = base[:idx]
+			}
+		}
+		newValue = base + text
+	} else {
+		// Global function: insert the function call.
+		name := strings.TrimSuffix(text, "(")
+		switch {
+		case current == "_" || current == "":
+			// Nothing meaningful typed yet — just insert.
+			newValue = text
+		case strings.HasPrefix(name, current):
+			// The expression is a prefix of the function name: the user was typing
+			// the function name (e.g. "math." or "math.sq" → completes to "math.abs(").
+			// Replace rather than wrap.
+			newValue = name + "("
+		default:
+			// Wrap an existing expression (e.g. "type(" + "_.mykey" → "type(_.mykey").
+			newValue = name + "(" + current
+		}
+	}
+
+	m.PathInput.SetValue(newValue)
+	m.PathInput.SetCursor(len(newValue))
 }
 
 func (m *Model) setStickyError(msg string) {
@@ -852,6 +907,19 @@ func InitialModel(node interface{}) Model {
 		completionEngine = completion.NewEngine(provider)
 	}
 
+	// Supplement the registry with any functions the ExpressionProvider discovered
+	// but the intellisense provider did not (e.g. custom functions registered via
+	// SetExpressionProvider in library usage). This bridges the two extension paths
+	// so custom functions appear in the palette as well as in tab suggestions.
+	if completionEngine != nil {
+		completionEngine.GetRegistry().SupplementFromSuggestions(suggestionsList)
+	}
+
+	palette := NewFunctionPaletteModel()
+	if completionEngine != nil {
+		palette.LoadFunctions(completionEngine.GetRegistry())
+	}
+
 	return Model{
 		Tbl:                        t,
 		AllRows:                    rows,
@@ -905,6 +973,7 @@ func InitialModel(node interface{}) Model {
 		HelpNavigationDescriptions: nil,
 		TruncateTableCells:         true,
 		FunctionExamples:           functionExamples,
+		FunctionPalette:            palette,
 		KeyMode:                    KeyModeVim, // Default to vim-style keybindings
 		// Performance defaults
 		SearchDebounceMs:  150,  // 150ms debounce for search input
@@ -1707,6 +1776,126 @@ func normalizeFunctionName(name string) string {
 	return n
 }
 
+// functionAtCursor extracts the function name at the cursor position in an expression.
+// Examples:
+//
+//	"_.items.exists()"       → "exists"
+//	"_.items.exists(x, x>1)" → "exists"
+//	"_.items.map(x, x.name)" → "map"
+//	"int(_.value)"           → "int"
+//	"_.items"                → ""
+func functionAtCursor(input string) string {
+	// Strip trailing whitespace and closing parens to find the function call
+	s := strings.TrimSpace(input)
+	if s == "" {
+		return ""
+	}
+
+	// Find the last function call: look for name( pattern
+	// Walk backwards to find the opening paren of the outermost function
+	parenDepth := 0
+	parenIdx := -1
+	for i := len(s) - 1; i >= 0; i-- {
+		switch s[i] {
+		case ')':
+			parenDepth++
+		case '(':
+			parenDepth--
+			if parenDepth == 0 {
+				parenIdx = i
+			}
+		}
+		// Stop at the outermost balanced paren
+		if parenDepth == 0 && parenIdx >= 0 {
+			break
+		}
+	}
+	if parenIdx < 0 {
+		return ""
+	}
+
+	// Extract what's before the paren
+	before := s[:parenIdx]
+	// Get the last token (after last dot)
+	if dotIdx := strings.LastIndex(before, "."); dotIdx >= 0 {
+		return strings.TrimSpace(before[dotIdx+1:])
+	}
+	return strings.TrimSpace(before)
+}
+
+// partialFunctionAtCursor extracts a partial function name being typed after a dot.
+// Only triggers when the base expression already contains a chained path (at least two dots),
+// to avoid treating simple field navigation like "_.items" as a partial function.
+// Examples:
+//
+//	"_.items.exist"  → "exist"
+//	"_.items.ma"     → "ma"
+//	"_.items."       → ""  (trailing dot handled separately)
+//	"_.items"        → ""  (single dot — field navigation, not a function)
+func partialFunctionAtCursor(input string) string {
+	s := strings.TrimSpace(input)
+	if s == "" {
+		return ""
+	}
+	// Must contain a dot and not end with one
+	dotIdx := strings.LastIndex(s, ".")
+	if dotIdx < 0 || dotIdx == len(s)-1 {
+		return ""
+	}
+	// Require at least two dots to distinguish from simple "_.field" navigation
+	if strings.Count(s, ".") < 2 {
+		return ""
+	}
+	// The part after the last dot should look like a partial identifier (no parens, brackets)
+	partial := s[dotIdx+1:]
+	if strings.ContainsAny(partial, "()[]{}\"' ,;") {
+		return ""
+	}
+	return partial
+}
+
+// isNamespacePrefix reports whether token is the namespace component of at least
+// one global function in the registry (e.g. "math" for "math.abs",
+// "base64" for "base64.encode"). It is used to distinguish a trailing dot that
+// precedes a namespaced global from one that is a method receiver.
+func isNamespacePrefix(token string, engine *completion.CompletionEngine) bool {
+	if token == "" || engine == nil {
+		return false
+	}
+	registry := engine.GetRegistry()
+	if registry == nil {
+		return false
+	}
+	prefix := token + "."
+	for _, fn := range registry.GetAll() {
+		if !fn.IsMethod && strings.HasPrefix(fn.Name, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// partialMatchesFunctions checks whether a partial string matches at least one
+// function name in the registry. This prevents pre-filtering the palette on
+// field names like "properties" that look syntactically identical to partial
+// function names.
+func partialMatchesFunctions(partial string, engine *completion.CompletionEngine) bool {
+	if engine == nil {
+		return false
+	}
+	registry := engine.GetRegistry()
+	if registry == nil {
+		return false
+	}
+	lower := strings.ToLower(partial)
+	for _, fn := range registry.GetAll() {
+		if strings.Contains(strings.ToLower(fn.Name), lower) {
+			return true
+		}
+	}
+	return false
+}
+
 func extractFunctionName(candidate string) string {
 	name := candidate
 	if idx := strings.Index(name, " - "); idx >= 0 {
@@ -1803,23 +1992,9 @@ func (m *Model) lookupFunctionExample(funcName string) (FunctionExampleValue, bo
 	return empty, false
 }
 
-func formatFunctionExample(description string, examples []string) string {
-	desc := strings.TrimSpace(description)
-	clean := make([]string, 0, len(examples))
-	for _, ex := range examples {
-		ex = strings.TrimSpace(ex)
-		if ex != "" {
-			clean = append(clean, ex)
-		}
-	}
-	parts := []string{}
-	if desc != "" {
-		parts = append(parts, desc)
-	}
-	if len(clean) > 0 {
-		parts = append(parts, "e.g. "+strings.Join(clean, " | "))
-	}
-	return strings.Join(parts, "\n")
+func formatFunctionExample(description string, _ []string) string {
+	// Status bar shows description only — use the palette (Ctrl+Space) for examples.
+	return strings.TrimSpace(description)
 }
 
 func formatSuggestionHelp(suggestion, funcName, baseExpr string) string {
@@ -1898,6 +2073,17 @@ func (m *Model) lookupFunctionHelp(funcName string, suggestions []string, baseEx
 	if ex, ok := m.lookupFunctionExample(name); ok {
 		if formatted := formatFunctionExample(ex.Description, ex.Examples); formatted != "" {
 			return formatted
+		}
+	}
+
+	// Check the shared FunctionRegistry for structured metadata
+	if m.CompletionEngine != nil {
+		if registry := m.CompletionEngine.GetRegistry(); registry != nil {
+			if fn := registry.GetFunction(name); fn != nil {
+				if help := completion.FormatFunctionOneLiner(*fn); help != "" {
+					return help
+				}
+			}
 		}
 	}
 
@@ -3165,6 +3351,40 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// When function palette is visible, route keys to the palette.
+		if m.FunctionPalette.Visible {
+			switch keyStr {
+			case "esc", "ctrl+space":
+				m.FunctionPalette.Close()
+				return m, nil
+			case "ctrl+c":
+				return m, tea.Quit
+			case "up":
+				m.FunctionPalette.MoveUp()
+				return m, nil
+			case "down":
+				m.FunctionPalette.MoveDown()
+				return m, nil
+			case "tab":
+				m.FunctionPalette.NextCategory()
+				return m, nil
+			case "shift+tab":
+				m.FunctionPalette.PrevCategory()
+				return m, nil
+			case "enter":
+				if fn := m.FunctionPalette.SelectedFunction(); fn != nil {
+					text := InsertText(fn)
+					m.insertPaletteFunction(text, fn.IsMethod)
+				}
+				m.FunctionPalette.Close()
+				return m, nil
+			default:
+				// Route printable characters and backspace to palette search.
+				m.FunctionPalette.HandleSearchKey(keyStr)
+				return m, nil
+			}
+		}
+
 		if handled, cmd := m.handleMenuKey(keyStr); handled {
 			return m, cmd
 		}
@@ -3511,6 +3731,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				keyStr = "ctrl+c"
 			case 0x15: // Ctrl+U
 				keyStr = "ctrl+u"
+			case tea.KeySpace:
+				if msg.Key().Mod&tea.ModCtrl != 0 {
+					keyStr = "ctrl+space"
+				}
 			default:
 				// Other key types are handled by default keyStr value
 			}
@@ -4167,6 +4391,46 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.FilteredSuggestions = m.Suggestions
 					m.ShowSuggestions = true
 					m.SelectedSuggestion = 0
+				}
+				return m, nil
+			case "ctrl+space":
+				// Ctrl+Space: toggle function palette overlay
+				m.FunctionPalette.Width = m.WinWidth
+				m.FunctionPalette.Height = m.WinHeight
+				m.FunctionPalette.NoColor = m.NoColor
+				if m.FunctionPalette.Visible {
+					m.FunctionPalette.Close()
+				} else {
+					input := strings.TrimSpace(m.PathInput.Value())
+					if strings.HasSuffix(input, ".") {
+						// Expression ends with ".": determine if it is a namespace prefix
+						// (e.g. "math.", "base64.") or a method receiver (e.g. "_.items.").
+						prefix := strings.TrimSuffix(input, ".")
+						ns := prefix
+						if i := strings.LastIndex(prefix, "."); i >= 0 {
+							ns = prefix[i+1:]
+						}
+						if isNamespacePrefix(ns, m.CompletionEngine) {
+							// Namespace: open palette filtered to that namespace.
+							m.FunctionPalette.Toggle()
+							m.FunctionPalette.SearchQuery = ns + "."
+							m.FunctionPalette.SelectedIndex = 0
+						} else {
+							// Receiver dot: show methods only.
+							m.FunctionPalette.OpenMethodsOnly()
+						}
+					} else if funcName := functionAtCursor(input); funcName != "" {
+						// Cursor is inside a complete function call like exists()
+						m.FunctionPalette.Toggle()
+						m.FunctionPalette.SelectFunction(funcName)
+					} else if partial := partialFunctionAtCursor(input); partial != "" && partialMatchesFunctions(partial, m.CompletionEngine) {
+						// Partial function name after dot, e.g. "_.items.exist"
+						m.FunctionPalette.Toggle()
+						m.FunctionPalette.SearchQuery = partial
+						m.FunctionPalette.SelectedIndex = 0
+					} else {
+						m.FunctionPalette.Toggle()
+					}
 				}
 				return m, nil
 			case "f5":
@@ -5409,7 +5673,7 @@ func (m Model) buildViewSnapshot() viewSnapshot {
 	snap.Debug = m.Debug.View()
 
 	// Footer
-	snap.Footer = renderFooter(m.NoColor, m.AllowEditInput, m.WinWidth, m.KeyMode)
+	snap.Footer = renderFooter(m.NoColor, m.AllowEditInput, m.InputFocused, m.WinWidth, m.KeyMode)
 
 	return snap
 }
@@ -5495,7 +5759,7 @@ func stripANSIExceptInverse(s string) string {
 	})
 }
 
-func renderFooter(noColor, allowEditInput bool, maxWidth int, keyMode KeyMode) string {
+func renderFooter(noColor, allowEditInput, exprMode bool, maxWidth int, keyMode KeyMode) string {
 	fkeyStyle := lipgloss.NewStyle()
 	if !noColor {
 		th := CurrentTheme()
@@ -5508,16 +5772,27 @@ func renderFooter(noColor, allowEditInput bool, maxWidth int, keyMode KeyMode) s
 		fkeyStyle = fkeyStyle.Bold(true)
 	}
 
-	var parts []string
-	actionOrder := []string{"help", "search", "filter", "copy", "expr", "quit"}
-	menu := CurrentMenuConfig()
-
 	renderKey := func(key string) string {
 		if !noColor {
 			return fkeyStyle.Render(key)
 		}
 		return key
 	}
+
+	// In expression mode, show expression-specific shortcuts
+	if exprMode {
+		parts := []string{
+			renderKey("Tab") + " complete",
+			renderKey("Ctrl+Space") + " functions",
+			renderKey("Enter") + " eval",
+			renderKey("Esc") + " exit",
+		}
+		return fitFooterParts(parts, maxWidth)
+	}
+
+	var parts []string
+	actionOrder := []string{"help", "search", "filter", "copy", "expr", "quit"}
+	menu := CurrentMenuConfig()
 
 	// Build parts from menu config for all key modes
 	for _, actionName := range actionOrder {
@@ -5603,39 +5878,39 @@ func renderFooter(noColor, allowEditInput bool, maxWidth int, keyMode KeyMode) s
 		}
 	}
 
-	fitParts := func(entries []string, width int) string {
-		if width <= 0 {
-			return strings.Join(entries, " ")
-		}
-		if len(entries) == 0 {
-			return ""
-		}
-		var out []string
-		curWidth := 0
-		for _, entry := range entries {
-			entryWidth := ansiVisibleWidth(entry)
-			sep := 0
-			if len(out) > 0 {
-				sep = 1
-			}
-			if curWidth+sep+entryWidth > width {
-				if len(out) == 0 {
-					out = append(out, clampANSITextWidth(entry, width))
-				}
-				break
-			}
-			if sep == 1 {
-				out = append(out, " ")
-				curWidth++
-			}
-			out = append(out, entry)
-			curWidth += entryWidth
-		}
-		return strings.Join(out, "")
-	}
+	return fitFooterParts(parts, maxWidth)
+}
 
-	helpLine := fitParts(parts, maxWidth)
-	return helpLine
+// fitFooterParts joins footer entries fitting within the given width.
+func fitFooterParts(entries []string, width int) string {
+	if width <= 0 {
+		return strings.Join(entries, " ")
+	}
+	if len(entries) == 0 {
+		return ""
+	}
+	var out []string
+	curWidth := 0
+	for _, entry := range entries {
+		entryWidth := ansiVisibleWidth(entry)
+		sep := 0
+		if len(out) > 0 {
+			sep = 1
+		}
+		if curWidth+sep+entryWidth > width {
+			if len(out) == 0 {
+				out = append(out, clampANSITextWidth(entry, width))
+			}
+			break
+		}
+		if sep == 1 {
+			out = append(out, " ")
+			curWidth++
+		}
+		out = append(out, entry)
+		curWidth += entryWidth
+	}
+	return strings.Join(out, "")
 }
 
 func (m *Model) setShowInfoPopup(visible bool) {

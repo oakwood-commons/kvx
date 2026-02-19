@@ -139,6 +139,7 @@ func (m HelpModel) View() string {
 	exprRows := [][]string{
 		{"Enter", descs["go_to_key"]},
 		{"Tab / Shift+Tab", descs["cycle_suggestions"]},
+		{"Ctrl+Space", "function palette"},
 		{"Ctrl+C", descs["quit"]},
 	}
 
@@ -295,6 +296,7 @@ func GenerateHelpText(menu MenuConfig, allowEditInput bool, navDescs map[string]
 		{"Tab / Shift+Tab", descs["cycle_suggestions"]},
 		{".", descs["keys_cel_functions"]},
 		{"[", descs["array_indices"]},
+		{"Ctrl+Space", "function palette"},
 	}
 
 	lines := []string{}

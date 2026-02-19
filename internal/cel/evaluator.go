@@ -356,6 +356,10 @@ func isOperator(name string) bool {
 	if strings.HasPrefix(name, "@") {
 		return true
 	}
+	// Filter out namespaced internal names like "math.@max".
+	if strings.Contains(name, ".@") {
+		return true
+	}
 	if strings.HasPrefix(name, "_") && strings.HasSuffix(name, "_") {
 		return true
 	}
