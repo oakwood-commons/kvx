@@ -74,6 +74,11 @@ func ParseSchemaWithDisplay(schemaJSON []byte) (map[string]ColumnHint, *DisplayS
 		return nil, nil, err
 	}
 	ds := extractDisplaySchemaFromJSONSchema(raw)
+	if ds != nil {
+		if err := validateDisplaySchema(ds); err != nil {
+			return hints, nil, err
+		}
+	}
 	return hints, ds, nil
 }
 

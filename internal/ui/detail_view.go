@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	runewidth "github.com/mattn/go-runewidth"
 
@@ -14,7 +15,7 @@ import (
 type DetailViewModel struct {
 	Object    map[string]interface{} // The object being displayed
 	Sections  []renderedSection      // Pre-computed rendered sections
-	Title     string                 // Header title (from TitleField)
+	TitleText string                 // Header title (from TitleField)
 	ScrollTop int                    // First visible line
 	Width     int                    // Available width
 	Height    int                    // Available height
@@ -42,7 +43,7 @@ func buildDetailViewModel(node interface{}, schema *DisplaySchema, width, height
 
 	// Resolve title
 	if schema.Detail.TitleField != "" {
-		dv.Title = formatter.Stringify(obj[schema.Detail.TitleField])
+		dv.TitleText = formatter.Stringify(obj[schema.Detail.TitleField])
 	}
 
 	// Build hidden set
@@ -316,14 +317,8 @@ func renderDetailView(dv *DetailViewModel, _ *DisplaySchema, noColor bool) strin
 
 	var allLines []string
 
-	// Title header
-	if dv.Title != "" {
-		titleStyle := lipgloss.NewStyle().Bold(true)
-		if !noColor {
-			titleStyle = titleStyle.Foreground(th.KeyColor)
-		}
-		allLines = append(allLines, titleStyle.Render(dv.Title))
-	}
+	// Title is rendered in the panel border by panelLayoutStateFromModel,
+	// so we skip it here to avoid duplication.
 
 	// Render sections
 	for _, sec := range dv.Sections {
@@ -365,4 +360,32 @@ func renderDetailView(dv *DetailViewModel, _ *DisplaySchema, noColor bool) strin
 	visible := allLines[dv.ScrollTop:endLine]
 
 	return strings.Join(visible, "\n")
+}
+
+// --- CustomView interface implementation ---
+
+func (dv *DetailViewModel) Title() string {
+	if dv == nil {
+		return ""
+	}
+	return dv.TitleText
+}
+func (dv *DetailViewModel) FooterBar() string            { return "" }
+func (dv *DetailViewModel) HandlesSearch() bool          { return false }
+func (dv *DetailViewModel) Init() tea.Cmd                { return nil }
+func (dv *DetailViewModel) SearchTitle() string          { return "" }
+func (dv *DetailViewModel) FlashMessage() (string, bool) { return "", false }
+
+func (dv *DetailViewModel) Render(width, height int, noColor bool) string {
+	dv.Width = width
+	dv.Height = height
+	return renderDetailView(dv, nil, noColor) // schema not needed; sections pre-computed
+}
+
+func (dv *DetailViewModel) RowCount() (count int, selected int, label string) {
+	return 1, 1, "detail"
+}
+
+func (dv *DetailViewModel) Update(_ tea.Msg) (CustomView, tea.Cmd) {
+	return dv, nil // detail view has no async messages
 }

@@ -29,17 +29,19 @@ type Config struct {
 	HelpAboutTitle     string
 	HelpAboutLines     []string
 	// UI text customization
-	KeyHeader                  string            // Table header for key column (default: "KEY")
-	ValueHeader                string            // Table header for value column (default: "VALUE")
-	InputPromptUnfocused       string            // Input prompt when unfocused (default: "$ ")
-	InputPromptFocused         string            // Input prompt when focused (default: "❯ ")
-	InputPlaceholder           string            // Input placeholder text
-	ExprModeEntryHelp          string            // Help text shown when entering expression mode (default: "Tab: complete | Type: show help | Enter: evaluate")
-	FunctionHelpOverrides      map[string]string // Custom help text for specific functions (e.g., {"filter": "Custom help for filter"})
-	HelpNavigationDescriptions map[string]string // Custom help navigation descriptions (keys: "navigate_up_down", "navigate_back_forward", "go_to_key", "cycle_suggestions", "keys_cel_functions", "array_indices", "quit")
-	AllowDecode                *bool             // Whether Enter/Right can decode serialized scalars (default: true)
-	AutoDecode                 string            // Auto-decode mode: "" (manual only), "lazy" (on navigate), "eager" (at load)
-	DisplaySchema              *DisplaySchema    // Optional display schema for rich TUI rendering (list/detail views)
+	KeyHeader                  string              // Table header for key column (default: "KEY")
+	ValueHeader                string              // Table header for value column (default: "VALUE")
+	InputPromptUnfocused       string              // Input prompt when unfocused (default: "$ ")
+	InputPromptFocused         string              // Input prompt when focused (default: "❯ ")
+	InputPlaceholder           string              // Input placeholder text
+	ExprModeEntryHelp          string              // Help text shown when entering expression mode (default: "Tab: complete | Type: show help | Enter: evaluate")
+	FunctionHelpOverrides      map[string]string   // Custom help text for specific functions (e.g., {"filter": "Custom help for filter"})
+	HelpNavigationDescriptions map[string]string   // Custom help navigation descriptions (keys: "navigate_up_down", "navigate_back_forward", "go_to_key", "cycle_suggestions", "keys_cel_functions", "array_indices", "quit")
+	AllowDecode                *bool               // Whether Enter/Right can decode serialized scalars (default: true)
+	AutoDecode                 string              // Auto-decode mode: "" (manual only), "lazy" (on navigate), "eager" (at load)
+	DisplaySchema              *DisplaySchema      // Optional display schema for rich TUI rendering (list/detail/status views)
+	KeyMode                    string              // Keybinding mode: "vim" (default), "emacs", or "function"
+	Done                       <-chan StatusResult // Optional channel for async completion in status view mode
 }
 
 // DefaultConfig returns a baseline TUI config with the same defaults as the CLI.

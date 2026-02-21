@@ -69,6 +69,8 @@ type PanelLayoutState struct {
 	CustomContent string
 	// CustomFooterLabel overrides the default "type: N/M" label in the data panel footer.
 	CustomFooterLabel string
+	// CustomFooter replaces the default footer bar when set (e.g. status view action bar).
+	CustomFooter string
 }
 
 // RenderPanelLayout renders the panel layout using precomputed state.
@@ -531,7 +533,12 @@ func RenderPanelLayout(state PanelLayoutState) string {
 	// Build footer unless hidden
 	var bottomLines []string
 	if !state.HideFooter {
-		leftFooter := renderFooter(state.NoColor, state.AllowEditInput, state.HideCopy, state.ExprMode, bottomWidth, state.KeyMode)
+		var leftFooter string
+		if state.CustomFooter != "" {
+			leftFooter = state.CustomFooter
+		} else {
+			leftFooter = renderFooter(state.NoColor, state.AllowEditInput, state.HideCopy, state.ExprMode, bottomWidth, state.KeyMode)
+		}
 		if strings.TrimSpace(leftFooter) == "" {
 			leftFooter = "F1 help"
 		}

@@ -240,36 +240,77 @@ func clampANSITextWidth(s string, maxWidth int) string {
 
 	var out strings.Builder
 	width := 0
-	inEscape := false
+
+	// State machine for ANSI escape sequences.
+	// Handles both CSI (ESC [ ... letter) and OSC (ESC ] ... ST/BEL).
+	const (
+		stNormal = iota
+		stEsc    // just saw ESC, next char determines sequence type
+		stCSI    // inside CSI sequence, waiting for terminating letter
+		stOSC    // inside OSC sequence, waiting for ST (ESC \) or BEL
+		stOSCEsc // inside OSC, just saw ESC (looking for \\ to end)
+	)
+	state := stNormal
 
 	for _, r := range s {
 		if r == '\n' {
 			out.WriteRune(r)
 			width = 0
+			state = stNormal
 			continue
 		}
 
-		if inEscape {
-			out.WriteRune(r)
-			// ANSI CSI sequences end with a letter (commonly 'm').
-			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
-				inEscape = false
+		switch state {
+		case stNormal:
+			if r == 0x1b { // ESC
+				state = stEsc
+				out.WriteRune(r)
+				continue
 			}
-			continue
-		}
-
-		if r == 0x1b { // ESC
-			inEscape = true
+			w := runewidth.RuneWidth(r)
+			if width+w > maxWidth {
+				continue
+			}
 			out.WriteRune(r)
-			continue
-		}
+			width += w
 
-		w := runewidth.RuneWidth(r)
-		if width+w > maxWidth {
-			continue
+		case stEsc:
+			out.WriteRune(r)
+			switch r {
+			case '[':
+				state = stCSI
+			case ']':
+				state = stOSC
+			default:
+				// Single-char escape (e.g. ESC c) — done.
+				state = stNormal
+			}
+
+		case stCSI:
+			out.WriteRune(r)
+			// CSI sequences end with a letter.
+			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
+				state = stNormal
+			}
+
+		case stOSC:
+			out.WriteRune(r)
+			switch r {
+			case 0x1b:
+				state = stOSCEsc
+			case 0x07: // BEL terminates OSC
+				state = stNormal
+			}
+
+		case stOSCEsc:
+			out.WriteRune(r)
+			// ESC \ (ST) terminates OSC; anything else stays in OSC.
+			if r == '\\' {
+				state = stNormal
+			} else {
+				state = stOSC
+			}
 		}
-		out.WriteRune(r)
-		width += w
 	}
 
 	return out.String()
@@ -787,18 +828,19 @@ func panelWithTitle(title string, content string, width int, height int, border 
 		return bordered
 	}
 
-	// Trim title to available width (display-width aware)
+	// Trim title to available width (display-width aware).
+	// Use lipgloss.Width for the final measurement so multi-rune
+	// sequences like emoji+VS16 (e.g. ⚙️) are counted correctly.
 	titleRunes := []rune(titleWithSpace)
 	trimmed := make([]rune, 0, len(titleRunes))
-	titleWidth := 0
 	for _, r := range titleRunes {
-		w := runewidth.RuneWidth(r)
-		if titleWidth+w > titleInnerWidth {
+		trimmed = append(trimmed, r)
+		if lipgloss.Width(string(trimmed)) > titleInnerWidth {
+			trimmed = trimmed[:len(trimmed)-1]
 			break
 		}
-		trimmed = append(trimmed, r)
-		titleWidth += w
 	}
+	titleWidth := lipgloss.Width(string(trimmed))
 
 	// Center the title by padding with box-drawing characters, then clamp to titleInnerWidth.
 	leftPad := 0

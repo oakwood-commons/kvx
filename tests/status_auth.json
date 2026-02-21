@@ -1,0 +1,10 @@
+{
+  "title": "Sign in to Entra",
+  "url": "https://microsoft.com/devicelogin",
+  "code": "EH5HFPGJJ",
+  "user": "user@example.com",
+  "messages": [
+    "Already authenticated as user@example.com",
+    "Use 'myapp auth logout entra' to sign out first"
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "displaySchema": "v1",
+  "status": {
+    "titleField": "title",
+    "messageField": "messages",
+    "waitMessage": "Waiting for authentication...",
+    "successMessage": "Authenticated successfully!",
+    "timeout": "30s",
+    "displayFields": [
+      { "label": "URL", "field": "url" },
+      { "label": "Code", "field": "code" }
+    ],
+    "actions": [
+      {
+        "label": "Copy code",
+        "type": "copy-value",
+        "field": "code",
+        "keys": { "vim": "c", "emacs": "alt+c", "function": "f2" }
+      },
+      {
+        "label": "Open URL",
+        "type": "open-url",
+        "field": "url",
+        "keys": { "vim": "o", "emacs": "alt+o", "function": "f3" }
+      }
+    ],
+    "doneBehavior": "exit-after-delay",
+    "doneDelay": "2s"
+  }
+}
