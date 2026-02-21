@@ -1,0 +1,74 @@
+[
+  {
+    "name": "aws-ec2",
+    "version": "v3.12.1",
+    "description": "Amazon EC2 instances, security groups, and networking resources",
+    "type": "infrastructure",
+    "status": "active",
+    "maintainer": "platform-team",
+    "tags": ["cloud", "aws", "compute"],
+    "dependencies": ["aws-vpc", "aws-iam"],
+    "lastUpdated": "2024-11-15T08:30:00Z",
+    "resources": 42
+  },
+  {
+    "name": "aws-rds",
+    "version": "v2.8.0",
+    "description": "Amazon RDS databases with automated backups and read replicas",
+    "type": "data",
+    "status": "active",
+    "maintainer": "data-team",
+    "tags": ["cloud", "aws", "database"],
+    "dependencies": ["aws-vpc", "aws-iam", "aws-kms"],
+    "lastUpdated": "2024-10-28T14:22:00Z",
+    "resources": 18
+  },
+  {
+    "name": "gcp-gke",
+    "version": "v1.5.3",
+    "description": "Google Kubernetes Engine clusters with node pools and autoscaling",
+    "type": "infrastructure",
+    "status": "active",
+    "maintainer": "platform-team",
+    "tags": ["cloud", "gcp", "kubernetes"],
+    "dependencies": ["gcp-network", "gcp-iam"],
+    "lastUpdated": "2024-11-10T09:15:00Z",
+    "resources": 31
+  },
+  {
+    "name": "azure-aks",
+    "version": "v0.9.2",
+    "description": "Azure Kubernetes Service with virtual nodes and ACR integration",
+    "type": "infrastructure",
+    "status": "beta",
+    "maintainer": "platform-team",
+    "tags": ["cloud", "azure", "kubernetes"],
+    "dependencies": ["azure-vnet", "azure-identity"],
+    "lastUpdated": "2024-11-01T11:45:00Z",
+    "resources": 24
+  },
+  {
+    "name": "datadog-monitors",
+    "version": "v4.1.0",
+    "description": "Datadog monitors, dashboards, and alerting configuration",
+    "type": "observability",
+    "status": "active",
+    "maintainer": "sre-team",
+    "tags": ["monitoring", "alerting", "saas"],
+    "dependencies": [],
+    "lastUpdated": "2024-09-20T16:00:00Z",
+    "resources": 56
+  },
+  {
+    "name": "vault-secrets",
+    "version": "v2.3.1",
+    "description": "HashiCorp Vault secret engines, policies, and auth methods",
+    "type": "security",
+    "status": "active",
+    "maintainer": "security-team",
+    "tags": ["secrets", "security", "hashicorp"],
+    "dependencies": [],
+    "lastUpdated": "2024-11-12T07:10:00Z",
+    "resources": 15
+  }
+]

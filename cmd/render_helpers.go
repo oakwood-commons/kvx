@@ -16,5 +16,8 @@ func renderSnapshotOutput(cfg ui.ThemeConfigFile, renderRoot interface{}, root i
 	helpTitle, helpText := loadHelp(configPath, keyMode)
 	return renderSnapshotView(renderRoot, root, appName, helpTitle, helpText, startKeys, expr, noColor, sizing, func(m *ui.Model) {
 		applySnapshotConfigToModel(m, cfg)
+		if parsedDisplaySchema != nil {
+			m.DisplaySchema = parsedDisplaySchema
+		}
 	})
 }

@@ -157,6 +157,9 @@ func Run(root interface{}, cfg Config, opts ...tea.ProgramOption) error {
 		if cfg.AutoDecode != "" {
 			m.AutoDecode = cfg.AutoDecode
 		}
+		if cfg.DisplaySchema != nil {
+			m.DisplaySchema = cfg.DisplaySchema
+		}
 	}
 
 	return ui.RunModel(appName, root, helpTitle, helpText, cfg.DebugEnabled, cfg.DebugSink, cfg.InitialExpr, cfg.Width, cfg.Height, cfg.StartKeys, cfg.NoColor, cfg.ExprModeEntryHelp, cfg.FunctionHelpOverrides, configure, opts...)
@@ -223,6 +226,9 @@ func RenderSnapshot(root interface{}, cfg Config) string {
 		}
 		if cfg.AutoDecode != "" {
 			m.AutoDecode = cfg.AutoDecode
+		}
+		if cfg.DisplaySchema != nil {
+			m.DisplaySchema = cfg.DisplaySchema
 		}
 	}
 

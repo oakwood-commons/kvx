@@ -207,6 +207,9 @@ var (
 	schemaFile      string
 	keyMode         string // empty = use config, "vim"/"emacs"/"function" = override
 
+	// Parsed display schema (extracted from --schema JSON Schema x-kvx-* extensions)
+	parsedDisplaySchema *tui.DisplaySchema
+
 	// Tree output options
 	treeNoValues     bool
 	treeMaxDepth     int
@@ -1005,11 +1008,14 @@ func renderColumnarBorderedTable(node interface{}, noColor bool, widthHint int, 
 	}
 
 	// Extract columnar data
-	columns, rows := navigator.ExtractColumnarData(node, tableOpts.ColumnOrder)
+	columns, rows := navigator.ExtractColumnarData(node, tableOpts.EffectiveColumnOrder())
 	if columns == nil {
 		// Fall back to regular table rendering
 		return renderBorderedTable(node, noColor, 0, 0, termWidth, appName, path)
 	}
+
+	// When SelectColumns is set, hide any column not in the selected set.
+	tableOpts.ApplySelectColumns(columns)
 
 	// Calculate natural content width accounting for hidden columns and display name overrides
 	showRowNum := tableOpts.ArrayStyle != "none"
@@ -1334,31 +1340,38 @@ func printEvalResult(node interface{}, output string, noColor bool, keyColWidth,
 			fmt.Println(formatter.StringifyPreserveNewlines(node)) //nolint:forbidigo
 		default:
 			if shouldUseColumnar(node, tableOpts.ColumnarMode) {
-				// Check if columnar table is readable at current terminal width
-				termWidth := width
-				if termWidth <= 0 {
-					w, _ := detectTerminalSize()
-					if w <= 0 {
-						termWidth = defaultFallbackTermWidth
-					} else {
-						termWidth = w
-					}
-				}
-
-				columns, rows := navigator.ExtractColumnarData(node, tableOpts.ColumnOrder)
-				readableOpts := formatter.IsColumnarReadableOpts{
-					HiddenColumns:  tableOpts.HiddenColumns,
-					RowNumberStyle: tableOpts.ArrayStyle,
-				}
-				if columns != nil && !formatter.IsColumnarReadable(columns, rows, termWidth-2, tableOpts.ColumnHints, readableOpts) {
-					// Table would be unreadable — fall back to list view
-					listOpts := formatter.ListOptions{
-						NoColor:    noColor,
-						ArrayStyle: arrayStyle,
-					}
-					fmt.Print(formatter.FormatAsList(node, listOpts)) //nolint:forbidigo
-				} else {
+				// When the display schema projects specific columns, skip the
+				// readability check — the schema author explicitly chose them.
+				if len(tableOpts.SelectColumns) > 0 {
 					fmt.Print(renderColumnarBorderedTable(node, noColor, width, appName, path, tableOpts)) //nolint:forbidigo
+				} else {
+					// Check if columnar table is readable at current terminal width
+					termWidth := width
+					if termWidth <= 0 {
+						w, _ := detectTerminalSize()
+						if w <= 0 {
+							termWidth = defaultFallbackTermWidth
+						} else {
+							termWidth = w
+						}
+					}
+
+					columns, rows := navigator.ExtractColumnarData(node, tableOpts.EffectiveColumnOrder())
+					tableOpts.ApplySelectColumns(columns)
+					readableOpts := formatter.IsColumnarReadableOpts{
+						HiddenColumns:  tableOpts.HiddenColumns,
+						RowNumberStyle: tableOpts.ArrayStyle,
+					}
+					if columns != nil && !formatter.IsColumnarReadable(columns, rows, termWidth-2, tableOpts.ColumnHints, readableOpts) {
+						// Table would be unreadable — fall back to list view
+						listOpts := formatter.ListOptions{
+							NoColor:    noColor,
+							ArrayStyle: arrayStyle,
+						}
+						fmt.Print(formatter.FormatAsList(node, listOpts)) //nolint:forbidigo
+					} else {
+						fmt.Print(renderColumnarBorderedTable(node, noColor, width, appName, path, tableOpts)) //nolint:forbidigo
+					}
 				}
 			} else {
 				fmt.Print(renderBorderedTableWithOptions(node, noColor, keyColWidth, valueColWidth, width, appName, path, tableOpts)) //nolint:forbidigo
@@ -1421,6 +1434,10 @@ func yamlFormatOptionsFromConfig(cfg ui.ThemeConfigFile) formatter.YAMLFormatOpt
 }
 
 func tableFormatOptionsFromConfig(cfg ui.ThemeConfigFile) formatter.TableFormatOptions {
+	// Reset any previously cached display schema so stale state from an
+	// earlier call does not leak into runs that do not specify a schema.
+	parsedDisplaySchema = nil
+
 	opts := formatter.DefaultTableFormatOptions()
 	if cfg.Formatting.Table.ArrayStyle != nil {
 		opts.ArrayStyle = *cfg.Formatting.Table.ArrayStyle
@@ -1448,9 +1465,13 @@ func tableFormatOptionsFromConfig(cfg ui.ThemeConfigFile) formatter.TableFormatO
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: cannot read schema file %s: %v\n", schemaPath, err)
 		} else {
-			schemaHints, err = tui.ParseSchema(data)
+			var ds *tui.DisplaySchema
+			schemaHints, ds, err = tui.ParseSchemaWithDisplay(data)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "warning: cannot parse schema file %s: %v\n", schemaPath, err)
+			}
+			if ds != nil {
+				parsedDisplaySchema = ds
 			}
 		}
 	case len(cfg.Formatting.Table.Schema) > 0:
@@ -1458,9 +1479,13 @@ func tableFormatOptionsFromConfig(cfg ui.ThemeConfigFile) formatter.TableFormatO
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: cannot serialize inline schema: %v\n", err)
 		} else {
-			schemaHints, err = tui.ParseSchema(data)
+			var ds *tui.DisplaySchema
+			schemaHints, ds, err = tui.ParseSchemaWithDisplay(data)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "warning: cannot parse inline schema: %v\n", err)
+			}
+			if ds != nil {
+				parsedDisplaySchema = ds
 			}
 		}
 	}
@@ -1475,6 +1500,49 @@ func tableFormatOptionsFromConfig(cfg ui.ThemeConfigFile) formatter.TableFormatO
 			}
 			if h.Hidden {
 				opts.HiddenColumns = append(opts.HiddenColumns, k)
+			}
+		}
+	}
+
+	// When a display schema with list config is present and the user has not
+	// set an explicit column order, derive one from the listed fields so that
+	// non-interactive columnar output shows the same prominent columns as the
+	// TUI list view.
+	if parsedDisplaySchema != nil && parsedDisplaySchema.List != nil && len(opts.ColumnOrder) == 0 {
+		lc := parsedDisplaySchema.List
+		seen := map[string]bool{}
+		var order []string
+		addUnique := func(field string) {
+			if field != "" && !seen[field] {
+				seen[field] = true
+				order = append(order, field)
+			}
+		}
+		addUnique(lc.TitleField)
+		for _, f := range lc.BadgeFields {
+			addUnique(f)
+		}
+		for _, f := range lc.SecondaryFields {
+			addUnique(f)
+		}
+		if lc.SubtitleField != "" {
+			addUnique(lc.SubtitleField)
+		}
+		if len(order) > 0 {
+			opts.SelectColumns = order
+		}
+	}
+	// When a display schema with detail config lists hidden fields, merge them
+	// into HiddenColumns (user-specified hidden columns take precedence and
+	// are never removed).
+	if parsedDisplaySchema != nil && parsedDisplaySchema.Detail != nil {
+		existingHidden := make(map[string]bool, len(opts.HiddenColumns))
+		for _, c := range opts.HiddenColumns {
+			existingHidden[c] = true
+		}
+		for _, f := range parsedDisplaySchema.Detail.HiddenFields {
+			if !existingHidden[f] {
+				opts.HiddenColumns = append(opts.HiddenColumns, f)
 			}
 		}
 	}
@@ -2287,6 +2355,9 @@ func runConfigGetInteractive(_ *cobra.Command) error {
 
 	if err := ui.RunModel(appName, root, helpTitle, helpText, false, sink, "", runW, runH, nil, false, "", nil, func(m *ui.Model) {
 		applySnapshotConfigToModel(m, mergedCfg)
+		if parsedDisplaySchema != nil {
+			m.DisplaySchema = parsedDisplaySchema
+		}
 	}, opts...); err != nil {
 		return err
 	}
@@ -2569,6 +2640,11 @@ var rootCmd = &cobra.Command{
 			// Apply limiting after expression for snapshot mode
 			snapshotNode = applyLimiting(snapshotNode)
 
+			// Ensure display schema is parsed before snapshot/interactive paths need it.
+			// tableFormatOptionsFromConfig populates the global parsedDisplaySchema
+			// as a side-effect of reading --schema / config schema settings.
+			tableFormatOptionsFromConfig(cfg)
+
 			// Support snapshot rendering
 			if renderSnapshot {
 				view := renderSnapshotOutput(cfg, snapshotNode, snapshotNode, appName, startKeys, expression, noColor, snapshotWidth, snapshotHeight, detectedTermWidth, detectedTermHeight, configFile, debugLog, dc, "", effectiveKeyMode(cfg))
@@ -2693,6 +2769,9 @@ var rootCmd = &cobra.Command{
 			defer cleanup()
 			if err := ui.RunModel(appName, rootData, helpTitle, helpText, debugLog, sink, expression, runW, runH, startKeys, noColor, "", nil, func(m *ui.Model) {
 				applySnapshotConfigToModel(m, cfg)
+				if parsedDisplaySchema != nil {
+					m.DisplaySchema = parsedDisplaySchema
+				}
 			}, opts...); err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				os.Exit(1)
@@ -2800,6 +2879,9 @@ var rootCmd = &cobra.Command{
 				defer cleanup()
 				if err := ui.RunModel(appName, root, helpTitle, helpText, debugLog, sink, expression, runW, runH, startKeys, noColor, "", nil, func(m *ui.Model) {
 					applySnapshotConfigToModel(m, mergedCfg)
+					if parsedDisplaySchema != nil {
+						m.DisplaySchema = parsedDisplaySchema
+					}
 				}, opts...); err != nil {
 					fmt.Fprintln(os.Stderr, err)
 					os.Exit(1)
@@ -3056,7 +3138,7 @@ func init() { //nolint:gochecknoinits
 	rootCmd.Flags().IntVar(&limitRecords, "limit", 0, "Limit total number of records displayed")
 	rootCmd.Flags().IntVar(&offsetRecords, "offset", 0, "Skip the first N records")
 	rootCmd.Flags().IntVar(&tailRecords, "tail", 0, "Show the last N records (mutually exclusive with --limit; ignores --offset)")
-	rootCmd.Flags().StringVar(&schemaFile, "schema", "", "path to a JSON Schema file for column display hints (title, maxLength, type, required, deprecated)")
+	rootCmd.Flags().StringVar(&schemaFile, "schema", "", "path to a JSON Schema file for column/display hints; supports x-kvx-* extensions for card-list and detail views in interactive mode")
 	// Tree output options
 	rootCmd.Flags().BoolVar(&treeNoValues, "tree-no-values", false, "Show structure only (hide values) in tree output")
 	rootCmd.Flags().IntVar(&treeMaxDepth, "tree-depth", 0, "Limit tree depth (0 = unlimited)")

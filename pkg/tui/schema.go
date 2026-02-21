@@ -53,14 +53,31 @@ type ColumnHint struct {
 //
 // The schemaJSON must be valid JSON. Returns a map keyed by property name.
 func ParseSchema(schemaJSON []byte) (map[string]ColumnHint, error) {
-	var raw map[string]any
-	if err := json.Unmarshal(schemaJSON, &raw); err != nil {
-		return nil, fmt.Errorf("invalid JSON schema: %w", err)
-	}
-	return parseSchemaObject(raw)
+	hints, _, err := ParseSchemaWithDisplay(schemaJSON)
+	return hints, err
 }
 
-func parseSchemaObject(raw map[string]any) (map[string]ColumnHint, error) {
+// ParseSchemaWithDisplay extracts both [ColumnHint] values and an optional
+// [DisplaySchema] from a JSON Schema document. The display schema is derived
+// from x-kvx-* vendor extension keys (e.g., x-kvx-list, x-kvx-detail,
+// x-kvx-icon, x-kvx-collectionTitle).
+//
+// When no x-kvx-* extensions are present, the returned *DisplaySchema is nil.
+// This function is a superset of [ParseSchema].
+func ParseSchemaWithDisplay(schemaJSON []byte) (map[string]ColumnHint, *DisplaySchema, error) {
+	var raw map[string]any
+	if err := json.Unmarshal(schemaJSON, &raw); err != nil {
+		return nil, nil, fmt.Errorf("invalid JSON schema: %w", err)
+	}
+	hints, err := parseSchemaObject(raw)
+	if err != nil {
+		return nil, nil, err
+	}
+	ds := extractDisplaySchemaFromJSONSchema(raw)
+	return hints, ds, nil
+}
+
+func parseSchemaObject(raw map[string]any) (map[string]ColumnHint, error) { //nolint:unparam
 	// Determine where properties live:
 	// 1. If type=array with items.properties → use items.properties
 	// 2. If type=object with properties → use properties directly

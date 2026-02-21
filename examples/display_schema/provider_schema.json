@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Scafctl Provider Catalog",
+  "description": "Schema for an array of infrastructure providers managed by scafctl",
+  "type": "array",
+
+  "x-kvx-icon": "📦",
+  "x-kvx-collectionTitle": "Providers",
+
+  "x-kvx-list": {
+    "titleField": "name",
+    "subtitleField": "description",
+    "subtitleMaxLines": 2,
+    "badgeFields": ["status", "type"],
+    "secondaryFields": ["version", "maintainer"]
+  },
+
+  "x-kvx-detail": {
+    "titleField": "name",
+    "hiddenFields": [],
+    "sections": [
+      {
+        "title": "",
+        "fields": ["version", "type", "status"],
+        "layout": "inline"
+      },
+      {
+        "title": "Description",
+        "fields": ["description"],
+        "layout": "paragraph"
+      },
+      {
+        "title": "Tags",
+        "fields": ["tags"],
+        "layout": "tags"
+      },
+      {
+        "title": "Details",
+        "fields": ["maintainer", "lastUpdated", "resources"],
+        "layout": "table"
+      },
+      {
+        "title": "Dependencies",
+        "fields": ["dependencies"],
+        "layout": "tags"
+      }
+    ]
+  },
+
+  "items": {
+    "type": "object",
+    "required": ["name", "version", "type", "status"],
+    "properties": {
+      "name": {
+        "type": "string",
+        "title": "Provider",
+        "description": "Unique provider identifier"
+      },
+      "version": {
+        "type": "string",
+        "title": "Version",
+        "description": "Semantic version of the provider"
+      },
+      "description": {
+        "type": "string",
+        "title": "Description",
+        "description": "Human-readable summary of the provider"
+      },
+      "type": {
+        "type": "string",
+        "title": "Type",
+        "enum": ["infrastructure", "data", "observability", "security"],
+        "description": "Category of the provider"
+      },
+      "status": {
+        "type": "string",
+        "title": "Status",
+        "enum": ["active", "beta", "deprecated"],
+        "description": "Lifecycle status of the provider"
+      },
+      "maintainer": {
+        "type": "string",
+        "title": "Maintainer",
+        "description": "Team responsible for the provider"
+      },
+      "tags": {
+        "type": "array",
+        "items": { "type": "string" },
+        "title": "Tags",
+        "description": "Classification tags"
+      },
+      "dependencies": {
+        "type": "array",
+        "items": { "type": "string" },
+        "title": "Dependencies",
+        "description": "Other providers this one depends on"
+      },
+      "lastUpdated": {
+        "type": "string",
+        "format": "date-time",
+        "title": "Last Updated"
+      },
+      "resources": {
+        "type": "integer",
+        "title": "Resource Count",
+        "description": "Number of managed resources"
+      }
+    }
+  }
+}

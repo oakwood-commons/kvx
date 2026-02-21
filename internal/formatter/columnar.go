@@ -24,6 +24,11 @@ type TableFormatOptions struct {
 	// HiddenColumns specifies columns to omit from columnar tables.
 	HiddenColumns []string
 
+	// SelectColumns, when non-empty, means "show only these columns".
+	// Any column not in this list is automatically hidden.
+	// The column order is also derived from this list.
+	SelectColumns []string
+
 	// ColumnHints provides per-column display hints derived from a JSON Schema.
 	// Keys are the original JSON field names.
 	ColumnHints map[string]ColumnHint
@@ -35,6 +40,37 @@ func DefaultTableFormatOptions() TableFormatOptions {
 		ArrayStyle:   "numbered",
 		ColumnarMode: "auto",
 	}
+}
+
+// ApplySelectColumns resolves SelectColumns against the actual column names.
+// When SelectColumns is non-empty, any column not in the set is appended to
+// HiddenColumns and ColumnOrder is set to SelectColumns.
+func (opts *TableFormatOptions) ApplySelectColumns(columns []string) {
+	if len(opts.SelectColumns) == 0 {
+		return
+	}
+	selected := make(map[string]bool, len(opts.SelectColumns))
+	for _, c := range opts.SelectColumns {
+		selected[c] = true
+	}
+	hidden := make(map[string]bool, len(opts.HiddenColumns))
+	for _, c := range opts.HiddenColumns {
+		hidden[c] = true
+	}
+	for _, c := range columns {
+		if !selected[c] && !hidden[c] {
+			opts.HiddenColumns = append(opts.HiddenColumns, c)
+		}
+	}
+	opts.ColumnOrder = opts.SelectColumns
+}
+
+// EffectiveColumnOrder returns SelectColumns if set, otherwise ColumnOrder.
+func (opts *TableFormatOptions) EffectiveColumnOrder() []string {
+	if len(opts.SelectColumns) > 0 {
+		return opts.SelectColumns
+	}
+	return opts.ColumnOrder
 }
 
 // CalculateNaturalColumnarWidth calculates the natural width needed for a columnar table

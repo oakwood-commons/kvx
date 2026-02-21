@@ -50,6 +50,8 @@ func renderModelLayoutSnapshot(node interface{}, cfg ModelSnapshotConfig) string
 	if cfg.Configure != nil {
 		cfg.Configure(&m)
 	}
+	// Trigger custom view mode detection (list/detail) now that DisplaySchema may be set.
+	m.updateViewMode(node)
 	// Eager auto-decode: recursively decode all serialized scalars at load time
 	if m.AllowDecode && m.AutoDecode == "eager" {
 		m.Root = loader.RecursiveDecode(m.Root)

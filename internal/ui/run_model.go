@@ -38,6 +38,8 @@ func RunModel(appName string, root interface{}, helpTitle, helpText string, debu
 	if configure != nil {
 		configure(&m)
 	}
+	// Trigger custom view mode detection (list/detail) now that DisplaySchema may be set.
+	m.updateViewMode(root)
 
 	// Eager auto-decode: recursively decode all serialized scalars at load time
 	if m.AllowDecode && m.AutoDecode == "eager" {
