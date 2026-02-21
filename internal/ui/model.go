@@ -244,6 +244,14 @@ type Model struct {
 	SearchPendingQuery   string // Query pending debounce timer
 	VirtualScrolling     bool   // Whether virtual scrolling is enabled
 	ScrollBufferRows     int    // Extra rows to render above/below viewport
+
+	// Display schema for rich TUI rendering (list/detail views)
+	DisplaySchema    *DisplaySchema   // Optional schema for list/detail view modes
+	ViewMode         string           // Current view mode: "", "list", "detail"
+	ListViewState    *ListViewModel   // State for list view rendering
+	DetailViewState  *DetailViewModel // State for detail view rendering
+	DetailSourcePath string           // Path from which we drilled into detail view (to navigate back)
+	ListPanelMode    string           // ListPanelModeSearch or ListPanelModeFilter — determines search panel behaviour in list view
 }
 
 // DebugEvent captures a debug message with a timestamp for post-exit logging.
@@ -1509,6 +1517,9 @@ func (m *Model) selectedRowPath() string {
 // This updates the model in-place to avoid recreating components and prevent flicker.
 func (m *Model) NavigateTo(node interface{}, path string) *Model {
 	normalizedPath := normalizePathForModel(path)
+
+	// Check if display schema should activate a custom view mode
+	m.updateViewMode(node)
 
 	// Preserve search context before updating (needed for left arrow navigation back to search)
 	searchContextActive := m.SearchContextActive
@@ -3388,6 +3399,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if handled, cmd := m.handleMenuKey(keyStr); handled {
 			return m, cmd
 		}
+
+		// Handle custom view modes (list/detail) before standard navigation
+		if m.ViewMode == "list" {
+			if handled, result, viewCmd := m.handleListViewKey(keyStr); handled {
+				return result, viewCmd
+			}
+		}
+		if m.ViewMode == "detail" {
+			if handled, result, viewCmd := m.handleDetailViewKey(keyStr); handled {
+				return result, viewCmd
+			}
+		}
+
 		if handled, cmd := m.handleSearchInput(msg, keyStr); handled {
 			return m, cmd
 		}
@@ -5135,6 +5159,12 @@ func (m *Model) handleSearchInput(msg tea.KeyMsg, keyStr string) (bool, tea.Cmd)
 // applyAdvancedSearch performs the advanced search and updates the table with results.
 // Search only executes when committed (Enter pressed).
 func (m *Model) applyAdvancedSearch() {
+	// When a display schema list view is using the search panel for
+	// real-time filtering, skip the standard deep-search logic entirely.
+	// The list view reads AdvancedSearchQuery directly via lv.Filter.
+	if m.DisplaySchema != nil && m.ViewMode == "list" {
+		return
+	}
 	if m.AdvancedSearchActive {
 		if m.SearchInput.Value() != m.AdvancedSearchQuery {
 			m.SearchInput.SetValue(m.AdvancedSearchQuery)
@@ -5673,7 +5703,7 @@ func (m Model) buildViewSnapshot() viewSnapshot {
 	snap.Debug = m.Debug.View()
 
 	// Footer
-	snap.Footer = renderFooter(m.NoColor, m.AllowEditInput, m.InputFocused, m.WinWidth, m.KeyMode)
+	snap.Footer = renderFooter(m.NoColor, m.AllowEditInput && m.DisplaySchema == nil, m.DisplaySchema != nil, m.InputFocused, m.WinWidth, m.KeyMode)
 
 	return snap
 }
@@ -5759,7 +5789,7 @@ func stripANSIExceptInverse(s string) string {
 	})
 }
 
-func renderFooter(noColor, allowEditInput, exprMode bool, maxWidth int, keyMode KeyMode) string {
+func renderFooter(noColor, allowEditInput, hideCopy, exprMode bool, maxWidth int, keyMode KeyMode) string {
 	fkeyStyle := lipgloss.NewStyle()
 	if !noColor {
 		th := CurrentTheme()
@@ -5801,6 +5831,9 @@ func renderFooter(noColor, allowEditInput, exprMode bool, maxWidth int, keyMode 
 			continue
 		}
 		if item.Action == "expr_toggle" && !allowEditInput {
+			continue
+		}
+		if actionName == "copy" && hideCopy {
 			continue
 		}
 
@@ -6254,7 +6287,7 @@ func (m *Model) handleMenuKey(keyStr string) (bool, tea.Cmd) {
 	if item == nil || !item.Enabled {
 		return false, nil
 	}
-	if item.Action == "expr_toggle" && !m.AllowEditInput {
+	if item.Action == "expr_toggle" && (!m.AllowEditInput || m.DisplaySchema != nil) {
 		return true, nil
 	}
 
@@ -6315,6 +6348,28 @@ func (m *Model) handleMenuKey(keyStr string) (bool, tea.Cmd) {
 	}
 
 	actions := CurrentMenuActions()
+	// When a display schema is active, redirect search and filter actions
+	// to the list view's search panel instead of the standard deep search.
+	if m.DisplaySchema != nil && (item.Action == "search" || item.Action == "filter") {
+		if m.ViewMode == "list" && m.ListViewState != nil {
+			if item.Action == "search" {
+				m.ListPanelMode = ListPanelModeSearch
+				m.AdvancedSearchQuery = ""
+				m.SearchInput.SetValue("")
+				m.SearchInput.SetCursor(0)
+			} else {
+				m.ListPanelMode = ListPanelModeFilter
+				m.AdvancedSearchQuery = m.ListViewState.Filter
+				m.SearchInput.SetValue(m.ListViewState.Filter)
+				m.SearchInput.SetCursor(len(m.ListViewState.Filter))
+			}
+			m.AdvancedSearchActive = true
+			m.AdvancedSearchCommitted = false
+			return true, m.SearchInput.Focus()
+		}
+		// In detail view, search/filter are not applicable.
+		return true, nil
+	}
 	actionFn, ok := actions[item.Action]
 	if !ok || actionFn == nil {
 		return true, nil
@@ -6381,6 +6436,12 @@ func menuActionHelp(m *Model) tea.Cmd {
 
 func menuActionExprToggle(m *Model) tea.Cmd {
 	if !m.AllowEditInput {
+		return nil
+	}
+	// Disable expression mode when a display schema is active; the custom
+	// list/detail views handle their own navigation and expression evaluation
+	// would discard the view state.
+	if m.DisplaySchema != nil {
 		return nil
 	}
 	// Sync expr bar to current selection when entering expression mode from table mode.

@@ -28,6 +28,7 @@ type PanelLayoutState struct {
 	SnapshotHeader bool
 	DebugEnabled   bool
 	AllowEditInput bool
+	HideCopy       bool // Hide the copy action from the footer
 	HideFooter     bool // Hide the footer bar (for non-interactive display)
 	KeyMode        KeyMode
 
@@ -51,6 +52,7 @@ type PanelLayoutState struct {
 	ExprType string
 
 	SearchActive    bool
+	SearchTitle     string // Override for the search/filter panel title (e.g. "Filter")
 	SearchResults   []searchHit
 	MapFilterActive bool   // 'f' key filter mode for maps
 	PaletteContent  string // Pre-rendered function palette overlay
@@ -61,6 +63,12 @@ type PanelLayoutState struct {
 	SelectedRow int
 	PathLabel   string
 	KeyColWidth int
+
+	// CustomContent overrides the default table rendering when set.
+	// Used by display schema list/detail views.
+	CustomContent string
+	// CustomFooterLabel overrides the default "type: N/M" label in the data panel footer.
+	CustomFooterLabel string
 }
 
 // RenderPanelLayout renders the panel layout using precomputed state.
@@ -205,6 +213,10 @@ func RenderPanelLayout(state PanelLayoutState) string {
 	var tableText string
 	displayNode := state.DisplayNode
 	switch {
+	case state.CustomContent != "":
+		// Display schema list/detail view overrides the default table rendering
+		tableText = state.CustomContent
+		tableText = clampANSITextWidth(tableText, innerPanelWidth+2)
 	case !isCompositeNode(displayNode):
 		tableText = renderScalarBlock(displayNode, innerPanelWidth+2, state.NoColor)
 	case state.SearchActive:
@@ -248,7 +260,10 @@ func RenderPanelLayout(state PanelLayoutState) string {
 	}
 	dataPanel := strings.TrimRight(panelWithTitle(dataPanelTitle, tableText, panelWidth, dataPanelHeight, panelBorder, state.NoColor), "\n")
 	pathLabel := state.PathLabel
-	if totalRows > 0 {
+	if state.CustomFooterLabel != "" {
+		// Custom view mode (list/detail) provides its own footer label
+		dataPanel = addBottomLabel(dataPanel, strings.TrimSpace(pathLabel)+" ", state.CustomFooterLabel, state.WinWidth)
+	} else if totalRows > 0 {
 		selectedDisplay := selectedRow + 1
 		if selectedDisplay < 1 {
 			selectedDisplay = 1
@@ -373,6 +388,9 @@ func RenderPanelLayout(state PanelLayoutState) string {
 			inputTitle = "Expression"
 		case state.SearchActive:
 			inputTitle = "Search"
+			if state.SearchTitle != "" {
+				inputTitle = state.SearchTitle
+			}
 		case state.MapFilterActive:
 			inputTitle = "Filter"
 		}
@@ -513,7 +531,7 @@ func RenderPanelLayout(state PanelLayoutState) string {
 	// Build footer unless hidden
 	var bottomLines []string
 	if !state.HideFooter {
-		leftFooter := renderFooter(state.NoColor, state.AllowEditInput, state.ExprMode, bottomWidth, state.KeyMode)
+		leftFooter := renderFooter(state.NoColor, state.AllowEditInput, state.HideCopy, state.ExprMode, bottomWidth, state.KeyMode)
 		if strings.TrimSpace(leftFooter) == "" {
 			leftFooter = "F1 help"
 		}

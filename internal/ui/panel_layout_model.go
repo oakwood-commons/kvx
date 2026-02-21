@@ -130,13 +130,14 @@ func panelLayoutStateFromModel(m *Model, opts PanelLayoutModelOptions) PanelLayo
 		infoMessage = hint
 	}
 
-	return PanelLayoutState{
+	state := PanelLayoutState{
 		WinWidth:        m.WinWidth,
 		WinHeight:       m.WinHeight,
 		NoColor:         m.NoColor,
 		SnapshotHeader:  opts.SnapshotHeader,
 		DebugEnabled:    m.DebugMode,
-		AllowEditInput:  m.AllowEditInput,
+		AllowEditInput:  m.AllowEditInput && m.DisplaySchema == nil,
+		HideCopy:        m.DisplaySchema != nil,
 		HideFooter:      opts.HideFooter,
 		KeyMode:         m.KeyMode,
 		HelpVisible:     m.HelpVisible,
@@ -153,6 +154,7 @@ func panelLayoutStateFromModel(m *Model, opts PanelLayoutModelOptions) PanelLayo
 		ExprMode:        m.InputFocused,
 		ExprType:        m.ExprType,
 		SearchActive:    m.AdvancedSearchActive,
+		SearchTitle:     m.listSearchTitle(),
 		SearchResults:   searchResults,
 		MapFilterActive: m.MapFilterActive,
 		PaletteContent:  paletteContent(m),
@@ -163,6 +165,21 @@ func panelLayoutStateFromModel(m *Model, opts PanelLayoutModelOptions) PanelLayo
 		PathLabel:       pathLabel,
 		KeyColWidth:     m.KeyColWidth,
 	}
+
+	// Apply custom view mode content (list/detail views)
+	if customContent, ok := m.renderCustomViewContent(); ok {
+		state.CustomContent = customContent
+		if count, sel, label := m.customViewRowCount(); label != "" {
+			state.CustomFooterLabel = label
+			state.RowCount = count
+			state.SelectedRow = sel - 1
+		}
+		if pl := m.customViewPathLabel(); pl != "" {
+			state.PathLabel = pl
+		}
+	}
+
+	return state
 }
 
 func infoPopupText(m *Model) string {

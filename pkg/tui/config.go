@@ -39,6 +39,7 @@ type Config struct {
 	HelpNavigationDescriptions map[string]string // Custom help navigation descriptions (keys: "navigate_up_down", "navigate_back_forward", "go_to_key", "cycle_suggestions", "keys_cel_functions", "array_indices", "quit")
 	AllowDecode                *bool             // Whether Enter/Right can decode serialized scalars (default: true)
 	AutoDecode                 string            // Auto-decode mode: "" (manual only), "lazy" (on navigate), "eager" (at load)
+	DisplaySchema              *DisplaySchema    // Optional display schema for rich TUI rendering (list/detail views)
 }
 
 // DefaultConfig returns a baseline TUI config with the same defaults as the CLI.
