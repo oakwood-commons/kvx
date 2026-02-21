@@ -160,6 +160,12 @@ func Run(root interface{}, cfg Config, opts ...tea.ProgramOption) error {
 		if cfg.DisplaySchema != nil {
 			m.DisplaySchema = cfg.DisplaySchema
 		}
+		if cfg.Done != nil {
+			m.DoneChan = cfg.Done
+		}
+		if cfg.KeyMode != "" && ui.IsValidKeyMode(cfg.KeyMode) {
+			m.KeyMode = ui.KeyMode(cfg.KeyMode)
+		}
 	}
 
 	return ui.RunModel(appName, root, helpTitle, helpText, cfg.DebugEnabled, cfg.DebugSink, cfg.InitialExpr, cfg.Width, cfg.Height, cfg.StartKeys, cfg.NoColor, cfg.ExprModeEntryHelp, cfg.FunctionHelpOverrides, configure, opts...)
@@ -229,6 +235,9 @@ func RenderSnapshot(root interface{}, cfg Config) string {
 		}
 		if cfg.DisplaySchema != nil {
 			m.DisplaySchema = cfg.DisplaySchema
+		}
+		if cfg.KeyMode != "" && ui.IsValidKeyMode(cfg.KeyMode) {
+			m.KeyMode = ui.KeyMode(cfg.KeyMode)
 		}
 	}
 

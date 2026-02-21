@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	runewidth "github.com/mattn/go-runewidth"
 
@@ -13,13 +14,15 @@ import (
 
 // ListViewModel holds state for the card-list rendering of an array of objects.
 type ListViewModel struct {
-	Items       []ListViewItem // Rendered items
-	Selected    int            // Currently selected index
-	ScrollTop   int            // First visible item index
-	Filter      string         // Active real-time filter text (title+subtitle)
-	SearchQuery string         // Committed deep-search query (all fields)
-	Width       int            // Available width
-	Height      int            // Available height (content rows)
+	Items           []ListViewItem // Rendered items
+	Selected        int            // Currently selected index
+	ScrollTop       int            // First visible item index
+	Filter          string         // Active real-time filter text (title+subtitle)
+	SearchQuery     string         // Committed deep-search query (all fields)
+	Width           int            // Available width
+	Height          int            // Available height (content rows)
+	CollectionTitle string         // Pre-computed border title (icon + collection name)
+	Schema          *DisplaySchema // Back-reference for rendering
 }
 
 // ListViewItem is a pre-computed renderable card derived from an object.
@@ -87,11 +90,26 @@ func buildListViewModel(node interface{}, schema *DisplaySchema, width, height i
 		items = append(items, item)
 	}
 
-	return &ListViewModel{
+	lv := &ListViewModel{
 		Items:  items,
 		Width:  width,
 		Height: height,
+		Schema: schema,
 	}
+
+	// Pre-compute the border title from icon + collection title.
+	var titleParts []string
+	if schema.Icon != "" {
+		titleParts = append(titleParts, schema.Icon)
+	}
+	if schema.CollectionTitle != "" {
+		titleParts = append(titleParts, schema.CollectionTitle)
+	}
+	if len(titleParts) > 0 {
+		lv.CollectionTitle = strings.Join(titleParts, " ")
+	}
+
+	return lv
 }
 
 // filterListItems returns items matching the active filter and/or committed search query.
@@ -122,6 +140,45 @@ func filterListItems(lv *ListViewModel) []ListViewItem {
 	return result
 }
 
+// itemLineCount returns the number of content lines a single list item will render.
+func itemLineCount(item ListViewItem, subtitleLines, maxSubWidth int, hasSecondary bool) int {
+	count := 1 // title line
+	if item.Subtitle != "" {
+		wrapped := wrapAtWidth(item.Subtitle, maxSubWidth)
+		subLines := strings.Split(wrapped, "\n")
+		if len(subLines) > subtitleLines {
+			subLines = subLines[:subtitleLines]
+		}
+		count += len(subLines)
+	}
+	if hasSecondary && len(item.Secondary) > 0 {
+		count++
+	}
+	return count
+}
+
+// countVisibleItems returns how many items fit within availableHeight starting
+// from startIdx, using actual per-item line counts rather than a fixed max.
+func countVisibleItems(items []ListViewItem, startIdx, availableHeight, subtitleLines, maxSubWidth int, hasSecondary bool) int {
+	usedLines := 0
+	count := 0
+	for i := startIdx; i < len(items); i++ {
+		h := itemLineCount(items[i], subtitleLines, maxSubWidth, hasSecondary)
+		if count > 0 {
+			h++ // blank separator between items
+		}
+		if usedLines+h > availableHeight {
+			break
+		}
+		usedLines += h
+		count++
+	}
+	if count < 1 {
+		count = 1
+	}
+	return count
+}
+
 // renderListView renders the card-list as a string that fits into the data panel.
 func renderListView(lv *ListViewModel, schema *DisplaySchema, noColor bool) string {
 	if lv == nil || len(lv.Items) == 0 {
@@ -139,47 +196,39 @@ func renderListView(lv *ListViewModel, schema *DisplaySchema, noColor bool) stri
 		contentWidth = 10
 	}
 
-	// Compute lines per item to know how many fit on screen
 	subtitleLines := 1
 	if schema != nil && schema.List != nil && schema.List.SubtitleMaxLines > 0 {
 		subtitleLines = schema.List.SubtitleMaxLines
 	}
 	hasSecondary := schema != nil && schema.List != nil && len(schema.List.SecondaryFields) > 0
-	linesPerItem := 1 + subtitleLines // title + subtitle
-	if hasSecondary {
-		linesPerItem++ // secondary metadata line
-	}
-	if linesPerItem < 2 {
-		linesPerItem = 2
-	}
-	// Add blank line between items
-	linesPerItemWithGap := linesPerItem + 1
 
-	// Account for header lines (icon + collection title) when present
-	headerLines := 0
-	if schema != nil && (schema.Icon != "" || schema.CollectionTitle != "") {
-		headerLines = 3 // header, item count, blank line
+	maxSubWidth := contentWidth - 2 // account for marker indent
+	if maxSubWidth < 5 {
+		maxSubWidth = 5
 	}
 
-	// Ensure scroll window
-	availableHeight := lv.Height - headerLines
-	if availableHeight < linesPerItemWithGap {
-		availableHeight = linesPerItemWithGap
-	}
-	visibleCount := availableHeight / linesPerItemWithGap
-	if visibleCount < 1 {
-		visibleCount = 1
+	availableHeight := lv.Height
+	if availableHeight < 3 {
+		availableHeight = 3
 	}
 
-	// Adjust scrollTop to keep selected visible
+	// Adjust scrollTop to keep selected visible using actual item heights.
 	if lv.Selected < lv.ScrollTop {
 		lv.ScrollTop = lv.Selected
 	}
-	if lv.Selected >= lv.ScrollTop+visibleCount {
-		lv.ScrollTop = lv.Selected - visibleCount + 1
-	}
 	if lv.ScrollTop < 0 {
 		lv.ScrollTop = 0
+	}
+	visibleCount := countVisibleItems(items, lv.ScrollTop, availableHeight, subtitleLines, maxSubWidth, hasSecondary)
+	if lv.Selected >= lv.ScrollTop+visibleCount {
+		// Scroll down until the selected item is visible.
+		for lv.ScrollTop < lv.Selected {
+			lv.ScrollTop++
+			visibleCount = countVisibleItems(items, lv.ScrollTop, availableHeight, subtitleLines, maxSubWidth, hasSecondary)
+			if lv.Selected < lv.ScrollTop+visibleCount {
+				break
+			}
+		}
 	}
 
 	// Styles
@@ -196,19 +245,8 @@ func renderListView(lv *ListViewModel, schema *DisplaySchema, noColor bool) stri
 
 	var lines []string
 
-	// Header: icon + collection title
-	if schema != nil && (schema.Icon != "" || schema.CollectionTitle != "") {
-		header := ""
-		if schema.Icon != "" {
-			header = schema.Icon + " "
-		}
-		if schema.CollectionTitle != "" {
-			header += schema.CollectionTitle
-		}
-		lines = append(lines, "  "+strings.TrimSpace(header))
-		lines = append(lines, fmt.Sprintf("  %d items", len(items)))
-		lines = append(lines, "")
-	}
+	// Collection title + icon are rendered in the panel border by
+	// panelLayoutStateFromModel, so we skip them here.
 
 	endIdx := lv.ScrollTop + visibleCount
 	if endIdx > len(items) {
@@ -260,10 +298,6 @@ func renderListView(lv *ListViewModel, schema *DisplaySchema, noColor bool) stri
 		// Subtitle line(s)
 		if item.Subtitle != "" {
 			sub := item.Subtitle
-			maxSubWidth := contentWidth - 2 // account for marker indent
-			if maxSubWidth < 5 {
-				maxSubWidth = 5
-			}
 			// Wrap subtitle to subtitleLines
 			wrapped := wrapAtWidth(sub, maxSubWidth)
 			subLines := strings.Split(wrapped, "\n")
@@ -364,4 +398,39 @@ func collectObjectKeys(obj map[string]interface{}, hidden []string) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// --- CustomView interface implementation ---
+
+func (lv *ListViewModel) Title() string                { return lv.CollectionTitle }
+func (lv *ListViewModel) FooterBar() string            { return "" }
+func (lv *ListViewModel) HandlesSearch() bool          { return true }
+func (lv *ListViewModel) Init() tea.Cmd                { return nil }
+func (lv *ListViewModel) SearchTitle() string          { return "" } // caller sets based on ListPanelMode
+func (lv *ListViewModel) FlashMessage() (string, bool) { return "", false }
+
+func (lv *ListViewModel) Render(width, height int, noColor bool) string {
+	lv.Width = width
+	lv.Height = height
+	return renderListView(lv, lv.Schema, noColor)
+}
+
+func (lv *ListViewModel) RowCount() (count int, selected int, label string) {
+	total := listViewRowCount(lv)
+	sel := lv.Selected + 1
+	if sel > total {
+		sel = total
+	}
+	filterSuffix := ""
+	if lv.SearchQuery != "" {
+		filterSuffix += " /" + lv.SearchQuery
+	}
+	if lv.Filter != "" {
+		filterSuffix += " f:" + lv.Filter
+	}
+	return total, sel, fmt.Sprintf("list: %d/%d%s", sel, total, filterSuffix)
+}
+
+func (lv *ListViewModel) Update(_ tea.Msg) (CustomView, tea.Cmd) {
+	return lv, nil // list view has no async messages
 }

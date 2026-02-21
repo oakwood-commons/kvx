@@ -107,6 +107,14 @@ func panelLayoutStateFromModel(m *Model, opts PanelLayoutModelOptions) PanelLayo
 	if title == "" {
 		title = "kvx"
 	}
+	// In custom view modes, promote the data-driven title into the panel
+	// border so it appears once (top border only, not repeated in the content
+	// area or bottom border).
+	if cv := m.activeCustomView(); cv != nil {
+		if t := cv.Title(); t != "" {
+			title = t
+		}
+	}
 
 	helpText := strings.TrimSpace(opts.HelpText)
 	popupText := strings.TrimSpace(helpPopupText(m))
@@ -116,18 +124,26 @@ func panelLayoutStateFromModel(m *Model, opts PanelLayoutModelOptions) PanelLayo
 
 	infoMessage := ""
 	infoError := false
-	if strings.TrimSpace(m.ErrMsg) != "" {
-		infoMessage = m.ErrMsg
-		infoError = m.StatusType == "error"
-	} else if m.InputFocused {
-		infoMessage = m.detectFunctionHelp()
-		if infoMessage == "" && m.ShowSuggestionSummary && m.SuggestionSummary != "" {
-			infoMessage = m.SuggestionSummary
+	if cv := m.activeCustomView(); cv != nil {
+		if flash, isErr := cv.FlashMessage(); flash != "" {
+			infoMessage = flash
+			infoError = isErr
 		}
-	} else if m.DecodedActive {
-		infoMessage = "✓ decoded"
-	} else if hint := m.decodeHintForSelectedRow(); hint != "" {
-		infoMessage = hint
+	}
+	if infoMessage == "" && m.activeCustomView() == nil {
+		if strings.TrimSpace(m.ErrMsg) != "" {
+			infoMessage = m.ErrMsg
+			infoError = m.StatusType == "error"
+		} else if m.InputFocused {
+			infoMessage = m.detectFunctionHelp()
+			if infoMessage == "" && m.ShowSuggestionSummary && m.SuggestionSummary != "" {
+				infoMessage = m.SuggestionSummary
+			}
+		} else if m.DecodedActive {
+			infoMessage = "✓ decoded"
+		} else if hint := m.decodeHintForSelectedRow(); hint != "" {
+			infoMessage = hint
+		}
 	}
 
 	state := PanelLayoutState{
@@ -154,7 +170,7 @@ func panelLayoutStateFromModel(m *Model, opts PanelLayoutModelOptions) PanelLayo
 		ExprMode:        m.InputFocused,
 		ExprType:        m.ExprType,
 		SearchActive:    m.AdvancedSearchActive,
-		SearchTitle:     m.listSearchTitle(),
+		SearchTitle:     m.customSearchTitle(),
 		SearchResults:   searchResults,
 		MapFilterActive: m.MapFilterActive,
 		PaletteContent:  paletteContent(m),
@@ -169,13 +185,20 @@ func panelLayoutStateFromModel(m *Model, opts PanelLayoutModelOptions) PanelLayo
 	// Apply custom view mode content (list/detail views)
 	if customContent, ok := m.renderCustomViewContent(); ok {
 		state.CustomContent = customContent
+		// Title is in the top border; clear the bottom-left path label
+		// so it doesn't show a meaningless path like "_.code".
+		state.PathLabel = ""
 		if count, sel, label := m.customViewRowCount(); label != "" {
 			state.CustomFooterLabel = label
 			state.RowCount = count
 			state.SelectedRow = sel - 1
 		}
-		if pl := m.customViewPathLabel(); pl != "" {
-			state.PathLabel = pl
+	}
+
+	// Custom view provides its own footer (action bar with copy/open/quit keys).
+	if cv := m.activeCustomView(); cv != nil {
+		if bar := cv.FooterBar(); bar != "" {
+			state.CustomFooter = bar
 		}
 	}
 

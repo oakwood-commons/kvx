@@ -27,6 +27,27 @@ type DetailDisplayConfig = ui.DetailDisplayConfig
 // DetailSection defines a group of fields rendered together with a specific layout.
 type DetailSection = ui.DetailSection
 
+// StatusDisplayConfig controls how data is rendered as an interactive status/waiting screen.
+type StatusDisplayConfig = ui.StatusDisplayConfig
+
+// StatusFieldDisplay defines a data field to display as a labeled value on the status screen.
+type StatusFieldDisplay = ui.StatusFieldDisplay
+
+// StatusActionConfig defines an interactive action on the status screen.
+type StatusActionConfig = ui.StatusActionConfig
+
+// StatusKeyBindings defines per-mode key bindings for a status action.
+type StatusKeyBindings = ui.StatusKeyBindings
+
+// StatusResult carries the outcome of an async operation for the status screen.
+type StatusResult = ui.StatusResult
+
+// DoneBehavior constants for StatusDisplayConfig.
+const (
+	DoneBehaviorExitAfterDelay = ui.DoneBehaviorExitAfterDelay
+	DoneBehaviorWaitForKey     = ui.DoneBehaviorWaitForKey
+)
+
 // Layout constants for DetailSection.
 const (
 	DisplaySchemaLayoutInline    = ui.DisplayLayoutInline
@@ -63,6 +84,18 @@ func ParseDisplaySchema(data []byte) (*DisplaySchema, error) {
 	if err := json.Unmarshal(data, &ds); err != nil {
 		return nil, fmt.Errorf("invalid display schema: %w", err)
 	}
+
+	// Parse x-kvx-status from the raw map (not in the base struct JSON tags)
+	if statusRaw, ok := probe["x-kvx-status"]; ok {
+		statusBytes, err := json.Marshal(statusRaw)
+		if err == nil {
+			var sc StatusDisplayConfig
+			if err := json.Unmarshal(statusBytes, &sc); err == nil {
+				ds.Status = &sc
+			}
+		}
+	}
+
 	if err := validateDisplaySchema(&ds); err != nil {
 		return nil, err
 	}
@@ -126,6 +159,11 @@ func extractDisplaySchemaFromJSONSchema(raw map[string]any) *DisplaySchema {
 		ds.List = list
 	}
 
+	// x-kvx-status
+	if statusRaw, ok := target["x-kvx-status"].(map[string]any); ok {
+		ds.Status = parseStatusExtension(statusRaw)
+	}
+
 	// x-kvx-detail
 	if detailRaw, ok := target["x-kvx-detail"].(map[string]any); ok {
 		detail := &DetailDisplayConfig{}
@@ -160,6 +198,79 @@ func extractDisplaySchemaFromJSONSchema(raw map[string]any) *DisplaySchema {
 	return ds
 }
 
+// parseStatusExtension parses a raw x-kvx-status map into a StatusDisplayConfig.
+func parseStatusExtension(raw map[string]any) *StatusDisplayConfig {
+	sc := &StatusDisplayConfig{}
+	if v, ok := raw["titleField"].(string); ok {
+		sc.TitleField = v
+	}
+	if v, ok := raw["messageField"].(string); ok {
+		sc.MessageField = v
+	}
+	if v, ok := raw["waitMessage"].(string); ok {
+		sc.WaitMessage = v
+	}
+	if v, ok := raw["successMessage"].(string); ok {
+		sc.SuccessMessage = v
+	}
+	if v, ok := raw["timeout"].(string); ok {
+		sc.Timeout = v
+	}
+	if v, ok := raw["doneBehavior"].(string); ok {
+		sc.DoneBehavior = v
+	}
+	if v, ok := raw["doneDelay"].(string); ok {
+		sc.DoneDelay = v
+	}
+	if dfRaw, ok := raw["displayFields"].([]any); ok {
+		for _, dRaw := range dfRaw {
+			dMap, ok := dRaw.(map[string]any)
+			if !ok {
+				continue
+			}
+			df := StatusFieldDisplay{}
+			if v, ok := dMap["label"].(string); ok {
+				df.Label = v
+			}
+			if v, ok := dMap["field"].(string); ok {
+				df.Field = v
+			}
+			sc.DisplayFields = append(sc.DisplayFields, df)
+		}
+	}
+	if actionsRaw, ok := raw["actions"].([]any); ok {
+		for _, aRaw := range actionsRaw {
+			aMap, ok := aRaw.(map[string]any)
+			if !ok {
+				continue
+			}
+			action := StatusActionConfig{}
+			if v, ok := aMap["label"].(string); ok {
+				action.Label = v
+			}
+			if v, ok := aMap["type"].(string); ok {
+				action.Type = v
+			}
+			if v, ok := aMap["field"].(string); ok {
+				action.Field = v
+			}
+			if keysRaw, ok := aMap["keys"].(map[string]any); ok {
+				if v, ok := keysRaw["vim"].(string); ok {
+					action.Keys.Vim = v
+				}
+				if v, ok := keysRaw["emacs"].(string); ok {
+					action.Keys.Emacs = v
+				}
+				if v, ok := keysRaw["function"].(string); ok {
+					action.Keys.Function = v
+				}
+			}
+			sc.Actions = append(sc.Actions, action)
+		}
+	}
+	return sc
+}
+
 // validateDisplaySchema checks that a display schema has the minimum required fields.
 func validateDisplaySchema(ds *DisplaySchema) error {
 	if ds.List != nil && ds.List.TitleField == "" {
@@ -176,6 +287,22 @@ func validateDisplaySchema(ds *DisplaySchema) error {
 				// valid
 			default:
 				return fmt.Errorf("display schema: detail.sections[%d].layout: unknown layout %q", i, s.Layout)
+			}
+		}
+	}
+	if ds.Status != nil {
+		if ds.Status.TitleField == "" {
+			return fmt.Errorf("display schema: status.titleField is required")
+		}
+		for i, a := range ds.Status.Actions {
+			if a.Label == "" {
+				return fmt.Errorf("display schema: status.actions[%d].label is required", i)
+			}
+			switch a.Type {
+			case "copy-value", "open-url":
+				// valid
+			default:
+				return fmt.Errorf("display schema: status.actions[%d].type: unknown type %q", i, a.Type)
 			}
 		}
 	}

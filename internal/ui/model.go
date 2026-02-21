@@ -1,11 +1,8 @@
 package ui
 
 import (
-	"context"
 	"fmt"
-	"os/exec"
 	"reflect"
-	"runtime"
 	rdebug "runtime/debug"
 	"sort"
 	"strconv"
@@ -13,6 +10,7 @@ import (
 	"time"
 	"unicode"
 
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/table"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
@@ -247,11 +245,15 @@ type Model struct {
 
 	// Display schema for rich TUI rendering (list/detail views)
 	DisplaySchema    *DisplaySchema   // Optional schema for list/detail view modes
-	ViewMode         string           // Current view mode: "", "list", "detail"
+	ViewMode         string           // Current view mode: "", "list", "detail", "status"
 	ListViewState    *ListViewModel   // State for list view rendering
 	DetailViewState  *DetailViewModel // State for detail view rendering
+	StatusViewState  *StatusViewModel // State for status view rendering
 	DetailSourcePath string           // Path from which we drilled into detail view (to navigate back)
 	ListPanelMode    string           // ListPanelModeSearch or ListPanelModeFilter — determines search panel behaviour in list view
+
+	// Status screen async completion (set by library consumers via Config.Done)
+	DoneChan <-chan StatusResult // Optional channel signaling async operation completion
 }
 
 // DebugEvent captures a debug message with a timestamp for post-exit logging.
@@ -2941,7 +2943,11 @@ func SearchRows(node interface{}, query string) [][]string {
 }
 
 func (m *Model) Init() tea.Cmd {
-	return textinput.Blink
+	cmds := []tea.Cmd{textinput.Blink}
+	if cv := m.activeCustomView(); cv != nil {
+		cmds = append(cmds, cv.Init())
+	}
+	return tea.Batch(cmds...)
 }
 
 // syncPathInputWithCursor updates the expr input to reflect the currently highlighted row in table mode.
@@ -3300,6 +3306,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	defer m.syncAllComponents()
 
 	switch msg := msg.(type) {
+	// Route status view messages when in status mode
+	case spinner.TickMsg, statusDoneMsg, statusTimeoutMsg, statusDoneTimerMsg, statusFlashClearMsg:
+		if m.ViewMode == "status" && m.StatusViewState != nil {
+			var statusCmd tea.Cmd
+			var updated CustomView
+			updated, statusCmd = m.StatusViewState.Update(msg)
+			if sv, ok := updated.(*StatusViewModel); ok {
+				m.StatusViewState = sv
+			}
+			return m, statusCmd
+		}
+		return m, nil
+
 	case SearchDebounceMsg:
 		// Only execute search if this is the latest debounce request
 		if msg.ID == m.SearchDebounceID && msg.Query == m.SearchPendingQuery {
@@ -3400,7 +3419,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
-		// Handle custom view modes (list/detail) before standard navigation
+		// Handle custom view modes (list/detail/status) before standard navigation
 		if m.ViewMode == "list" {
 			if handled, result, viewCmd := m.handleListViewKey(keyStr); handled {
 				return result, viewCmd
@@ -3409,6 +3428,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.ViewMode == "detail" {
 			if handled, result, viewCmd := m.handleDetailViewKey(keyStr); handled {
 				return result, viewCmd
+			}
+		}
+		if m.ViewMode == "status" {
+			if keyPress, ok := msg.(tea.KeyPressMsg); ok {
+				if handled, result, viewCmd := m.handleStatusViewKey(keyPress); handled {
+					return result, viewCmd
+				}
 			}
 		}
 
@@ -5159,10 +5185,10 @@ func (m *Model) handleSearchInput(msg tea.KeyMsg, keyStr string) (bool, tea.Cmd)
 // applyAdvancedSearch performs the advanced search and updates the table with results.
 // Search only executes when committed (Enter pressed).
 func (m *Model) applyAdvancedSearch() {
-	// When a display schema list view is using the search panel for
-	// real-time filtering, skip the standard deep-search logic entirely.
-	// The list view reads AdvancedSearchQuery directly via lv.Filter.
-	if m.DisplaySchema != nil && m.ViewMode == "list" {
+	// When a custom view handles search/filter internally (e.g. real-time
+	// list filtering), skip the standard deep-search logic entirely.
+	// The view reads AdvancedSearchQuery directly via its own filter field.
+	if cv := m.activeCustomView(); cv != nil && cv.HandlesSearch() {
 		return
 	}
 	if m.AdvancedSearchActive {
@@ -6348,10 +6374,16 @@ func (m *Model) handleMenuKey(keyStr string) (bool, tea.Cmd) {
 	}
 
 	actions := CurrentMenuActions()
-	// When a display schema is active, redirect search and filter actions
-	// to the list view's search panel instead of the standard deep search.
-	if m.DisplaySchema != nil && (item.Action == "search" || item.Action == "filter") {
-		if m.ViewMode == "list" && m.ListViewState != nil {
+	// When a custom view is active, intercept actions that don't apply.
+	// Copy is swallowed because custom views manage their own copy via
+	// the action bar; search/filter are redirected or swallowed.
+	if cv := m.activeCustomView(); cv != nil &&
+		(item.Action == "search" || item.Action == "filter" || item.Action == "copy") {
+		if item.Action == "copy" {
+			// Custom views handle copy through their own action bar.
+			return true, nil
+		}
+		if cv.HandlesSearch() && m.ViewMode == "list" && m.ListViewState != nil {
 			if item.Action == "search" {
 				m.ListPanelMode = ListPanelModeSearch
 				m.AdvancedSearchQuery = ""
@@ -6367,7 +6399,7 @@ func (m *Model) handleMenuKey(keyStr string) (bool, tea.Cmd) {
 			m.AdvancedSearchCommitted = false
 			return true, m.SearchInput.Focus()
 		}
-		// In detail view, search/filter are not applicable.
+		// Custom view doesn't handle search — swallow the action.
 		return true, nil
 	}
 	actionFn, ok := actions[item.Action]
@@ -6887,47 +6919,9 @@ func makePathCLISafe(path string) string {
 }
 
 // copyToClipboard attempts to copy text to the system clipboard using platform-specific commands.
-
 // Returns an error if the clipboard command is not available or fails.
 func copyToClipboard(text string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	var cmd *exec.Cmd
-
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.CommandContext(ctx, "pbcopy")
-	case "linux":
-		// Try xclip first, then xsel, then wl-copy (Wayland)
-		if _, err := exec.LookPath("xclip"); err == nil {
-			cmd = exec.CommandContext(ctx, "xclip", "-selection", "clipboard")
-		} else if _, err := exec.LookPath("xsel"); err == nil {
-			cmd = exec.CommandContext(ctx, "xsel", "--clipboard", "--input")
-		} else if _, err := exec.LookPath("wl-copy"); err == nil {
-			cmd = exec.CommandContext(ctx, "wl-copy")
-		} else {
-			return fmt.Errorf("no clipboard command found (install xclip, xsel, or wl-clipboard)")
-		}
-	case "windows":
-		cmd = exec.CommandContext(ctx, "clip")
-	default:
-		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
-	}
-
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return err
-	}
-
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-
-	_, _ = stdin.Write([]byte(text))
-	_ = stdin.Close()
-
-	return cmd.Wait()
+	return CopyToClipboard(text)
 }
 
 // printCLIOutput evaluates the given expression against the root and prints

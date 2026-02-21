@@ -266,6 +266,169 @@ func TestParseSchemaWithDisplay_ObjectLevelExtensions(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// ParseDisplaySchema – x-kvx-status (standalone)
+// ---------------------------------------------------------------------------
+
+func TestParseDisplaySchema_Status(t *testing.T) {
+	doc := `{
+		"displaySchema": "v1",
+		"x-kvx-status": {
+			"titleField": "title",
+			"messageField": "messages",
+			"waitMessage": "Waiting...",
+			"successMessage": "Done!",
+			"timeout": "30s",
+			"doneBehavior": "wait-for-key",
+			"doneDelay": "3s",
+			"displayFields": [
+				{"label": "URL", "field": "url"},
+				{"label": "Code", "field": "code"}
+			],
+			"actions": [
+				{
+					"label": "Copy code",
+					"type": "copy-value",
+					"field": "code",
+					"keys": {"vim": "c", "emacs": "alt+c", "function": "f2"}
+				},
+				{
+					"label": "Open URL",
+					"type": "open-url",
+					"field": "url",
+					"keys": {"vim": "o", "emacs": "alt+o", "function": "f3"}
+				}
+			]
+		}
+	}`
+
+	ds, err := ParseDisplaySchema([]byte(doc))
+	require.NoError(t, err)
+	require.NotNil(t, ds)
+	require.NotNil(t, ds.Status)
+
+	assert.Equal(t, "title", ds.Status.TitleField)
+	assert.Equal(t, "messages", ds.Status.MessageField)
+	assert.Equal(t, "Waiting...", ds.Status.WaitMessage)
+	assert.Equal(t, "Done!", ds.Status.SuccessMessage)
+	assert.Equal(t, "30s", ds.Status.Timeout)
+	assert.Equal(t, DoneBehaviorWaitForKey, ds.Status.DoneBehavior)
+	assert.Equal(t, "3s", ds.Status.DoneDelay)
+
+	require.Len(t, ds.Status.DisplayFields, 2)
+	assert.Equal(t, "URL", ds.Status.DisplayFields[0].Label)
+	assert.Equal(t, "url", ds.Status.DisplayFields[0].Field)
+	assert.Equal(t, "Code", ds.Status.DisplayFields[1].Label)
+	assert.Equal(t, "code", ds.Status.DisplayFields[1].Field)
+
+	require.Len(t, ds.Status.Actions, 2)
+
+	assert.Equal(t, "Copy code", ds.Status.Actions[0].Label)
+	assert.Equal(t, "copy-value", ds.Status.Actions[0].Type)
+	assert.Equal(t, "code", ds.Status.Actions[0].Field)
+	assert.Equal(t, "c", ds.Status.Actions[0].Keys.Vim)
+	assert.Equal(t, "alt+c", ds.Status.Actions[0].Keys.Emacs)
+	assert.Equal(t, "f2", ds.Status.Actions[0].Keys.Function)
+
+	assert.Equal(t, "Open URL", ds.Status.Actions[1].Label)
+	assert.Equal(t, "open-url", ds.Status.Actions[1].Type)
+	assert.Equal(t, "url", ds.Status.Actions[1].Field)
+}
+
+func TestParseDisplaySchema_StatusMissingTitleField(t *testing.T) {
+	doc := `{
+		"displaySchema": "v1",
+		"x-kvx-status": {
+			"messageField": "messages"
+		}
+	}`
+	_, err := ParseDisplaySchema([]byte(doc))
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "titleField")
+}
+
+func TestParseDisplaySchema_StatusInvalidActionType(t *testing.T) {
+	doc := `{
+		"displaySchema": "v1",
+		"x-kvx-status": {
+			"titleField": "title",
+			"actions": [
+				{"label": "Do thing", "type": "unknown-action", "field": "x"}
+			]
+		}
+	}`
+	_, err := ParseDisplaySchema([]byte(doc))
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown-action")
+}
+
+func TestParseDisplaySchema_StatusActionMissingLabel(t *testing.T) {
+	doc := `{
+		"displaySchema": "v1",
+		"x-kvx-status": {
+			"titleField": "title",
+			"actions": [
+				{"type": "copy-value", "field": "code"}
+			]
+		}
+	}`
+	_, err := ParseDisplaySchema([]byte(doc))
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "label")
+}
+
+func TestParseDisplaySchema_StatusMinimal(t *testing.T) {
+	doc := `{
+		"displaySchema": "v1",
+		"x-kvx-status": {
+			"titleField": "title"
+		}
+	}`
+	ds, err := ParseDisplaySchema([]byte(doc))
+	require.NoError(t, err)
+	require.NotNil(t, ds.Status)
+	assert.Equal(t, "title", ds.Status.TitleField)
+	assert.Empty(t, ds.Status.Actions)
+}
+
+// ---------------------------------------------------------------------------
+// ParseSchemaWithDisplay – x-kvx-status in JSON Schema
+// ---------------------------------------------------------------------------
+
+func TestParseSchemaWithDisplay_StatusExtension(t *testing.T) {
+	schema := `{
+		"type": "object",
+		"x-kvx-status": {
+			"titleField": "title",
+			"messageField": "msg",
+			"waitMessage": "Please wait...",
+			"actions": [
+				{
+					"label": "Copy token",
+					"type": "copy-value",
+					"field": "token",
+					"keys": {"vim": "c", "emacs": "alt+c", "function": "f2"}
+				}
+			]
+		},
+		"properties": {
+			"title": {"type": "string"},
+			"msg": {"type": "string"},
+			"token": {"type": "string"}
+		}
+	}`
+
+	_, ds, err := ParseSchemaWithDisplay([]byte(schema))
+	require.NoError(t, err)
+	require.NotNil(t, ds)
+	require.NotNil(t, ds.Status)
+	assert.Equal(t, "title", ds.Status.TitleField)
+	assert.Equal(t, "msg", ds.Status.MessageField)
+	assert.Equal(t, "Please wait...", ds.Status.WaitMessage)
+	require.Len(t, ds.Status.Actions, 1)
+	assert.Equal(t, "Copy token", ds.Status.Actions[0].Label)
+}
+
+// ---------------------------------------------------------------------------
 // Layout constants
 // ---------------------------------------------------------------------------
 
@@ -274,4 +437,13 @@ func TestDisplaySchemaLayoutConstants(t *testing.T) {
 	assert.Equal(t, "paragraph", DisplaySchemaLayoutParagraph)
 	assert.Equal(t, "tags", DisplaySchemaLayoutTags)
 	assert.Equal(t, "table", DisplaySchemaLayoutTable)
+}
+
+// ---------------------------------------------------------------------------
+// DoneBehavior constants
+// ---------------------------------------------------------------------------
+
+func TestDoneBehaviorConstants(t *testing.T) {
+	assert.Equal(t, "exit-after-delay", DoneBehaviorExitAfterDelay)
+	assert.Equal(t, "wait-for-key", DoneBehaviorWaitForKey)
 }

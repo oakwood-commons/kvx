@@ -246,7 +246,7 @@ func TestBuildDetailViewModel_Basic(t *testing.T) {
 
 	dv := buildDetailViewModel(obj, schema, 60, 20)
 	require.NotNil(t, dv)
-	assert.Equal(t, "aws-ec2", dv.Title)
+	assert.Equal(t, "aws-ec2", dv.TitleText)
 	assert.Len(t, dv.Sections, 3)
 }
 
@@ -306,7 +306,8 @@ func TestRenderDetailView_ContainsSections(t *testing.T) {
 	dv := buildDetailViewModel(obj, schema, 60, 20)
 	require.NotNil(t, dv)
 	content := renderDetailView(dv, schema, false)
-	assert.Contains(t, content, "test-svc")
+	// Title is rendered in the panel border, not in the content area.
+	assert.NotContains(t, content, "test-svc")
 	assert.Contains(t, content, "v1.0")
 	assert.Contains(t, content, "A test service for unit tests")
 }

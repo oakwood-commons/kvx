@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"strings"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -12,6 +11,19 @@ import (
 func (m *Model) updateViewMode(node interface{}) {
 	if m.DisplaySchema == nil {
 		m.ViewMode = ""
+		m.ListViewState = nil
+		m.DetailViewState = nil
+		m.StatusViewState = nil
+		return
+	}
+
+	// Status view takes priority — it's a top-level screen, not a drill-down view.
+	if m.DisplaySchema.Status != nil && m.DisplaySchema.Status.TitleField != "" {
+		m.ViewMode = "status"
+		m.StatusViewState = buildStatusViewModel(
+			node, m.DisplaySchema, m.KeyMode, m.NoColor, m.DoneChan,
+			m.WinWidth, m.WinHeight,
+		)
 		m.ListViewState = nil
 		m.DetailViewState = nil
 		return
@@ -42,6 +54,26 @@ func (m *Model) updateViewMode(node interface{}) {
 	m.ViewMode = ""
 	m.ListViewState = nil
 	m.DetailViewState = nil
+}
+
+// activeCustomView returns the active CustomView for the current ViewMode,
+// or nil when the default table view is active.
+func (m *Model) activeCustomView() CustomView {
+	switch m.ViewMode {
+	case "list":
+		if m.ListViewState != nil {
+			return m.ListViewState
+		}
+	case "detail":
+		if m.DetailViewState != nil {
+			return m.DetailViewState
+		}
+	case "status":
+		if m.StatusViewState != nil {
+			return m.StatusViewState
+		}
+	}
+	return nil
 }
 
 // resolveViewAction maps a raw keyStr to a VimAction, respecting the current KeyMode.
@@ -420,96 +452,74 @@ func (m *Model) handleDetailViewKey(keyStr string) (bool, tea.Model, tea.Cmd) {
 	return false, m, nil
 }
 
-// renderCustomViewContent renders the content for list or detail view modes.
+// renderCustomViewContent renders the content for custom view modes (list, detail, status).
 // Returns the rendered string and true if a custom view was rendered, or ("", false) for default.
 func (m *Model) renderCustomViewContent() (string, bool) {
-	switch m.ViewMode {
-	case "list":
-		if m.ListViewState != nil {
-			// In filter mode, keep the filter in sync with the search panel query.
-			if m.AdvancedSearchActive && m.ListPanelMode == ListPanelModeFilter {
-				m.ListViewState.Filter = m.AdvancedSearchQuery
-			}
-			m.ListViewState.Width = m.WinWidth
-			m.ListViewState.Height = m.WinHeight - 6 // account for borders, footer, status
-			content := renderListView(m.ListViewState, m.DisplaySchema, m.NoColor)
-			return content, true
-		}
-	case "detail":
-		if m.DetailViewState != nil {
-			m.DetailViewState.Width = m.WinWidth
-			m.DetailViewState.Height = m.WinHeight - 6
-			content := renderDetailView(m.DetailViewState, m.DisplaySchema, m.NoColor)
-			return content, true
-		}
+	cv := m.activeCustomView()
+	if cv == nil {
+		return "", false
 	}
-	return "", false
+
+	// Sync filter state before rendering/counting.
+	m.syncCustomViewFilter()
+
+	width := m.WinWidth
+	height := m.WinHeight - 6 // account for borders, footer, status
+	content := cv.Render(width, height, m.NoColor)
+	return content, true
 }
 
 // customViewRowCount returns the item count for the footer label in custom view modes.
 func (m *Model) customViewRowCount() (count int, selected int, label string) {
-	switch m.ViewMode {
-	case "list":
-		if m.ListViewState != nil {
-			// In filter mode, keep the filter in sync with the search panel query.
-			if m.AdvancedSearchActive && m.ListPanelMode == ListPanelModeFilter {
-				m.ListViewState.Filter = m.AdvancedSearchQuery
-			}
-			total := listViewRowCount(m.ListViewState)
-			sel := m.ListViewState.Selected + 1
-			if sel > total {
-				sel = total
-			}
-			filterSuffix := ""
-			if m.ListViewState.SearchQuery != "" {
-				filterSuffix += " /" + m.ListViewState.SearchQuery
-			}
-			if m.ListViewState.Filter != "" {
-				filterSuffix += " f:" + m.ListViewState.Filter
-			}
-			return total, sel, fmt.Sprintf("list: %d/%d%s", sel, total, filterSuffix)
-		}
-	case "detail":
-		return 1, 1, "detail"
+	cv := m.activeCustomView()
+	if cv == nil {
+		return 0, 0, ""
 	}
-	return 0, 0, ""
+
+	// Sync filter state before counting.
+	m.syncCustomViewFilter()
+
+	return cv.RowCount()
 }
 
-// customViewPathLabel returns the path label for the footer in custom view modes.
-func (m *Model) customViewPathLabel() string {
-	switch m.ViewMode {
-	case "list":
-		if m.DisplaySchema != nil {
-			parts := []string{}
-			if m.DisplaySchema.Icon != "" {
-				parts = append(parts, m.DisplaySchema.Icon)
-			}
-			if m.DisplaySchema.CollectionTitle != "" {
-				parts = append(parts, m.DisplaySchema.CollectionTitle)
-			}
-			if len(parts) > 0 {
-				return strings.Join(parts, " ")
-			}
-		}
-		return formatPathForDisplay(m.Path)
-	case "detail":
-		if m.DetailViewState != nil && m.DetailViewState.Title != "" {
-			return m.DetailViewState.Title
-		}
-		return formatPathForDisplay(m.Path)
+// syncCustomViewFilter syncs the search panel query into the list view filter
+// when the list panel mode is "filter" and the search panel is active.
+func (m *Model) syncCustomViewFilter() {
+	if m.ViewMode == "list" && m.ListViewState != nil &&
+		m.AdvancedSearchActive && m.ListPanelMode == ListPanelModeFilter {
+		m.ListViewState.Filter = m.AdvancedSearchQuery
 	}
-	return ""
 }
 
-// listSearchTitle returns the panel title override for the search/filter panel
-// when a display schema list view is active.  Returns "" when no override is
-// needed (i.e. the default "Search" title should be used).
-func (m *Model) listSearchTitle() string {
-	if m.DisplaySchema == nil || m.ViewMode != "list" {
+// customSearchTitle returns the panel title override for the search/filter panel
+// when a custom view is active. Returns "" when no override is needed
+// (i.e. the default "Search" title should be used).
+func (m *Model) customSearchTitle() string {
+	cv := m.activeCustomView()
+	if cv == nil {
 		return ""
 	}
-	if m.ListPanelMode == ListPanelModeFilter {
+	// The view itself may provide a title override.
+	if t := cv.SearchTitle(); t != "" {
+		return t
+	}
+	// Model-level overrides (e.g. list panel filter mode).
+	if m.ViewMode == "list" && m.ListPanelMode == ListPanelModeFilter {
 		return "Filter"
 	}
 	return "" // default "Search"
+}
+
+// handleStatusViewKey handles key events when in status view mode.
+// Returns (handled bool, model, cmd).
+func (m *Model) handleStatusViewKey(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
+	if m.ViewMode != "status" || m.StatusViewState == nil {
+		return false, m, nil
+	}
+
+	sv, cmd := m.StatusViewState.Update(msg)
+	if updated, ok := sv.(*StatusViewModel); ok {
+		m.StatusViewState = updated
+	}
+	return true, m, cmd
 }

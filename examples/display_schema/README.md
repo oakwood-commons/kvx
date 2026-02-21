@@ -6,13 +6,12 @@ to give the kvx interactive TUI a rich, opinionated layout for your data.
 ## The Problem
 
 By default, `kvx -i` renders every object as a flat KEY/VALUE table.
-For a catalog of infrastructure providers (the "scafctl" use case), you'd
-rather see:
+For a catalog of scafctl workflow providers, you'd rather see:
 
-- **List view** — scrollable cards showing name, description, status badge,
-  version, and maintainer at a glance.
+- **List view** — scrollable cards showing name, description, category badge,
+  version, and display name at a glance.
 - **Detail view** — a sectioned layout with an inline header, paragraph
-  description, colored tag pills, and a details table.
+  description, capability tags, and a status table.
 
 ## How It Works
 
@@ -52,5 +51,5 @@ kvx examples/display_schema/providers.json \
 | File | Description |
 |------|-------------|
 | `main.go` | Entry point — loads data and schema, launches TUI |
-| `providers.json` | Sample data: 6 infrastructure providers |
+| `providers.json` | Sample data: 15 scafctl workflow providers |
 | `provider_schema.json` | JSON Schema with `x-kvx-*` display extensions |

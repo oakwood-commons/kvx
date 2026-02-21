@@ -1465,13 +1465,25 @@ func tableFormatOptionsFromConfig(cfg ui.ThemeConfigFile) formatter.TableFormatO
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: cannot read schema file %s: %v\n", schemaPath, err)
 		} else {
-			var ds *tui.DisplaySchema
-			schemaHints, ds, err = tui.ParseSchemaWithDisplay(data)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "warning: cannot parse schema file %s: %v\n", schemaPath, err)
-			}
-			if ds != nil {
+			// Try standalone display schema first (has "displaySchema" key),
+			// then fall back to JSON Schema with x-kvx-* extensions.
+			if ds, dsErr := tui.ParseDisplaySchema(data); dsErr == nil {
 				parsedDisplaySchema = ds
+			} else {
+				var ds *tui.DisplaySchema
+				schemaHints, ds, err = tui.ParseSchemaWithDisplay(data)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "warning: cannot parse schema file %s: %v\n", schemaPath, err)
+				}
+				if ds != nil {
+					parsedDisplaySchema = ds
+				}
+				// If fallback produced nothing and original error was NOT "missing displaySchema key",
+				// the file was intended as a display schema but had parse/validation issues.
+				if len(schemaHints) == 0 && ds == nil && err == nil &&
+					!strings.Contains(dsErr.Error(), "missing") {
+					fmt.Fprintf(os.Stderr, "warning: cannot parse schema file %s: %v\n", schemaPath, dsErr)
+				}
 			}
 		}
 	case len(cfg.Formatting.Table.Schema) > 0:
@@ -2757,6 +2769,16 @@ var rootCmd = &cobra.Command{
 				}
 				yamlOpts := yamlFormatOptionsFromConfig(cfg)
 				tableOpts := tableFormatOptionsFromConfig(cfg)
+				// Only apply status fallback for auto/table; explicit formats (json/yaml/csv) are honored
+				if output == "auto" || output == "table" {
+					if text, ok := renderPlainTextStatus(node, parsedDisplaySchema); ok {
+						fmt.Print(text) //nolint:forbidigo
+						if debugLog && len(dc.events) > 0 {
+							printDebugEvents(dc.events)
+						}
+						return
+					}
+				}
 				treeOpts := treeFormatOptionsFromConfig(cfg, outputWidth, stdoutIsPiped())
 				mermaidOpts := mermaidFormatOptionsFromConfig(cfg)
 				printEvalResult(node, output, noColor, keyW, valueW, outputHeight, outputWidth, appName, "_", yamlOpts, tableOpts, treeOpts, mermaidOpts)
@@ -3106,6 +3128,17 @@ var rootCmd = &cobra.Command{
 		}
 		yamlOpts := yamlFormatOptionsFromConfig(cfg)
 		tableOpts := tableFormatOptionsFromConfig(cfg)
+		// If a status display schema is present and output is auto/table, render plain-text
+		// status output. Explicit formats (json/yaml/csv) are honored for pipeline compatibility.
+		if output == "auto" || output == "table" {
+			if text, ok := renderPlainTextStatus(node, parsedDisplaySchema); ok {
+				fmt.Print(text) //nolint:forbidigo
+				if debugLog && len(dc.events) > 0 {
+					printDebugEvents(dc.events)
+				}
+				return
+			}
+		}
 		treeOpts := treeFormatOptionsFromConfig(cfg, outputWidth, stdoutIsPiped())
 		mermaidOpts := mermaidFormatOptionsFromConfig(cfg)
 		printEvalResult(node, output, noColor, keyW, valueW, outputHeight, outputWidth, appNameVal, "_", yamlOpts, tableOpts, treeOpts, mermaidOpts)
