@@ -1,0 +1,6 @@
+{
+  "id": "record-001",
+  "name": "Sample Record",
+  "metadata": "{\"tags\":[\"alpha\",\"beta\"],\"version\":2}",
+  "payload": "[{\"host\":\"server-1\",\"port\":8080,\"healthy\":true},{\"host\":\"server-2\",\"port\":9090,\"healthy\":false},{\"host\":\"server-3\",\"port\":7070,\"healthy\":true}]"
+}

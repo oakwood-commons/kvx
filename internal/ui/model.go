@@ -550,30 +550,62 @@ func (m *Model) replaceNodeInParent(newNode any) {
 		return
 	}
 
-	parentPath := removeLastSegment(m.Path)
-	var parent any
-	var err error
-	if parentPath == "" {
-		parent = m.Root
-	} else {
-		parent, err = navigator.Resolve(m.Root, parentPath)
-		if err != nil {
-			return
-		}
+	// Walk the original data structure directly instead of using navigator.Resolve.
+	// navigator.Resolve goes through CEL evaluation which creates *copies* of maps
+	// (via ToGo/convertMapValues). Mutating a copy does not affect the original Root,
+	// which causes subsequent navigator.Resolve calls to still see the old (undecoded)
+	// value. Direct walking preserves Go reference semantics for maps and slices.
+	keys := parsePathKeys(m.Path)
+	if len(keys) == 0 {
+		return
 	}
 
-	// Determine the key to replace in the parent
-	lastKey := lastPathSegment(m.Path)
+	// Skip the root alias "_" if present; handle non-underscore paths (e.g., "payload[0]").
+	steps := keys
+	if len(keys) > 0 && keys[0] == "_" {
+		steps = keys[1:]
+	}
+	if len(steps) == 0 {
+		// Path was just "_" — replace root directly
+		m.Root = newNode
+		return
+	}
+
+	parentSteps := steps[:len(steps)-1]
+	lastKey := steps[len(steps)-1]
 	if lastKey == "" {
 		return
 	}
 
-	switch p := parent.(type) {
+	// Unquote the last key (strip surrounding double quotes from bracket notation)
+	lastKey = unquoteSegment(lastKey)
+
+	cur := m.Root
+	for _, step := range parentSteps {
+		step = unquoteSegment(step)
+		switch t := cur.(type) {
+		case map[string]any:
+			v, ok := t[step]
+			if !ok {
+				return
+			}
+			cur = v
+		case []any:
+			idx := parseArrayIndex(step)
+			if idx < 0 || idx >= len(t) {
+				return
+			}
+			cur = t[idx]
+		default:
+			return
+		}
+	}
+
+	// cur is now the parent container — mutate it in-place.
+	switch p := cur.(type) {
 	case map[string]any:
-		// Unquote bracketed keys: ["a.b"] yields "a.b", need a.b
-		p[unquoteSegment(lastKey)] = newNode
+		p[lastKey] = newNode
 	case []any:
-		// Parse numeric index from the key (strip brackets if present)
 		idx := parseArrayIndex(lastKey)
 		if idx >= 0 && idx < len(p) {
 			p[idx] = newNode
@@ -589,17 +621,6 @@ func unquoteSegment(s string) string {
 		return s[1 : len(s)-1]
 	}
 	return s
-}
-
-// lastPathSegment extracts the last segment from a path string.
-// For "_.items[0].token" it returns "token".
-// For "_.items[0]" it returns "[0]".
-func lastPathSegment(path string) string {
-	keys := parsePathKeys(path)
-	if len(keys) == 0 {
-		return ""
-	}
-	return keys[len(keys)-1]
 }
 
 // parseArrayIndex extracts a numeric array index from a path segment.
