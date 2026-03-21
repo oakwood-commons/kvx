@@ -2123,7 +2123,7 @@ func getCLILongHelp() string {
 
 	// Use config description (always present from default config)
 	helpDescription := processTemplateString(cfg.CLI.HelpDescription, templateData)
-	long.WriteString(fmt.Sprintf("%s is %s. %s\n\n", name, description, helpDescription))
+	_, _ = fmt.Fprintf(&long, "%s is %s. %s\n\n", name, description, helpDescription)
 
 	// Add details (always present from default config)
 	for _, detail := range cfg.About.Details {

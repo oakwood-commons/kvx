@@ -1,5 +1,15 @@
 # kvx
 
+[![Go Report Card](https://goreportcard.com/badge/github.com/oakwood-commons/kvx)](https://goreportcard.com/report/github.com/oakwood-commons/kvx)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/oakwood-commons/kvx)](https://github.com/oakwood-commons/kvx/releases)
+[![CI](https://github.com/oakwood-commons/kvx/actions/workflows/ci.yml/badge.svg)](https://github.com/oakwood-commons/kvx/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/oakwood-commons/kvx/graph/badge.svg)](https://codecov.io/gh/oakwood-commons/kvx)
+
+> **Alpha** — kvx is under active development. APIs and CLI flags may change between
+> releases. Breaking changes are documented in release notes. Questions? Open an
+> issue or start a [Discussion](https://github.com/oakwood-commons/kvx/discussions).
+
 **kvx** is a terminal-based UI for exploring structured data like JSON, YAML, and TOML in an interactive, navigable way. It presents data as key value trees that you can expand, collapse, and inspect directly in the terminal, making it easy to understand complex or deeply nested structures. In addition to being a standalone CLI, kvx is designed as a reusable TUI component, allowing other applications to embed the viewer directly into their own terminal interfaces for consistent data inspection and visualization.
 
 ## Usage
