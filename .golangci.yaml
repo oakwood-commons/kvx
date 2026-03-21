@@ -39,6 +39,9 @@ linters:
   # # disabling temporarily and will be enabled back after fixing issues
   #   - staticcheck
   settings:
+    gosec:
+      excludes:
+        - G115 # integer overflow uintptr->int: safe for term.GetSize(int(fd)) pattern
     gocritic:
       disabled-checks:
         - unlambda
@@ -71,6 +74,17 @@ linters:
           - forbidigo
           - gochecknoinits
           - forcetypeassert
+      # CLI/build paths: suppress G703 (path traversal) and G705 (XSS) — these are
+      # web-specific checks not applicable to terminal I/O or CLI file path args
+      - path: (cmd|internal|pkg|examples)/
+        linters:
+          - gosec
+        text: "G703|G705"
+      # Build script: suppress G703 (paths from CLI args) and G705 (stderr + sanitised HTML output)
+      - path: scripts/
+        linters:
+          - gosec
+        text: "G703|G705"
       # Exclude dupl from CEL extension files with similar function registration patterns
       - path: pkg/celexp/ext/marshalling/marshalling\.go
         linters:

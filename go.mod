@@ -1,13 +1,12 @@
 module github.com/oakwood-commons/kvx
 
-go 1.24.2
-
-toolchain go1.24.11
+go 1.25.8
 
 require (
 	charm.land/bubbles/v2 v2.0.0-rc.1
 	charm.land/bubbletea/v2 v2.0.0-rc.2
 	charm.land/lipgloss/v2 v2.0.0-beta.3.0.20251106192539-4b304240aab7
+	github.com/charmbracelet/x/ansi v0.11.4
 	github.com/go-logr/logr v1.4.3
 	github.com/go-logr/zapr v1.3.0
 	github.com/gomarkdown/markdown v0.0.0-20250810172220-2e2c11897d1a
@@ -30,7 +29,6 @@ require (
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/charmbracelet/colorprofile v0.3.3 // indirect
 	github.com/charmbracelet/ultraviolet v0.0.0-20251116181749-377898bcce38 // indirect
-	github.com/charmbracelet/x/ansi v0.11.4 // indirect
 	github.com/charmbracelet/x/exp/golden v0.0.0-20251201173703-9f73bfd934ff // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect
 	github.com/charmbracelet/x/termios v0.1.1 // indirect

@@ -6,20 +6,48 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        id: filter
+        with:
+          filters: |
+            code:
+              - '**/*.go'
+              - 'go.mod'
+              - 'go.sum'
+              - '.golangci.yaml'
+              - '.github/workflows/ci.yml'
+              - 'taskfile.yaml'
+
   fork-test:
     name: Fork Test
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == true
+    needs: [changes]
+    if: |
+      needs.changes.outputs.code == 'true' &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.fork == true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
-          go-version: "1.24"
+          go-version-file: go.mod
+          cache: true
 
       - name: Download modules
         run: go mod download
@@ -30,59 +58,81 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.fork == false
-    strategy:
-      matrix:
-        go-version: ["1.24"]
+    needs: [changes]
+    if: |
+      needs.changes.outputs.code == 'true' &&
+      (github.event_name == 'push' || github.event.pull_request.head.repo.fork == false)
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
-          go-version: ${{ matrix.go-version }}
+          go-version-file: go.mod
+          cache: true
 
       - name: Install Task
-        uses: arduino/setup-task@v2
+        uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2.0.0
         with:
           version: 3.x
 
-      - name: Run tests
-        run: task test
+      - name: Run tests with coverage
+        run: task coverage
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@1af58845a975a7985b0beb0cbe6fbbb71a41dbad # v5.5.3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.out
+          fail_ci_if_error: false
 
   lint:
     name: Lint
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.fork == false
+    needs: [changes]
+    if: |
+      needs.changes.outputs.code == 'true' &&
+      (github.event_name == 'push' || github.event.pull_request.head.repo.fork == false)
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
-          go-version: "1.24"
+          go-version-file: go.mod
+          cache: true
 
       - name: Install Task
-        uses: arduino/setup-task@v2
+        uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2.0.0
         with:
           version: 3.x
 
       - name: Run linter
         run: task lint
 
+      - name: Check go mod tidy
+        run: task mod-check
+
+      - name: Run govulncheck
+        run: task govulncheck
+
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [test, lint]
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.fork == false
+    needs: [changes, test, lint]
+    if: |
+      always() &&
+      needs.changes.outputs.code == 'true' &&
+      (needs.test.result == 'success' && needs.lint.result == 'success') &&
+      (github.event_name == 'push' || github.event.pull_request.head.repo.fork == false)
     strategy:
       matrix:
         goos: [linux, darwin, windows]
         goarch: [amd64, arm64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
-          go-version: "1.24"
+          go-version-file: go.mod
 
       - name: Build
         env:
@@ -90,3 +140,44 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
         run: go build -trimpath -ldflags "-s -w" -o /dev/null .
+
+  # Gate jobs — always run so required status checks never stay "Pending"
+  # when code-only jobs are skipped on docs-only changes.
+  test-gate:
+    name: Test (gate)
+    runs-on: ubuntu-latest
+    needs: [changes, test, fork-test]
+    if: always()
+    steps:
+      - run: |
+          if [[ "${{ needs.changes.outputs.code }}" != "true" ]]; then
+            echo "No code changes — skipping tests"
+            exit 0
+          fi
+          if [[ "${{ needs.test.result }}" == "success" || "${{ needs.fork-test.result }}" == "success" ]]; then
+            exit 0
+          fi
+          echo "Test job failed or was not successful"
+          exit 1
+
+  lint-gate:
+    name: Lint (gate)
+    runs-on: ubuntu-latest
+    needs: [changes, lint, fork-test]
+    if: always()
+    steps:
+      - run: |
+          if [[ "${{ needs.changes.outputs.code }}" != "true" ]]; then
+            echo "No code changes — skipping lint"
+            exit 0
+          fi
+          if [[ "${{ needs.lint.result }}" == "success" ]]; then
+            exit 0
+          fi
+          # Fork PRs skip lint (no secrets access); pass if fork-test succeeded
+          if [[ "${{ needs.fork-test.result }}" == "success" ]]; then
+            echo "Fork PR — lint skipped, fork-test passed"
+            exit 0
+          fi
+          echo "Lint job failed or was not successful"
+          exit 1

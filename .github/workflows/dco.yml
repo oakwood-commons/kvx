@@ -1,0 +1,34 @@
+name: DCO
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  dco-check:
+    name: DCO Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Verify Signed-off-by lines
+        run: |
+          set -euo pipefail
+          base_sha="${{ github.event.pull_request.base.sha }}"
+          head_sha="${{ github.event.pull_request.head.sha }}"
+          missing=0
+          for sha in $(git rev-list --no-merges "${base_sha}..${head_sha}"); do
+            author_email=$(git show -s --format='%ae' "$sha")
+            author_name=$(git show -s --format='%an' "$sha")
+            # Check for a Signed-off-by trailer matching the commit author
+            if ! git show -s --format='%(trailers:key=Signed-off-by,valueonly)' "$sha" \
+              | grep -Fqi -- "${author_name} <${author_email}>"; then
+              echo "❌ Commit $sha by ${author_name} <${author_email}> is missing a matching Signed-off-by trailer"
+              missing=1
+            fi
+          done
+          exit $missing

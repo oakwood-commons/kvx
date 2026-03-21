@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	gohtml "html"
 	"io"
 	"os"
 	"path/filepath"
@@ -16,7 +17,7 @@ import (
 
 func main() {
 	if len(os.Args) != 2 {
-		fmt.Fprintf(os.Stderr, "Usage: %s <dist-dir>\n", os.Args[0])
+		_, _ = fmt.Fprintf(os.Stderr, "Usage: %s <dist-dir>\n", os.Args[0])
 		os.Exit(1)
 	}
 
@@ -26,7 +27,7 @@ func main() {
 	// Read README.md
 	readmeContent, err := os.ReadFile("README.md")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading README.md: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "Error reading README.md: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -52,7 +53,7 @@ func main() {
 	// Create index.html
 	f, err := os.Create(indexPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating index.html: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "Error creating index.html: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -62,7 +63,7 @@ func main() {
 	// Write README content (with downloads section embedded)
 	if _, err := f.Write(readmeHTML); err != nil {
 		f.Close()
-		fmt.Fprintf(os.Stderr, "Error writing README content: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "Error writing README content: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -70,7 +71,7 @@ func main() {
 	writeFooter(f)
 	f.Close()
 
-	fmt.Fprintf(os.Stderr, "Generated %s\n", indexPath)
+	_, _ = fmt.Fprintf(os.Stderr, "Generated %s\n", indexPath)
 }
 
 // detectVersionFromDist finds the version string from files like kvx_0.1.0-SNAPSHOT-abc123_Darwin_arm64.tar.gz
@@ -103,9 +104,7 @@ func generateDownloadsHTMLFlat(distDir, version string) string {
     <h2>📦 Downloads</h2>
     <div class="version-section">
 `)
-	sb.WriteString(fmt.Sprintf(`      <h3>%s</h3>
-      <table class="download-table">
-`, version))
+	_, _ = fmt.Fprintf(&sb, `      <h3>%s</h3>`+"\n"+`      <table class="download-table">`+"\n", gohtml.EscapeString(version))
 
 	files, err := os.ReadDir(distDir)
 	if err != nil {
@@ -174,11 +173,11 @@ func generateDownloadsHTMLFlat(distDir, version string) string {
 	for _, key := range platKeys {
 		plat := platforms[key]
 		// Use relative path (just the filename since index.html is in same directory)
-		sb.WriteString(fmt.Sprintf(`        <tr>
+		_, _ = fmt.Fprintf(&sb, `        <tr>
           <td class="platform-name">%s</td>
           <td class="platform-links"><a href="%s">download</a></td>
         </tr>
-`, plat.Name, plat.Archive))
+`, gohtml.EscapeString(plat.Name), gohtml.EscapeString(plat.Archive))
 	}
 
 	sb.WriteString(`      </table>

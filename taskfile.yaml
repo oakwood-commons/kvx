@@ -138,6 +138,44 @@ tasks:
         fi
         golangci-lint run ./...
 
+  mod-check:
+    desc: Verify go.mod and go.sum are tidy
+    cmds:
+      - go mod tidy
+      - git diff --exit-code go.mod go.sum
+
+  govulncheck:
+    desc: Run govulncheck for known vulnerabilities
+    vars:
+      GOVULNCHECK_VERSION: "v1.1.4"
+    cmds:
+      - |
+        # Run govulncheck in JSON mode; capture exit code to distinguish scan
+        # failures from vulnerability findings.
+        set +e
+        json_out=$(go run golang.org/x/vuln/cmd/govulncheck@{{.GOVULNCHECK_VERSION}} -json ./... 2>&1)
+        scan_exit=$?
+        set -e
+
+        # Show human-readable output (always)
+        go run golang.org/x/vuln/cmd/govulncheck@{{.GOVULNCHECK_VERSION}} ./... 2>&1 || true
+
+        # If the JSON scan produced no output, it likely failed to run at all
+        if [ -z "$json_out" ] && [ $scan_exit -ne 0 ]; then
+          echo ""
+          echo "❌ govulncheck failed to execute (exit $scan_exit)"
+          exit 1
+        fi
+
+        # Check for third-party (non-stdlib) vulnerability findings
+        # Stdlib OSV IDs match "GO-YYYY-NNNN"; third-party use "GHSA-" or other prefixes
+        third_party=$(echo "$json_out" | grep -o '"osv":"[^"]*"' | grep -v '"osv":"GO-' || true)
+        if [ -n "$third_party" ]; then
+          echo ""
+          echo "❌ govulncheck found third-party dependency vulnerabilities"
+          exit 1
+        fi
+
   coverage:
     desc: Run tests with code coverage report (shows total + individual coverage)
     cmds:
@@ -166,8 +204,10 @@ tasks:
     cmds:
       - task: mod
       - task: lint
+      - task: mod-check
       - task: test
       - task: coverage
+      - task: govulncheck
 
   clean:
     desc: Clean build artifacts and caches
