@@ -502,3 +502,328 @@ func TestGetCommonPatterns_ReturnsExamples(t *testing.T) {
 		t.Error("expected filter pattern in common patterns")
 	}
 }
+
+func TestIsCELExpression_Brackets(t *testing.T) {
+	if !IsCELExpression("items[0]") {
+		t.Error("items[0] should be CEL")
+	}
+}
+
+func TestIsCELExpression_FunctionCalls(t *testing.T) {
+	for _, expr := range []string{
+		"_.items.filter(x, x > 1)",
+		"_.map(x, x.name)",
+		"exists(x, x.active)",
+	} {
+		if !IsCELExpression(expr) {
+			t.Errorf("%q should be CEL", expr)
+		}
+	}
+}
+
+func TestIsCELExpression_Operators(t *testing.T) {
+	for _, expr := range []string{
+		"a == b",
+		"x != y",
+		"a && b",
+		"a || b",
+		"a > b",
+		"a < b",
+		"!flag",
+	} {
+		if !IsCELExpression(expr) {
+			t.Errorf("%q should be CEL", expr)
+		}
+	}
+}
+
+func TestIsCELExpression_NotCEL(t *testing.T) {
+	for _, expr := range []string{
+		"simple.path",
+		"name",
+		"user.address.city",
+		"",
+	} {
+		if IsCELExpression(expr) {
+			t.Errorf("%q should NOT be CEL", expr)
+		}
+	}
+}
+
+func TestParseCEL_SimplePath(t *testing.T) {
+	steps, err := ParseCEL("a.b.c")
+	if err != nil {
+		t.Fatalf("ParseCEL error: %v", err)
+	}
+	if len(steps) != 3 {
+		t.Fatalf("expected 3 steps, got %d: %v", len(steps), steps)
+	}
+	if steps[0] != "a" || steps[1] != "b" || steps[2] != "c" {
+		t.Fatalf("expected [a b c], got %v", steps)
+	}
+}
+
+func TestParseCEL_BracketNotation(t *testing.T) {
+	steps, err := ParseCEL("items[0]")
+	if err != nil {
+		t.Fatalf("ParseCEL error: %v", err)
+	}
+	if len(steps) != 2 {
+		t.Fatalf("expected 2 steps, got %d: %v", len(steps), steps)
+	}
+	if steps[0] != "items" || steps[1] != "0" {
+		t.Fatalf("expected [items 0], got %v", steps)
+	}
+}
+
+func TestParseCEL_Mixed(t *testing.T) {
+	steps, err := ParseCEL("a.b[0].c")
+	if err != nil {
+		t.Fatalf("ParseCEL error: %v", err)
+	}
+	if len(steps) != 4 {
+		t.Fatalf("expected 4 steps, got %d: %v", len(steps), steps)
+	}
+}
+
+func TestParseCEL_Invalid(t *testing.T) {
+	_, err := ParseCEL("[]")
+	if err == nil {
+		t.Fatal("expected error for empty brackets")
+	}
+}
+
+func TestConvertMapValues_PlainValues(t *testing.T) {
+	m := map[string]interface{}{
+		"name":   "test",
+		"count":  42,
+		"active": true,
+	}
+	result := convertMapValues(m)
+	if result["name"] != "test" {
+		t.Fatalf("expected 'test', got %v", result["name"])
+	}
+	if result["count"] != 42 {
+		t.Fatalf("expected 42, got %v", result["count"])
+	}
+}
+
+func TestConvertMapValues_NestedMap(t *testing.T) {
+	m := map[string]interface{}{
+		"inner": map[string]interface{}{
+			"key": "value",
+		},
+	}
+	result := convertMapValues(m)
+	inner, ok := result["inner"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected nested map, got %T", result["inner"])
+	}
+	if inner["key"] != "value" {
+		t.Fatalf("expected 'value', got %v", inner["key"])
+	}
+}
+
+func TestConvertMapValues_Slice(t *testing.T) {
+	m := map[string]interface{}{
+		"items": []interface{}{"a", "b", "c"},
+	}
+	result := convertMapValues(m)
+	items, ok := result["items"].([]interface{})
+	if !ok {
+		t.Fatalf("expected slice, got %T", result["items"])
+	}
+	if len(items) != 3 {
+		t.Fatalf("expected 3 items, got %d", len(items))
+	}
+}
+
+func TestConvertMapValues_CELRefVal(t *testing.T) {
+	env, _ := cel.NewEnv()
+	ast, _ := env.Compile("42")
+	prg, _ := env.Program(ast)
+	out, _, _ := prg.Eval(cel.NoVars())
+
+	m := map[string]interface{}{
+		"value": out,
+	}
+	result := convertMapValues(m)
+	// Should be converted from ref.Val to native Go type
+	if _, isRef := result["value"].(ref.Val); isRef {
+		t.Fatal("expected conversion from ref.Val")
+	}
+}
+
+func TestGetExampleHints(t *testing.T) {
+	// Set and retrieve hints
+	hints := map[string]string{
+		"filter": "e.g. _.items.filter(x, x > 0)",
+		"map":    "e.g. _.items.map(x, x.name)",
+	}
+	SetExampleHints(hints)
+	result := GetExampleHints()
+	if len(result) != 2 {
+		t.Fatalf("expected 2 hints, got %d", len(result))
+	}
+	if result["filter"] != hints["filter"] {
+		t.Fatalf("expected %q, got %q", hints["filter"], result["filter"])
+	}
+}
+
+func TestTypeLabel(t *testing.T) {
+	// nil type
+	label := typeLabel(nil)
+	if label != "any" {
+		t.Fatalf("expected 'any' for nil type, got %q", label)
+	}
+
+	// Known types
+	strType := types.StringType
+	label = typeLabel(strType)
+	if label == "" {
+		t.Fatal("expected non-empty label for string type")
+	}
+}
+
+func TestExtractPathAndIndex(t *testing.T) {
+	path, idx, err := ExtractPathAndIndex("items[0]")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "items" || idx != "0" {
+		t.Fatalf("expected items/0, got %s/%s", path, idx)
+	}
+}
+
+func TestExtractPathAndIndex_NoBracket(t *testing.T) {
+	_, _, err := ExtractPathAndIndex("items")
+	if err == nil {
+		t.Fatal("expected error for no brackets")
+	}
+}
+
+func TestEvaluate_SizeFunction(t *testing.T) {
+	eval, err := NewEvaluator()
+	if err != nil {
+		t.Fatalf("NewEvaluator failed: %v", err)
+	}
+
+	data := map[string]interface{}{
+		"items": []interface{}{1, 2, 3},
+	}
+	result, err := eval.Evaluate("_.items.size()", data)
+	if err != nil {
+		t.Fatalf("Evaluate failed: %v", err)
+	}
+	if result != int64(3) {
+		t.Errorf("expected 3, got %v", result)
+	}
+}
+
+func TestEvaluate_InvalidExpression(t *testing.T) {
+	eval, err := NewEvaluator()
+	if err != nil {
+		t.Fatalf("NewEvaluator failed: %v", err)
+	}
+
+	_, err = eval.Evaluate("invalid ][[ expression", map[string]interface{}{})
+	if err == nil {
+		t.Fatal("expected error for invalid expression")
+	}
+}
+
+func TestEvaluate_BooleanCombined(t *testing.T) {
+	eval, err := NewEvaluator()
+	if err != nil {
+		t.Fatalf("NewEvaluator failed: %v", err)
+	}
+
+	data := map[string]interface{}{
+		"active": true,
+		"count":  5,
+	}
+	result, err := eval.Evaluate("_.active && _.count > 3", data)
+	if err != nil {
+		t.Fatalf("Evaluate failed: %v", err)
+	}
+	if result != true {
+		t.Errorf("expected true, got %v", result)
+	}
+}
+
+func TestEvaluate_StringContains(t *testing.T) {
+	eval, err := NewEvaluator()
+	if err != nil {
+		t.Fatalf("NewEvaluator failed: %v", err)
+	}
+
+	data := map[string]interface{}{
+		"name": "hello world",
+	}
+	result, err := eval.Evaluate("_.name.contains(\"world\")", data)
+	if err != nil {
+		t.Fatalf("Evaluate failed: %v", err)
+	}
+	if result != true {
+		t.Errorf("expected true, got %v", result)
+	}
+}
+
+func TestToGo_ListConversion(t *testing.T) {
+	// Evaluate a CEL expression that returns a list to exercise collection->Go conversion
+	eval, err := NewEvaluator()
+	if err != nil {
+		t.Fatalf("NewEvaluator failed: %v", err)
+	}
+	data := map[string]interface{}{
+		"items": []interface{}{"a", "b", "c"},
+	}
+	result, err := eval.Evaluate("_.items", data)
+	if err != nil {
+		t.Fatalf("Evaluate failed: %v", err)
+	}
+	arr, ok := result.([]interface{})
+	if !ok {
+		t.Fatalf("expected []interface{}, got %T", result)
+	}
+	if len(arr) != 3 {
+		t.Errorf("expected 3 items, got %d", len(arr))
+	}
+}
+
+func TestToGo_MapConversion(t *testing.T) {
+	// Evaluate a CEL expression that returns a map
+	eval, err := NewEvaluator()
+	if err != nil {
+		t.Fatalf("NewEvaluator failed: %v", err)
+	}
+	data := map[string]interface{}{
+		"meta": map[string]interface{}{"key": "val"},
+	}
+	result, err := eval.Evaluate("_.meta", data)
+	if err != nil {
+		t.Fatalf("Evaluate failed: %v", err)
+	}
+	m, ok := result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map[string]interface{}, got %T", result)
+	}
+	if m["key"] != "val" {
+		t.Errorf("expected val, got %v", m["key"])
+	}
+}
+
+func TestTypeLabel_Nil(t *testing.T) {
+	result := typeLabel(nil)
+	if result != "any" {
+		t.Errorf("typeLabel(nil) = %q, want \"any\"", result)
+	}
+}
+
+func TestTypeLabel_WithType(t *testing.T) {
+	// types.BoolType has a known type name
+	result := typeLabel(types.BoolType)
+	if result == "" || result == "any" {
+		t.Errorf("typeLabel(BoolType) should return a type name, got %q", result)
+	}
+}

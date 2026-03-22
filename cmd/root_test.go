@@ -21,10 +21,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 	runewidth "github.com/mattn/go-runewidth"
 	"github.com/spf13/pflag"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
 	"github.com/oakwood-commons/kvx/internal/formatter"
+	"github.com/oakwood-commons/kvx/internal/navigator"
 	ui "github.com/oakwood-commons/kvx/internal/ui"
 )
 
@@ -1572,4 +1574,615 @@ func TestCLI_TreeOutputScalarArrayInline(t *testing.T) {
 	if !strings.Contains(out, "countries: [japan, india, china]") {
 		t.Fatalf("expected inline array 'countries: [japan, india, china]', got %q", out)
 	}
+}
+
+func TestEscapeCSVField_Plain(t *testing.T) {
+	assert.Equal(t, "hello", escapeCSVField("hello"))
+}
+
+func TestEscapeCSVField_WithComma(t *testing.T) {
+	assert.Equal(t, `"a,b"`, escapeCSVField("a,b"))
+}
+
+func TestEscapeCSVField_WithQuotes(t *testing.T) {
+	assert.Equal(t, `"say ""hi"""`, escapeCSVField(`say "hi"`))
+}
+
+func TestEscapeCSVField_WithNewline(t *testing.T) {
+	assert.Equal(t, "\"line1\nline2\"", escapeCSVField("line1\nline2"))
+}
+
+func TestEscapeCSVField_WithSpace(t *testing.T) {
+	assert.Equal(t, `"hello world"`, escapeCSVField("hello world"))
+}
+
+func TestEscapeCSVField_Empty(t *testing.T) {
+	assert.Equal(t, "", escapeCSVField(""))
+}
+
+func TestFormatAsCSV_ArrayOfMaps(t *testing.T) {
+	data := []interface{}{
+		map[string]interface{}{"name": "alice", "age": 30},
+		map[string]interface{}{"name": "bob", "age": 25},
+	}
+	result := formatAsCSV(data)
+	assert.Contains(t, result, "age,name")
+	assert.Contains(t, result, "alice")
+	assert.Contains(t, result, "bob")
+}
+
+func TestFormatAsCSV_SimpleArray(t *testing.T) {
+	data := []interface{}{"a", "b", "c"}
+	result := formatAsCSV(data)
+	assert.Contains(t, result, "value")
+	assert.Contains(t, result, "a\n")
+	assert.Contains(t, result, "b\n")
+	assert.Contains(t, result, "c\n")
+}
+
+func TestFormatAsCSV_Map(t *testing.T) {
+	data := map[string]interface{}{"name": "test", "count": 42}
+	result := formatAsCSV(data)
+	assert.Contains(t, result, "key,value")
+	assert.Contains(t, result, "name,test")
+}
+
+func TestFormatAsCSV_Scalar(t *testing.T) {
+	result := formatAsCSV("hello")
+	assert.Contains(t, result, "value")
+	assert.Contains(t, result, "hello")
+}
+
+func TestFormatAsCSV_EmptyArray(t *testing.T) {
+	result := formatAsCSV([]interface{}{})
+	assert.Empty(t, result)
+}
+
+func TestCliNodeTypeLabel(t *testing.T) {
+	tests := []struct {
+		input    interface{}
+		expected string
+	}{
+		{[]interface{}{1, 2}, "list"},
+		{map[string]interface{}{"a": 1}, "map"},
+		{"hello", "string"},
+		{true, "bool"},
+		{42, "int"},
+		{int64(42), "int"},
+		{uint(42), "uint"},
+		{uint64(42), "uint"},
+		{3.14, "double"},
+		{float32(3.14), "double"},
+		{nil, "any"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.expected, func(t *testing.T) {
+			assert.Equal(t, tt.expected, cliNodeTypeLabel(tt.input))
+		})
+	}
+}
+
+func TestJoinSearchPath(t *testing.T) {
+	assert.Equal(t, "name", joinSearchPath("", "name"))
+	assert.Equal(t, "root.child", joinSearchPath("root", "child"))
+	assert.Equal(t, "items[0]", joinSearchPath("items", "[0]"))
+	assert.Equal(t, "root.items[0]", joinSearchPath("root.items", "[0]"))
+}
+
+func TestAutoKeyWidthFromRows(t *testing.T) {
+	rows := [][]string{
+		{"short", "value"},
+		{"longerkey", "value"},
+	}
+	w := autoKeyWidthFromRows(rows, 30)
+	assert.GreaterOrEqual(t, w, 8)
+	assert.LessOrEqual(t, w, 30)
+}
+
+func TestAutoKeyWidthFromRows_Empty(t *testing.T) {
+	w := autoKeyWidthFromRows(nil, 20)
+	assert.Equal(t, 20, w)
+}
+
+func TestAutoKeyWidthFromRows_EmptyRows(t *testing.T) {
+	rows := [][]string{{}, {}}
+	w := autoKeyWidthFromRows(rows, 20)
+	assert.Equal(t, 20, w)
+}
+
+func TestAutoKeyWidthFromRows_MinWidth(t *testing.T) {
+	rows := [][]string{{"ab", "val"}}
+	w := autoKeyWidthFromRows(rows, 30)
+	assert.GreaterOrEqual(t, w, 8)
+}
+
+func TestAutoKeyWidthFromRows_ZeroPreset(t *testing.T) {
+	rows := [][]string{{"key", "val"}}
+	w := autoKeyWidthFromRows(rows, 0)
+	assert.GreaterOrEqual(t, w, 8)
+}
+
+func TestYamlNodeToInterface_Scalar(t *testing.T) {
+	var node yaml.Node
+	require.NoError(t, yaml.Unmarshal([]byte("hello"), &node))
+	result := yamlNodeToInterface(node.Content[0])
+	assert.Equal(t, "hello", result)
+}
+
+func TestYamlNodeToInterface_Map(t *testing.T) {
+	var node yaml.Node
+	require.NoError(t, yaml.Unmarshal([]byte("name: test\ncount: 42"), &node))
+	result := yamlNodeToInterface(node.Content[0])
+	m, ok := result.(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "test", m["name"])
+	assert.Equal(t, 42, m["count"])
+}
+
+func TestYamlNodeToInterface_Sequence(t *testing.T) {
+	var node yaml.Node
+	require.NoError(t, yaml.Unmarshal([]byte("- a\n- b\n- c"), &node))
+	result := yamlNodeToInterface(node.Content[0])
+	arr, ok := result.([]interface{})
+	require.True(t, ok)
+	assert.Len(t, arr, 3)
+	assert.Equal(t, "a", arr[0])
+}
+
+func TestYamlNodeToInterface_Nested(t *testing.T) {
+	var node yaml.Node
+	require.NoError(t, yaml.Unmarshal([]byte("users:\n  - name: alice\n  - name: bob"), &node))
+	result := yamlNodeToInterface(node.Content[0])
+	m, ok := result.(map[string]interface{})
+	require.True(t, ok)
+	users, ok := m["users"].([]interface{})
+	require.True(t, ok)
+	assert.Len(t, users, 2)
+}
+
+func TestYamlNodeToInterface_Document(t *testing.T) {
+	var node yaml.Node
+	require.NoError(t, yaml.Unmarshal([]byte("value: 1"), &node))
+	result := yamlNodeToInterface(&node)
+	m, ok := result.(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, 1, m["value"])
+}
+
+func TestYamlNodeToInterface_EmptyDocument(t *testing.T) {
+	node := &yaml.Node{Kind: yaml.DocumentNode}
+	result := yamlNodeToInterface(node)
+	assert.Nil(t, result)
+}
+
+func TestYamlNodeToInterface_Boolean(t *testing.T) {
+	var node yaml.Node
+	require.NoError(t, yaml.Unmarshal([]byte("true"), &node))
+	result := yamlNodeToInterface(node.Content[0])
+	assert.Equal(t, true, result)
+}
+
+func TestResolveSnapshotSize_ExplicitFlags(t *testing.T) {
+	s := resolveSnapshotSize(120, 40, 0, 0)
+	assert.Equal(t, 120, s.Width)
+	assert.Equal(t, 40, s.Height)
+}
+
+func TestResolveSnapshotSize_Defaults(t *testing.T) {
+	s := resolveSnapshotSize(0, 0, 0, 0)
+	assert.GreaterOrEqual(t, s.Width, 80)
+	assert.GreaterOrEqual(t, s.Height, 24)
+}
+
+func TestResolveSnapshotSize_DetectedValues(t *testing.T) {
+	s := resolveSnapshotSize(0, 0, 100, 50)
+	assert.Equal(t, 100, s.Width)
+	assert.Equal(t, 50, s.Height)
+}
+
+func TestHasF10(t *testing.T) {
+	assert.True(t, hasF10([]string{"<f10>"}))
+	assert.True(t, hasF10([]string{"F10"}))
+	assert.True(t, hasF10([]string{"other", " f10 "}))
+	assert.False(t, hasF10([]string{"f1", "escape"}))
+	assert.False(t, hasF10(nil))
+	assert.False(t, hasF10([]string{}))
+}
+
+func TestKeysFromThemeConfigMap(t *testing.T) {
+	m := map[string]ui.ThemeConfig{
+		"dark":  {},
+		"light": {},
+	}
+	result := keys(m)
+	assert.Len(t, result, 2)
+	assert.Contains(t, result, "dark")
+	assert.Contains(t, result, "light")
+}
+
+func TestKeysFromThemeConfigMap_Empty(t *testing.T) {
+	result := keys(map[string]ui.ThemeConfig{})
+	assert.Empty(t, result)
+}
+
+func TestSearchCLI(t *testing.T) {
+	data := map[string]interface{}{
+		"name": "Alice",
+		"age":  30,
+		"nested": map[string]interface{}{
+			"city": "Wonderland",
+		},
+		"items": []interface{}{"hat", "potion"},
+	}
+
+	t.Run("find by key", func(t *testing.T) {
+		hits := searchCLI(data, "name")
+		assert.NotEmpty(t, hits)
+	})
+
+	t.Run("find by value", func(t *testing.T) {
+		hits := searchCLI(data, "Alice")
+		assert.NotEmpty(t, hits)
+	})
+
+	t.Run("find in nested", func(t *testing.T) {
+		hits := searchCLI(data, "Wonderland")
+		assert.NotEmpty(t, hits)
+	})
+
+	t.Run("find in array", func(t *testing.T) {
+		hits := searchCLI(data, "hat")
+		assert.NotEmpty(t, hits)
+	})
+
+	t.Run("no results", func(t *testing.T) {
+		hits := searchCLI(data, "zzz_not_found")
+		assert.Empty(t, hits)
+	})
+
+	t.Run("empty query", func(t *testing.T) {
+		hits := searchCLI(data, "")
+		assert.Empty(t, hits)
+	})
+}
+
+func TestPrintDebugEvents(t *testing.T) {
+	// Just verify it doesn't panic
+	events := []ui.DebugEvent{
+		{Time: time.Now(), Message: "event1"},
+		{Time: time.Now().Add(time.Millisecond), Message: "event2"},
+	}
+	printDebugEvents(events)
+	printDebugEvents(nil)
+	printDebugEvents([]ui.DebugEvent{})
+}
+
+func TestParseSortOrder(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    navigator.SortOrder
+		wantErr bool
+	}{
+		{"", navigator.SortNone, false},
+		{"none", navigator.SortNone, false},
+		{"asc", navigator.SortAscending, false},
+		{"ascending", navigator.SortAscending, false},
+		{"ASC", navigator.SortAscending, false},
+		{"desc", navigator.SortDescending, false},
+		{"descending", navigator.SortDescending, false},
+		{"DESC", navigator.SortDescending, false},
+		{"invalid", navigator.SortNone, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got, err := parseSortOrder(tt.input)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.want, got)
+			}
+		})
+	}
+}
+
+func TestRenderTableFromRows(t *testing.T) {
+	rows := [][]string{
+		{"name", "Alice"},
+		{"age", "30"},
+	}
+	result := renderTableFromRows(rows, true, 10, 20, 80)
+	assert.Contains(t, result, "name")
+	assert.Contains(t, result, "Alice")
+	assert.Contains(t, result, "age")
+}
+
+func TestRenderTableFromRows_AutoWidth(t *testing.T) {
+	rows := [][]string{
+		{"key", "value"},
+	}
+	// widthHint=0 triggers auto-detection
+	result := renderTableFromRows(rows, true, 0, 0, 0)
+	assert.Contains(t, result, "key")
+}
+
+func TestRenderBorderedTableRows(t *testing.T) {
+	rows := [][]string{
+		{"name", "test"},
+		{"status", "ok"},
+	}
+	result := renderBorderedTableRows(rows, true, 10, 20, 80, "kvx", "_", nil)
+	assert.Contains(t, result, "name")
+	assert.Contains(t, result, "kvx")
+}
+
+func TestCLI_CSVOutput(t *testing.T) {
+	out := runCLI(t, []string{"kvx", filepath.Join("..", "tests", "sample.yaml"), "--no-color", "-o", "csv", "-e", "_.items"})
+	assert.Contains(t, out, "name")
+}
+
+func TestCLI_YAMLOutputWholeFile(t *testing.T) {
+	out := runCLI(t, []string{"kvx", filepath.Join("..", "tests", "sample.yaml"), "--no-color", "-o", "yaml"})
+	assert.Contains(t, out, "name")
+	assert.Contains(t, out, "items")
+}
+
+func TestCLI_JSONOutputWholeFile(t *testing.T) {
+	out := runCLI(t, []string{"kvx", filepath.Join("..", "tests", "sample.yaml"), "--no-color", "-o", "json"})
+	assert.Contains(t, out, "name")
+	assert.Contains(t, out, "items")
+}
+
+func TestCLI_MermaidFormat(t *testing.T) {
+	out := runCLI(t, []string{"kvx", filepath.Join("..", "tests", "sample.yaml"), "--no-color", "-o", "mermaid", "-e", "_.items[0]"})
+	assert.NotEmpty(t, out)
+}
+
+func TestCLI_TOMLOutput(t *testing.T) {
+	out := runCLI(t, []string{"kvx", filepath.Join("..", "tests", "sample.yaml"), "--no-color", "-o", "toml", "-e", "_.metadata"})
+	assert.NotEmpty(t, out)
+}
+
+func TestCLI_TableWithLimit(t *testing.T) {
+	out := runCLI(t, []string{"kvx", filepath.Join("..", "tests", "sample.yaml"), "--no-color", "-e", "_.items", "--limit", "1"})
+	assert.Contains(t, out, "name")
+}
+
+func TestCLI_TableWithSearchTerm(t *testing.T) {
+	out := runCLI(t, []string{"kvx", filepath.Join("..", "tests", "sample.yaml"), "--no-color", "--search", "chamomile"})
+	assert.Contains(t, out, "chamomile")
+}
+
+func TestCLI_TableColumnarAuto(t *testing.T) {
+	out := runCLI(t, []string{"kvx", filepath.Join("..", "tests", "sample.yaml"), "--no-color", "-e", "_.items"})
+	assert.Contains(t, out, "name")
+}
+
+func TestCLI_NDJSONFile(t *testing.T) {
+	out := runCLI(t, []string{"kvx", filepath.Join("..", "tests", "sample.ndjson"), "--no-color"})
+	assert.NotEmpty(t, out)
+}
+
+func TestCLI_TOMLFile(t *testing.T) {
+	out := runCLI(t, []string{"kvx", filepath.Join("..", "tests", "sample.toml"), "--no-color"})
+	assert.NotEmpty(t, out)
+}
+
+// --- shouldUseColumnar tests ---
+
+func TestShouldUseColumnar_Never(t *testing.T) {
+	node := []interface{}{map[string]interface{}{"a": 1}}
+	assert.False(t, shouldUseColumnar(node, "never"))
+}
+
+func TestShouldUseColumnar_AlwaysArray(t *testing.T) {
+	node := []interface{}{"x", "y"}
+	assert.True(t, shouldUseColumnar(node, "always"))
+}
+
+func TestShouldUseColumnar_AlwaysNonArray(t *testing.T) {
+	node := map[string]interface{}{"a": 1}
+	assert.False(t, shouldUseColumnar(node, "always"))
+}
+
+func TestShouldUseColumnar_AlwaysScalar(t *testing.T) {
+	assert.False(t, shouldUseColumnar("hello", "always"))
+}
+
+func TestShouldUseColumnar_AutoHomogeneous(t *testing.T) {
+	node := []interface{}{
+		map[string]interface{}{"name": "a"},
+		map[string]interface{}{"name": "b"},
+	}
+	assert.True(t, shouldUseColumnar(node, "auto"))
+}
+
+func TestShouldUseColumnar_AutoNonHomogeneous(t *testing.T) {
+	node := []interface{}{"x", 42}
+	assert.False(t, shouldUseColumnar(node, "auto"))
+}
+
+func TestShouldUseColumnar_EmptyMode(t *testing.T) {
+	// Empty mode falls through to default (auto)
+	node := map[string]interface{}{"a": 1}
+	assert.False(t, shouldUseColumnar(node, ""))
+}
+
+// --- effectiveKeyMode tests ---
+
+func TestEffectiveKeyMode_Default(t *testing.T) {
+	// When no flag, no env, no config => default
+	old := keyMode
+	keyMode = ""
+	defer func() { keyMode = old }()
+	t.Setenv("KVX_KEY_MODE", "")
+	cfg := ui.ThemeConfigFile{}
+	assert.Equal(t, ui.DefaultKeyMode, effectiveKeyMode(cfg))
+}
+
+func TestEffectiveKeyMode_FromFlag(t *testing.T) {
+	old := keyMode
+	keyMode = "emacs"
+	defer func() { keyMode = old }()
+	cfg := ui.ThemeConfigFile{}
+	assert.Equal(t, ui.KeyMode("emacs"), effectiveKeyMode(cfg))
+}
+
+func TestEffectiveKeyMode_FromEnv(t *testing.T) {
+	old := keyMode
+	keyMode = ""
+	defer func() { keyMode = old }()
+	t.Setenv("KVX_KEY_MODE", "function")
+	cfg := ui.ThemeConfigFile{}
+	assert.Equal(t, ui.KeyMode("function"), effectiveKeyMode(cfg))
+}
+
+func TestEffectiveKeyMode_FromConfig(t *testing.T) {
+	old := keyMode
+	keyMode = ""
+	defer func() { keyMode = old }()
+	t.Setenv("KVX_KEY_MODE", "")
+	mode := "emacs"
+	cfg := ui.ThemeConfigFile{
+		Features: ui.FeaturesConfig{KeyMode: &mode},
+	}
+	assert.Equal(t, ui.KeyMode("emacs"), effectiveKeyMode(cfg))
+}
+
+func TestEffectiveKeyMode_InvalidFlag(t *testing.T) {
+	old := keyMode
+	keyMode = "nonsense"
+	defer func() { keyMode = old }()
+	t.Setenv("KVX_KEY_MODE", "")
+	cfg := ui.ThemeConfigFile{}
+	// Invalid flag falls through to default
+	assert.Equal(t, ui.DefaultKeyMode, effectiveKeyMode(cfg))
+}
+
+// --- tableFormatOptionsFromConfig tests ---
+
+func TestTableFormatOptionsFromConfig_Defaults(t *testing.T) {
+	cfg := ui.ThemeConfigFile{}
+	opts := tableFormatOptionsFromConfig(cfg)
+	assert.Equal(t, formatter.DefaultTableFormatOptions().ColumnarMode, opts.ColumnarMode)
+}
+
+func TestTableFormatOptionsFromConfig_ArrayStyle(t *testing.T) {
+	style := "numbered"
+	cfg := ui.ThemeConfigFile{
+		Formatting: ui.FormattingConfig{
+			Table: ui.TableFormattingConfig{ArrayStyle: &style},
+		},
+	}
+	opts := tableFormatOptionsFromConfig(cfg)
+	assert.Equal(t, "numbered", opts.ArrayStyle)
+}
+
+func TestTableFormatOptionsFromConfig_ColumnarMode(t *testing.T) {
+	mode := "always"
+	cfg := ui.ThemeConfigFile{
+		Formatting: ui.FormattingConfig{
+			Table: ui.TableFormattingConfig{ColumnarMode: &mode},
+		},
+	}
+	opts := tableFormatOptionsFromConfig(cfg)
+	assert.Equal(t, "always", opts.ColumnarMode)
+}
+
+func TestTableFormatOptionsFromConfig_ColumnOrder(t *testing.T) {
+	cfg := ui.ThemeConfigFile{
+		Formatting: ui.FormattingConfig{
+			Table: ui.TableFormattingConfig{
+				ColumnOrder: []string{"name", "age"},
+			},
+		},
+	}
+	opts := tableFormatOptionsFromConfig(cfg)
+	assert.Equal(t, []string{"name", "age"}, opts.ColumnOrder)
+}
+
+func TestTableFormatOptionsFromConfig_HiddenColumns(t *testing.T) {
+	cfg := ui.ThemeConfigFile{
+		Formatting: ui.FormattingConfig{
+			Table: ui.TableFormattingConfig{
+				HiddenColumns: []string{"secret"},
+			},
+		},
+	}
+	opts := tableFormatOptionsFromConfig(cfg)
+	assert.Contains(t, opts.HiddenColumns, "secret")
+}
+
+// --- yamlFormatOptionsFromConfig tests ---
+
+func TestYAMLFormatOptionsFromConfig_Defaults(t *testing.T) {
+	cfg := ui.ThemeConfigFile{}
+	opts := yamlFormatOptionsFromConfig(cfg)
+	assert.Equal(t, 2, opts.Indent)
+	assert.True(t, opts.LiteralBlockStrings)
+	assert.False(t, opts.ExpandEscapedNewlines)
+}
+
+func TestYAMLFormatOptionsFromConfig_Custom(t *testing.T) {
+	indent := 4
+	literal := false
+	expand := true
+	cfg := ui.ThemeConfigFile{
+		Formatting: ui.FormattingConfig{
+			YAML: ui.YAMLFormattingConfig{
+				Indent:                &indent,
+				LiteralBlockStrings:   &literal,
+				ExpandEscapedNewlines: &expand,
+			},
+		},
+	}
+	opts := yamlFormatOptionsFromConfig(cfg)
+	assert.Equal(t, 4, opts.Indent)
+	assert.False(t, opts.LiteralBlockStrings)
+	assert.True(t, opts.ExpandEscapedNewlines)
+}
+
+// --- renderTableFromNode test ---
+
+func TestRenderTableFromNode_Map(t *testing.T) {
+	node := map[string]interface{}{"key": "value", "count": 42}
+	out := renderTableFromNode(node, true, 0, 0, 80, formatter.DefaultTableFormatOptions())
+	assert.Contains(t, out, "key")
+	assert.Contains(t, out, "value")
+}
+
+func TestRenderTableFromNode_Array(t *testing.T) {
+	node := []interface{}{
+		map[string]interface{}{"name": "alice"},
+		map[string]interface{}{"name": "bob"},
+	}
+	out := renderTableFromNode(node, true, 0, 0, 80, formatter.DefaultTableFormatOptions())
+	assert.Contains(t, out, "alice")
+}
+
+// --- CLI integration: list & tree output ---
+
+func TestCLI_ListOutput(t *testing.T) {
+	out := runCLI(t, []string{"kvx", filepath.Join("..", "tests", "sample.yaml"), "--no-color", "-o", "list", "-e", "_.items"})
+	assert.NotEmpty(t, out)
+}
+
+func TestCLI_TreeOutput(t *testing.T) {
+	out := runCLI(t, []string{"kvx", filepath.Join("..", "tests", "sample.yaml"), "--no-color", "-o", "tree", "-e", "_.metadata"})
+	assert.NotEmpty(t, out)
+}
+
+func TestCLI_AutoOutputScalar(t *testing.T) {
+	out := runCLI(t, []string{"kvx", filepath.Join("..", "tests", "sample.yaml"), "--no-color", "-o", "auto", "-e", `_.version`})
+	assert.NotEmpty(t, out)
+}
+
+func TestCLI_AutoOutputCollection(t *testing.T) {
+	out := runCLI(t, []string{"kvx", filepath.Join("..", "tests", "sample.yaml"), "--no-color", "-o", "auto", "-e", "_.items"})
+	assert.NotEmpty(t, out)
+}
+
+func TestCLI_EmbeddedJSON(t *testing.T) {
+	out := runCLI(t, []string{"kvx", filepath.Join("..", "tests", "embedded_json.json"), "--no-color"})
+	assert.NotEmpty(t, out)
 }

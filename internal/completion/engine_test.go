@@ -112,3 +112,61 @@ func TestCompletionContextAwareness(t *testing.T) {
 
 	t.Logf("Found %d function completions for string type", stringFunctions)
 }
+
+func TestCompletionEngine_GetRegistry(t *testing.T) {
+	provider, err := completion.NewCELProvider()
+	if err != nil {
+		t.Fatalf("Failed to create CEL provider: %v", err)
+	}
+	engine := completion.NewEngine(provider)
+	reg := engine.GetRegistry()
+	if reg == nil {
+		t.Fatal("GetRegistry should not return nil")
+	}
+}
+
+func TestCompletionEngine_InferType(t *testing.T) {
+	provider, err := completion.NewCELProvider()
+	if err != nil {
+		t.Fatalf("Failed to create CEL provider: %v", err)
+	}
+	engine := completion.NewEngine(provider)
+	ctx := completion.CompletionContext{
+		CurrentNode: map[string]any{"name": "test"},
+		CurrentType: "map",
+	}
+	result := engine.InferType("_.name", ctx)
+	if result == "" {
+		t.Error("Expected non-empty inferred type")
+	}
+}
+
+func TestCompletionEngine_Evaluate(t *testing.T) {
+	provider, err := completion.NewCELProvider()
+	if err != nil {
+		t.Fatalf("Failed to create CEL provider: %v", err)
+	}
+	engine := completion.NewEngine(provider)
+	data := map[string]any{"x": 42}
+	result, err := engine.Evaluate("_.x", data)
+	if err != nil {
+		t.Fatalf("Evaluate failed: %v", err)
+	}
+	if result != int64(42) && result != 42 {
+		t.Errorf("Expected 42, got %v (%T)", result, result)
+	}
+}
+
+func TestCompletionEngine_IsExpression(t *testing.T) {
+	provider, err := completion.NewCELProvider()
+	if err != nil {
+		t.Fatalf("Failed to create CEL provider: %v", err)
+	}
+	engine := completion.NewEngine(provider)
+	if !engine.IsExpression("_.items.filter(x, x > 0)") {
+		t.Error("Expected filter expression to be recognized")
+	}
+	if engine.IsExpression("simple") {
+		t.Error("Expected 'simple' to not be recognized as expression")
+	}
+}

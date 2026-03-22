@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/oakwood-commons/kvx/internal/ui"
@@ -130,4 +131,129 @@ func TestConfigLoaderUserOverrideMergesWithDefaults(t *testing.T) {
 
 	// Default theme name still set (not cleared by partial override)
 	require.NotEmpty(t, cfg.Theme.Default)
+}
+
+func TestProcessTemplateString_NoTemplate(t *testing.T) {
+	result := processTemplateString("plain text", nil)
+	assert.Equal(t, "plain text", result)
+}
+
+func TestProcessTemplateString_WithTemplate(t *testing.T) {
+	data := map[string]interface{}{
+		"version": "1.0.0",
+		"name":    "kvx",
+	}
+	result := processTemplateString("{{.name}} v{{.version}}", data)
+	assert.Equal(t, "kvx v1.0.0", result)
+}
+
+func TestProcessTemplateString_InvalidTemplate(t *testing.T) {
+	result := processTemplateString("{{invalid template", nil)
+	assert.Equal(t, "{{invalid template", result)
+}
+
+func TestProcessTemplateString_MissingKey(t *testing.T) {
+	data := map[string]interface{}{"name": "kvx"}
+	result := processTemplateString("{{.name}} v{{.missing}}", data)
+	// Go templates produce empty string for missing keys by default
+	assert.Contains(t, result, "kvx")
+}
+
+func TestDefaultThemeName_Default(t *testing.T) {
+	cfg := ui.ThemeConfigFile{}
+	assert.Equal(t, "dark", defaultThemeName(cfg))
+}
+
+func TestDefaultThemeName_ThemeDefault(t *testing.T) {
+	cfg := ui.ThemeConfigFile{}
+	cfg.Theme.Default = "midnight"
+	assert.Equal(t, "midnight", defaultThemeName(cfg))
+}
+
+func TestDefaultThemeName_Legacy(t *testing.T) {
+	cfg := ui.ThemeConfigFile{DefaultTheme: "light"}
+	assert.Equal(t, "light", defaultThemeName(cfg))
+}
+
+func TestDefaultThemeName_ThemeDefaultOverridesLegacy(t *testing.T) {
+	cfg := ui.ThemeConfigFile{DefaultTheme: "light"}
+	cfg.Theme.Default = "midnight"
+	assert.Equal(t, "midnight", defaultThemeName(cfg))
+}
+
+func TestDefaultThemeName_WhitespaceOnly(t *testing.T) {
+	cfg := ui.ThemeConfigFile{}
+	cfg.Theme.Default = "   "
+	cfg.DefaultTheme = "  "
+	assert.Equal(t, "dark", defaultThemeName(cfg))
+}
+
+func TestGetAllAvailableThemes_BuiltIn(t *testing.T) {
+	themes := getAllAvailableThemes(nil)
+	assert.NotEmpty(t, themes)
+	// Built-in themes should include "dark"
+	assert.Contains(t, themes, "dark")
+}
+
+func TestGetAllAvailableThemes_WithCustom(t *testing.T) {
+	cfg := &ui.ThemeConfigFile{
+		Themes: map[string]ui.ThemeConfig{
+			"custom-theme": {KeyColor: "#ff0000"},
+		},
+	}
+	themes := getAllAvailableThemes(cfg)
+	assert.Contains(t, themes, "custom-theme")
+	assert.Contains(t, themes, "dark")
+}
+
+func TestGetAllAvailableThemes_Sorted(t *testing.T) {
+	themes := getAllAvailableThemes(nil)
+	for i := 1; i < len(themes); i++ {
+		assert.LessOrEqual(t, themes[i-1], themes[i], "themes should be sorted")
+	}
+}
+
+func TestMergeThemeConfig_OverrideColors(t *testing.T) {
+	base := ui.ThemeConfig{KeyColor: "14", ValueColor: "248"}
+	override := ui.ThemeConfig{KeyColor: "#ff0000"}
+	result := mergeThemeConfig(base, override)
+	assert.Equal(t, ui.ColorValue("#ff0000"), result.KeyColor)
+	assert.Equal(t, ui.ColorValue("248"), result.ValueColor)
+}
+
+func TestMergeThemeConfig_OverrideBorderStyle(t *testing.T) {
+	base := ui.ThemeConfig{BorderStyle: "rounded"}
+	override := ui.ThemeConfig{BorderStyle: "double"}
+	result := mergeThemeConfig(base, override)
+	assert.Equal(t, "double", result.BorderStyle)
+}
+
+func TestMergeThemeConfig_EmptyOverride(t *testing.T) {
+	base := ui.ThemeConfig{KeyColor: "14", ValueColor: "248", BorderStyle: "rounded"}
+	override := ui.ThemeConfig{}
+	result := mergeThemeConfig(base, override)
+	assert.Equal(t, base, result)
+}
+
+func TestMergeMenuConfig_OverrideLabel(t *testing.T) {
+	base := ui.MenuConfigYAML{
+		Help:   ui.MenuItemConfig{Label: "Help"},
+		Search: ui.MenuItemConfig{Label: "Search"},
+	}
+	override := ui.MenuConfigYAML{
+		Help: ui.MenuItemConfig{Label: "Info"},
+	}
+	result := mergeMenuConfig(base, override)
+	assert.Equal(t, "Info", result.Help.Label)
+	assert.Equal(t, "Search", result.Search.Label)
+}
+
+func TestMergeMenuConfig_EmptyOverride(t *testing.T) {
+	base := ui.MenuConfigYAML{
+		Help: ui.MenuItemConfig{Label: "Help", HelpText: "Show help"},
+	}
+	override := ui.MenuConfigYAML{}
+	result := mergeMenuConfig(base, override)
+	assert.Equal(t, "Help", result.Help.Label)
+	assert.Equal(t, "Show help", result.Help.HelpText)
 }

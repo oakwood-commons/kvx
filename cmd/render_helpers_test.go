@@ -118,3 +118,56 @@ func TestRenderPlainTextStatus_DisplayFieldMissing(t *testing.T) {
 	require.True(t, ok)
 	assert.NotContains(t, text, "Value:")
 }
+
+func TestIsURL_HTTP(t *testing.T) {
+	assert.True(t, isURL("http://example.com"))
+}
+
+func TestIsURL_HTTPS(t *testing.T) {
+	assert.True(t, isURL("https://example.com/path"))
+}
+
+func TestIsURL_NotURL(t *testing.T) {
+	assert.False(t, isURL("not a url"))
+	assert.False(t, isURL("ftp://files.example.com"))
+	assert.False(t, isURL(""))
+	assert.False(t, isURL("example.com"))
+}
+
+func TestRenderPlainTextStatus_NonDefaultMessage(t *testing.T) {
+	data := map[string]any{
+		"title": "Status",
+		"info":  42,
+	}
+	ds := &ui.DisplaySchema{
+		Version: "v1",
+		Status: &ui.StatusDisplayConfig{
+			TitleField:   "title",
+			MessageField: "info",
+		},
+	}
+	text, ok := renderPlainTextStatus(data, ds)
+	require.True(t, ok)
+	assert.Contains(t, text, "Status")
+	assert.Contains(t, text, "42")
+}
+
+func TestRenderPlainTextStatus_EmptyDisplayFieldLabel(t *testing.T) {
+	data := map[string]any{
+		"title": "Status",
+		"key":   "value",
+	}
+	ds := &ui.DisplaySchema{
+		Version: "v1",
+		Status: &ui.StatusDisplayConfig{
+			TitleField: "title",
+			DisplayFields: []ui.StatusFieldDisplay{
+				{Label: "", Field: ""},
+				{Label: "Key", Field: "key"},
+			},
+		},
+	}
+	text, ok := renderPlainTextStatus(data, ds)
+	require.True(t, ok)
+	assert.Contains(t, text, "Key: value")
+}

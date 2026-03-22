@@ -8,6 +8,7 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/oakwood-commons/kvx/internal/completion"
 	"github.com/oakwood-commons/kvx/internal/navigator"
@@ -2210,4 +2211,13 @@ func TestClipboardOperations_HandleMissingClipboard(t *testing.T) {
 	if strings.Contains(m2.ErrMsg, "clipboard") {
 		t.Errorf("unexpected clipboard error: %s", m2.ErrMsg)
 	}
+}
+
+func TestParseArrayIndex(t *testing.T) {
+	assert.Equal(t, 0, parseArrayIndex("[0]"))
+	assert.Equal(t, 5, parseArrayIndex("5"))
+	assert.Equal(t, 42, parseArrayIndex("[42]"))
+	assert.Equal(t, -1, parseArrayIndex("abc"))
+	assert.Equal(t, -1, parseArrayIndex(""))
+	assert.Equal(t, -1, parseArrayIndex("[]"))
 }
