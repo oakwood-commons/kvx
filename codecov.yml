@@ -12,11 +12,6 @@ coverage:
         target: 50%
         threshold: 5%
 
-ignore:
-  - "scripts/**"
-  - "examples/**"
-  - "main.go"
-
 comment:
   layout: "reach,diff,flags,tree"
   behavior: default
