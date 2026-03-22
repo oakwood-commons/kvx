@@ -2,6 +2,9 @@ package navigator
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNodeAtPathEmpty(t *testing.T) {
@@ -744,4 +747,120 @@ func TestNodeAtPathValidation(t *testing.T) {
 			}
 		})
 	}
+}
+func TestSetEvaluator(t *testing.T) {
+	original := evaluator
+	t.Cleanup(func() { evaluator = original })
+
+	SetEvaluator(func(expr string, root interface{}) (interface{}, error) {
+		return "evaluated", nil
+	})
+
+	// Just verify SetEvaluator doesn't panic and evaluator is set
+	if evaluator == nil {
+		t.Fatal("evaluator should not be nil after SetEvaluator")
+	}
+}
+
+func TestDefaultRowOptions(t *testing.T) {
+	opts := DefaultRowOptions()
+	if opts.ArrayStyle != ArrayStyleIndex {
+		t.Fatalf("expected ArrayStyleIndex, got %v", opts.ArrayStyle)
+	}
+}
+
+func TestNodeToRowsWithOptions_EmptyMap(t *testing.T) {
+	node := map[string]interface{}{}
+	rows := NodeToRowsWithOptions(node, DefaultRowOptions())
+	require.Len(t, rows, 1)
+	assert.Equal(t, ScalarValueKey, rows[0][0])
+}
+
+func TestNodeToRowsWithOptions_EmptyArray(t *testing.T) {
+	node := []interface{}{}
+	rows := NodeToRowsWithOptions(node, DefaultRowOptions())
+	require.Len(t, rows, 1)
+	assert.Equal(t, ScalarValueKey, rows[0][0])
+}
+
+func TestNodeToRowsWithOptions_Scalar(t *testing.T) {
+	rows := NodeToRowsWithOptions("hello", DefaultRowOptions())
+	require.Len(t, rows, 1)
+	assert.Equal(t, ScalarValueKey, rows[0][0])
+	assert.Equal(t, "hello", rows[0][1])
+}
+
+func TestNodeToRowsWithOptions_ScalarInt(t *testing.T) {
+	rows := NodeToRowsWithOptions(42, DefaultRowOptions())
+	require.Len(t, rows, 1)
+	assert.Equal(t, ScalarValueKey, rows[0][0])
+}
+
+func TestNodeToRowsWithOptions_SortDescending(t *testing.T) {
+	prev := SetSortOrder(SortDescending)
+	defer SetSortOrder(prev)
+
+	node := map[string]interface{}{"aaa": 1, "zzz": 2}
+	rows := NodeToRowsWithOptions(node, DefaultRowOptions())
+	require.Len(t, rows, 2)
+	assert.Equal(t, "zzz", rows[0][0])
+	assert.Equal(t, "aaa", rows[1][0])
+}
+
+func TestNodeToRowsWithOptions_SortNone(t *testing.T) {
+	prev := SetSortOrder(SortNone)
+	defer SetSortOrder(prev)
+
+	node := map[string]interface{}{"b": 1, "a": 2}
+	rows := NodeToRowsWithOptions(node, DefaultRowOptions())
+	require.Len(t, rows, 2)
+	// No specific order guaranteed with SortNone
+}
+
+func TestNodeToRowsWithOptions_ReflectSlice(t *testing.T) {
+	// Pass a typed slice (not []interface{}) to exercise the reflect.Slice branch
+	node := []string{"x", "y", "z"}
+	rows := NodeToRowsWithOptions(node, RowOptions{ArrayStyle: ArrayStyleIndex})
+	require.Len(t, rows, 3)
+	assert.Equal(t, "[0]", rows[0][0])
+	assert.Equal(t, "x", rows[0][1])
+}
+
+func TestNodeToRowsWithOptions_ReflectMap(t *testing.T) {
+	// Pass a typed map (not map[string]interface{}) to exercise the reflect.Map branch
+	node := map[string]int{"alpha": 1, "beta": 2}
+	prev := SetSortOrder(SortAscending)
+	defer SetSortOrder(prev)
+
+	rows := NodeToRowsWithOptions(node, DefaultRowOptions())
+	require.Len(t, rows, 2)
+	assert.Equal(t, "alpha", rows[0][0])
+	assert.Equal(t, "beta", rows[1][0])
+}
+
+func TestNodeToRowsWithOptions_ReflectMapEmpty(t *testing.T) {
+	node := map[string]int{}
+	rows := NodeToRowsWithOptions(node, DefaultRowOptions())
+	require.Len(t, rows, 1)
+	assert.Equal(t, ScalarValueKey, rows[0][0])
+}
+
+func TestNodeToRowsWithOptions_ReflectMapDescending(t *testing.T) {
+	node := map[string]int{"aaa": 1, "zzz": 2}
+	prev := SetSortOrder(SortDescending)
+	defer SetSortOrder(prev)
+
+	rows := NodeToRowsWithOptions(node, DefaultRowOptions())
+	require.Len(t, rows, 2)
+	assert.Equal(t, "zzz", rows[0][0])
+	assert.Equal(t, "aaa", rows[1][0])
+}
+
+func TestNodeToRowsWithOptions_ReflectMapNone(t *testing.T) {
+	node := map[string]int{"b": 1, "a": 2}
+	prev := SetSortOrder(SortNone)
+	defer SetSortOrder(prev)
+
+	rows := NodeToRowsWithOptions(node, DefaultRowOptions())
+	require.Len(t, rows, 2)
 }

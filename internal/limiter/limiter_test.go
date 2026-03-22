@@ -322,3 +322,83 @@ func TestTailIgnoresOffset(t *testing.T) {
 	result := Config{Tail: 3, Offset: 5}.Apply(arr)
 	assert.Equal(t, []interface{}{8, 9, 10}, result)
 }
+
+func TestApplyToSliceOfMaps(t *testing.T) {
+	arr := []interface{}{
+		map[string]interface{}{"name": "a"},
+		map[string]interface{}{"name": "b"},
+		map[string]interface{}{"name": "c"},
+	}
+
+	t.Run("limit", func(t *testing.T) {
+		cfg := Config{Limit: 2}
+		result := cfg.ApplyToSliceOfMaps(arr)
+		got := result.([]interface{})
+		assert.Len(t, got, 2)
+	})
+
+	t.Run("not a slice", func(t *testing.T) {
+		cfg := Config{Limit: 2}
+		result := cfg.ApplyToSliceOfMaps("not a slice")
+		assert.Equal(t, "not a slice", result)
+	})
+
+	t.Run("tail", func(t *testing.T) {
+		cfg := Config{Tail: 1}
+		result := cfg.ApplyToSliceOfMaps(arr)
+		got := result.([]interface{})
+		assert.Len(t, got, 1)
+	})
+}
+
+func TestApplyToGenericSlice(t *testing.T) {
+	data := []string{"a", "b", "c", "d", "e"}
+
+	t.Run("limit", func(t *testing.T) {
+		cfg := Config{Limit: 3}
+		result := cfg.ApplyToGenericSlice(data)
+		got := result.([]string)
+		assert.Equal(t, []string{"a", "b", "c"}, got)
+	})
+
+	t.Run("offset", func(t *testing.T) {
+		cfg := Config{Offset: 2}
+		result := cfg.ApplyToGenericSlice(data)
+		got := result.([]string)
+		assert.Equal(t, []string{"c", "d", "e"}, got)
+	})
+
+	t.Run("tail", func(t *testing.T) {
+		cfg := Config{Tail: 2}
+		result := cfg.ApplyToGenericSlice(data)
+		got := result.([]string)
+		assert.Equal(t, []string{"d", "e"}, got)
+	})
+
+	t.Run("not a slice", func(t *testing.T) {
+		cfg := Config{Limit: 2}
+		result := cfg.ApplyToGenericSlice(42)
+		assert.Equal(t, 42, result)
+	})
+
+	t.Run("offset beyond length", func(t *testing.T) {
+		cfg := Config{Offset: 100}
+		result := cfg.ApplyToGenericSlice(data)
+		got := result.([]string)
+		assert.Empty(t, got)
+	})
+
+	t.Run("limit and offset", func(t *testing.T) {
+		cfg := Config{Limit: 2, Offset: 1}
+		result := cfg.ApplyToGenericSlice(data)
+		got := result.([]string)
+		assert.Equal(t, []string{"b", "c"}, got)
+	})
+
+	t.Run("tail negative start clamped", func(t *testing.T) {
+		cfg := Config{Tail: 100}
+		result := cfg.ApplyToGenericSlice(data)
+		got := result.([]string)
+		assert.Equal(t, data, got)
+	})
+}

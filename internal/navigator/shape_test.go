@@ -1,6 +1,7 @@
 package navigator
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -240,4 +241,49 @@ func TestToStringKeyMap(t *testing.T) {
 			assert.Equal(t, tt.wantOk, ok)
 		})
 	}
+}
+
+func TestIsHomogeneousReflectArray(t *testing.T) {
+	t.Run("empty", func(t *testing.T) {
+		rv := reflect.ValueOf([]any{})
+		ok, keys := isHomogeneousReflectArray(rv)
+		assert.False(t, ok)
+		assert.Nil(t, keys)
+	})
+
+	t.Run("homogeneous maps", func(t *testing.T) {
+		data := []any{
+			map[string]any{"a": 1, "b": 2},
+			map[string]any{"a": 3, "b": 4},
+		}
+		rv := reflect.ValueOf(data)
+		ok, keys := isHomogeneousReflectArray(rv)
+		assert.True(t, ok)
+		assert.Equal(t, []string{"a", "b"}, keys)
+	})
+
+	t.Run("heterogeneous maps", func(t *testing.T) {
+		data := []any{
+			map[string]any{"a": 1},
+			map[string]any{"b": 2},
+		}
+		rv := reflect.ValueOf(data)
+		ok, _ := isHomogeneousReflectArray(rv)
+		assert.False(t, ok)
+	})
+
+	t.Run("non-map elements", func(t *testing.T) {
+		data := []any{"a", "b"}
+		rv := reflect.ValueOf(data)
+		ok, keys := isHomogeneousReflectArray(rv)
+		assert.False(t, ok)
+		assert.Nil(t, keys)
+	})
+
+	t.Run("first element nil", func(t *testing.T) {
+		data := []any{nil, map[string]any{"a": 1}}
+		rv := reflect.ValueOf(data)
+		ok, _ := isHomogeneousReflectArray(rv)
+		assert.False(t, ok)
+	})
 }

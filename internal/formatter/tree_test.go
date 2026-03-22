@@ -3,6 +3,8 @@ package formatter
 import (
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestFormatAsTree_SimpleMap(t *testing.T) {
@@ -281,4 +283,119 @@ func TestFormatAsTree_ArrayStyleNone(t *testing.T) {
 			t.Errorf("expected 'name: foo' in output, got:\n%s", result)
 		}
 	})
+}
+
+func TestValidateArrayStyle(t *testing.T) {
+	// Valid styles
+	for _, style := range []string{"index", "numbered", "bullet", "none", ""} {
+		if err := ValidateArrayStyle(style); err != nil {
+			t.Errorf("ValidateArrayStyle(%q) should be valid, got %v", style, err)
+		}
+	}
+	// Invalid styles
+	for _, style := range []string{"invalid", "fancy", "roman"} {
+		if err := ValidateArrayStyle(style); err == nil {
+			t.Errorf("ValidateArrayStyle(%q) should be invalid", style)
+		}
+	}
+}
+
+func TestFormatScalarValue_NoTruncation(t *testing.T) {
+	opts := TreeOptions{MaxStringLen: 0}
+	result := formatScalarValue("hello world", opts)
+	if result != "hello world" {
+		t.Fatalf("expected 'hello world', got %q", result)
+	}
+}
+
+func TestFormatScalarValue_Truncation(t *testing.T) {
+	opts := TreeOptions{MaxStringLen: 10}
+	result := formatScalarValue("a very long string", opts)
+	if len(result) > 10 {
+		t.Fatalf("expected max length 10, got %d: %q", len(result), result)
+	}
+	if !strings.HasSuffix(result, "...") {
+		t.Fatalf("expected trailing '...', got %q", result)
+	}
+}
+
+func TestFormatScalarValue_ShortMaxLen(t *testing.T) {
+	opts := TreeOptions{MaxStringLen: 3}
+	result := formatScalarValue("hello", opts)
+	if result != "..." {
+		t.Fatalf("expected '...', got %q", result)
+	}
+}
+
+func TestFormatScalarValue_NilValue(t *testing.T) {
+	opts := TreeOptions{}
+	result := formatScalarValue(nil, opts)
+	if result != "null" {
+		t.Fatalf("expected 'null', got %q", result)
+	}
+}
+
+func TestFormatScalarValue_Boolean(t *testing.T) {
+	opts := TreeOptions{}
+	if formatScalarValue(true, opts) != "true" {
+		t.Fatal("expected 'true'")
+	}
+	if formatScalarValue(false, opts) != "false" {
+		t.Fatal("expected 'false'")
+	}
+}
+
+func TestFormatScalarValue_Numbers(t *testing.T) {
+	opts := TreeOptions{}
+	if formatScalarValue(float64(42), opts) != "42" {
+		t.Fatalf("expected '42', got %q", formatScalarValue(float64(42), opts))
+	}
+	if formatScalarValue(3.14, opts) != "3.14" {
+		t.Fatalf("expected '3.14', got %q", formatScalarValue(3.14, opts))
+	}
+}
+
+func TestFormatScalarValueWithKey_FieldHint(t *testing.T) {
+	opts := TreeOptions{
+		MaxStringLen: 20,
+		FieldHints:   map[string]int{"name": 5},
+	}
+	result := formatScalarValueWithKey("name", "Alice Johnson", opts)
+	if len(result) > 5 {
+		t.Fatalf("expected max length 5, got %d: %q", len(result), result)
+	}
+}
+
+func TestFormatAsTree_ScalarRoot(t *testing.T) {
+	out := FormatAsTree("hello", TreeOptions{})
+	assert.Contains(t, out, "hello")
+}
+
+func TestFormatAsTree_MaxDepthLimit(t *testing.T) {
+	node := map[string]interface{}{
+		"a": map[string]interface{}{
+			"b": map[string]interface{}{
+				"c": "deep",
+			},
+		},
+	}
+	out := FormatAsTree(node, TreeOptions{MaxDepth: 1})
+	assert.Contains(t, out, "...")
+}
+
+func TestFormatAsTree_ExpandArrays(t *testing.T) {
+	node := map[string]interface{}{
+		"tags": []interface{}{"go", "rust"},
+	}
+	out := FormatAsTree(node, TreeOptions{ExpandArrays: true})
+	assert.Contains(t, out, "go")
+	assert.Contains(t, out, "rust")
+}
+
+func TestFormatArrayIndex_AllStyles(t *testing.T) {
+	assert.Equal(t, "[0]", FormatArrayIndex(0, "index"))
+	assert.Equal(t, "1", FormatArrayIndex(0, "numbered"))
+	assert.Equal(t, "•", FormatArrayIndex(0, "bullet"))
+	assert.Equal(t, "", FormatArrayIndex(0, "none"))
+	assert.Equal(t, "[0]", FormatArrayIndex(0, ""))
 }

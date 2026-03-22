@@ -420,3 +420,104 @@ func TestRenderColumnarTable_WithHints(t *testing.T) {
 		assert.Contains(t, result, "value")
 	})
 }
+
+func TestDefaultTableFormatOptions(t *testing.T) {
+	opts := DefaultTableFormatOptions()
+	assert.Equal(t, "numbered", opts.ArrayStyle)
+	assert.Equal(t, "auto", opts.ColumnarMode)
+	assert.Empty(t, opts.ColumnOrder)
+	assert.Empty(t, opts.HiddenColumns)
+	assert.Empty(t, opts.SelectColumns)
+}
+
+func TestApplySelectColumns(t *testing.T) {
+	t.Run("no select columns is no-op", func(t *testing.T) {
+		opts := TableFormatOptions{}
+		opts.ApplySelectColumns([]string{"a", "b", "c"})
+		assert.Empty(t, opts.HiddenColumns)
+		assert.Empty(t, opts.ColumnOrder)
+	})
+
+	t.Run("select hides non-selected", func(t *testing.T) {
+		opts := TableFormatOptions{SelectColumns: []string{"a", "c"}}
+		opts.ApplySelectColumns([]string{"a", "b", "c", "d"})
+		assert.Contains(t, opts.HiddenColumns, "b")
+		assert.Contains(t, opts.HiddenColumns, "d")
+		assert.Equal(t, []string{"a", "c"}, opts.ColumnOrder)
+	})
+
+	t.Run("already hidden columns not duplicated", func(t *testing.T) {
+		opts := TableFormatOptions{
+			SelectColumns: []string{"a"},
+			HiddenColumns: []string{"b"},
+		}
+		opts.ApplySelectColumns([]string{"a", "b", "c"})
+		// b was already hidden, c is newly hidden
+		count := 0
+		for _, h := range opts.HiddenColumns {
+			if h == "b" {
+				count++
+			}
+		}
+		assert.Equal(t, 1, count, "b should appear only once")
+		assert.Contains(t, opts.HiddenColumns, "c")
+	})
+}
+
+func TestEffectiveColumnOrder(t *testing.T) {
+	t.Run("returns SelectColumns when set", func(t *testing.T) {
+		opts := TableFormatOptions{
+			ColumnOrder:   []string{"a", "b"},
+			SelectColumns: []string{"x", "y"},
+		}
+		assert.Equal(t, []string{"x", "y"}, opts.EffectiveColumnOrder())
+	})
+
+	t.Run("returns ColumnOrder when no select", func(t *testing.T) {
+		opts := TableFormatOptions{ColumnOrder: []string{"a", "b"}}
+		assert.Equal(t, []string{"a", "b"}, opts.EffectiveColumnOrder())
+	})
+
+	t.Run("returns nil when both empty", func(t *testing.T) {
+		opts := TableFormatOptions{}
+		assert.Nil(t, opts.EffectiveColumnOrder())
+	})
+}
+
+func TestCalculateNaturalColumnarWidth(t *testing.T) {
+	columns := []string{"name", "age"}
+	rows := [][]string{
+		{"Alice", "30"},
+		{"Bob", "25"},
+	}
+
+	w := CalculateNaturalColumnarWidth(columns, rows, false, 2)
+	assert.Greater(t, w, 0)
+
+	wWithRowNum := CalculateNaturalColumnarWidth(columns, rows, true, 2)
+	assert.Greater(t, wWithRowNum, w, "row numbers should add width")
+}
+
+func TestCalculateNaturalColumnarWidthWithHints(t *testing.T) {
+	columns := []string{"name", "description"}
+	rows := [][]string{
+		{"Alice", "A very long description that would normally be wide"},
+	}
+
+	wNoHints := CalculateNaturalColumnarWidthWithHints(columns, rows, false, 1, nil, nil)
+	assert.Greater(t, wNoHints, 0)
+
+	hints := map[string]ColumnHint{
+		"description": {MaxWidth: 10},
+	}
+	wWithHints := CalculateNaturalColumnarWidthWithHints(columns, rows, false, 1, hints, nil)
+	assert.Less(t, wWithHints, wNoHints, "MaxWidth hint should reduce natural width")
+
+	wHidden := CalculateNaturalColumnarWidthWithHints(columns, rows, false, 1, nil, []string{"description"})
+	assert.Less(t, wHidden, wNoHints, "hidden column should reduce width")
+}
+
+func TestCalculateNaturalColumnarWidth_Empty(t *testing.T) {
+	assert.Equal(t, 0, CalculateNaturalColumnarWidth(nil, nil, false, 0))
+	assert.Equal(t, 0, CalculateNaturalColumnarWidth([]string{}, nil, false, 0))
+}

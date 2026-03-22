@@ -199,3 +199,30 @@ func TestRegistrySupplementDoesNotOverwriteRichEntries(t *testing.T) {
 	assert.Equal(t, "Transform list elements", fn.Description, "rich entry should win")
 	assert.Len(t, fn.Examples, 1, "examples should be preserved")
 }
+
+func TestFunctionRegistry_CategoriesFromRegister(t *testing.T) {
+	reg := NewFunctionRegistry()
+	reg.LoadFunctions([]FunctionMetadata{
+		{Name: "filter", Category: "collection"},
+		{Name: "size", Category: "collection"},
+		{Name: "contains", Category: "string"},
+	})
+
+	cats := reg.GetCategories()
+	assert.Contains(t, cats, "collection")
+	assert.Contains(t, cats, "string")
+}
+
+func TestFunctionRegistry_GetFunctionByName(t *testing.T) {
+	reg := NewFunctionRegistry()
+	reg.LoadFunctions([]FunctionMetadata{
+		{Name: "filter", Category: "collection"},
+	})
+
+	fm := reg.GetFunction("filter")
+	assert.NotNil(t, fm)
+	assert.Equal(t, "filter", fm.Name)
+
+	fm = reg.GetFunction("nonexistent")
+	assert.Nil(t, fm)
+}

@@ -355,3 +355,109 @@ func TestPadRightExactLength(t *testing.T) {
 		t.Fatalf("expected 'test', got %q", result)
 	}
 }
+
+func TestSetTableTheme(t *testing.T) {
+	// Should not panic with zero-value colors
+	SetTableTheme(TableColors{})
+}
+
+func TestCalculateNaturalTableWidth(t *testing.T) {
+	rows := [][]string{
+		{"name", "Alice"},
+		{"age", "30"},
+	}
+	w := CalculateNaturalTableWidth(rows)
+	// Should be at least header widths: "KEY"(3) + sep(2) + "VALUE"(5) = 10
+	if w < 10 {
+		t.Fatalf("expected width >= 10, got %d", w)
+	}
+	// "Alice" is wider than "VALUE", so width should reflect "Alice"
+	if w < 11 {
+		t.Fatalf("expected width >= 11 (for 'Alice'), got %d", w)
+	}
+}
+
+func TestCalculateNaturalTableWidth_Empty(t *testing.T) {
+	w := CalculateNaturalTableWidth(nil)
+	// Minimum: "KEY"(3) + sep(2) + "VALUE"(5) = 10
+	if w != 10 {
+		t.Fatalf("expected 10, got %d", w)
+	}
+}
+
+func TestRenderTableFitContent_Basic(t *testing.T) {
+	rows := [][]string{
+		{"name", "Alice"},
+		{"city", "NYC"},
+	}
+	result := RenderTableFitContent(rows, true, 0)
+	if result == "" {
+		t.Fatal("expected non-empty output")
+	}
+	if !strings.Contains(result, "KEY") {
+		t.Fatal("expected KEY header")
+	}
+	if !strings.Contains(result, "VALUE") {
+		t.Fatal("expected VALUE header")
+	}
+	if !strings.Contains(result, "Alice") {
+		t.Fatal("expected Alice in output")
+	}
+}
+
+func TestRenderTableFitContent_WithMaxWidth(t *testing.T) {
+	rows := [][]string{
+		{"name", "A very long value that should be truncated somehow"},
+	}
+	result := RenderTableFitContent(rows, true, 30)
+	if result == "" {
+		t.Fatal("expected non-empty output")
+	}
+}
+
+func TestRenderRows_Basic(t *testing.T) {
+	rows := [][]string{
+		{"name", "Alice"},
+		{"age", "30"},
+	}
+	result := RenderRows(rows, true, 20, 30)
+	if result == "" {
+		t.Fatal("expected non-empty output")
+	}
+	if !strings.Contains(result, "KEY") {
+		t.Fatal("expected KEY header")
+	}
+	if !strings.Contains(result, "Alice") {
+		t.Fatal("expected Alice in output")
+	}
+}
+
+func TestRenderRows_DefaultWidths(t *testing.T) {
+	rows := [][]string{{"key", "value"}}
+	result := RenderRows(rows, true, 0, 0)
+	if result == "" {
+		t.Fatal("expected non-empty output")
+	}
+}
+
+func TestRenderTable_Map(t *testing.T) {
+	data := map[string]interface{}{"name": "test", "count": 42}
+	result := RenderTable(data, true, 20, 40)
+	if result == "" {
+		t.Fatal("expected non-empty output")
+	}
+	if !strings.Contains(result, "name") {
+		t.Fatal("expected 'name' in output")
+	}
+}
+
+func TestRenderTable_Array(t *testing.T) {
+	data := []interface{}{
+		map[string]interface{}{"name": "alice"},
+		map[string]interface{}{"name": "bob"},
+	}
+	result := RenderTable(data, true, 20, 40)
+	if result == "" {
+		t.Fatal("expected non-empty output")
+	}
+}

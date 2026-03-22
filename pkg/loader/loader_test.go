@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -732,4 +733,67 @@ func TestLoadObject(t *testing.T) {
 		require.True(t, ok, "nested struct should also be converted to map")
 		assert.Equal(t, "data", metaVal["Value"])
 	})
+}
+
+func TestLoadRootBytesWithLogger(t *testing.T) {
+	data := []byte(`{"name": "test"}`)
+	lgr := logr.Discard()
+	result, err := LoadRootBytesWithLogger(data, lgr)
+	require.NoError(t, err)
+	m, ok := result.(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "test", m["name"])
+}
+
+func TestNormalizeCELType_StructSlice(t *testing.T) {
+	type Item struct {
+		Name string
+		Age  int
+	}
+	items := []Item{
+		{Name: "Alice", Age: 30},
+		{Name: "Bob", Age: 25},
+	}
+	result, err := normalizeCELType(items)
+	require.NoError(t, err)
+	// Should convert to []interface{} of maps
+	arr, ok := result.([]interface{})
+	require.True(t, ok)
+	assert.Len(t, arr, 2)
+}
+
+func TestNormalizeCELType_Map(t *testing.T) {
+	data := map[string]interface{}{"key": "value"}
+	result, err := normalizeCELType(data)
+	require.NoError(t, err)
+	assert.Equal(t, data, result)
+}
+
+func TestNormalizeCELType_Nil(t *testing.T) {
+	result, err := normalizeCELType(nil)
+	require.NoError(t, err)
+	assert.Nil(t, result)
+}
+
+func TestNormalizeCELType_Scalar(t *testing.T) {
+	result, err := normalizeCELType("hello")
+	require.NoError(t, err)
+	assert.Equal(t, "hello", result)
+}
+
+func TestParserFor_Unknown(t *testing.T) {
+	p := parserFor("unknown_format")
+	// Unknown formats fall back to YAML parser
+	assert.NotNil(t, p)
+}
+
+func TestExtToFormat_JSON(t *testing.T) {
+	f, ok := extToFormat(".json")
+	assert.True(t, ok)
+	assert.Equal(t, formatName("JSON"), f)
+}
+
+func TestExtToFormat_Unknown(t *testing.T) {
+	_, ok := extToFormat(".xyz")
+	assert.False(t, ok)
 }
