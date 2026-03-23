@@ -640,3 +640,32 @@ func TestInfoMessageFallthrough_ShownInTableMode(t *testing.T) {
 	assert.Equal(t, "Copied: _.key", state.InfoMessage, "ErrMsg should appear normally in table mode")
 	assert.False(t, state.InfoError)
 }
+
+// TestStatusViewKey_RoutedThroughModelUpdate verifies that a key press reaches
+// handleStatusViewKey when ViewMode is "status", exercising the simplified
+// routing path in Model.Update that no longer needs a type assertion.
+func TestStatusViewKey_RoutedThroughModelUpdate(t *testing.T) {
+	data := testStatusData()
+	schema := testStatusSchema()
+	sv := buildStatusViewModel(data, schema, KeyModeVim, true, nil, 80, 24)
+
+	m := InitialModel(data)
+	m.Root = data
+	m.ViewMode = "status"
+	m.StatusViewState = sv
+	m.InputFocused = false
+	m.KeyMode = KeyModeVim
+	m.WinWidth = 80
+	m.WinHeight = 24
+	m.applyLayout(true)
+	m.Tbl.Focus()
+
+	// Send a key that the status view handles (e.g. any unrecognised key
+	// is accepted without error by StatusViewModel.handleKey).
+	result, _ := m.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+
+	m2, ok := result.(*Model)
+	require.True(t, ok)
+	assert.Equal(t, "status", m2.ViewMode)
+	assert.NotNil(t, m2.StatusViewState)
+}

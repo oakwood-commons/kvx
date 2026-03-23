@@ -96,7 +96,7 @@ func (m *Model) Init() tea.Cmd {
 // Update handles messages for the explorer model.
 func (m *Model) Update(msg tea.Msg) (ui.ChildModel, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		// Handle navigation keys
 		switch msg.String() {
 		case "enter", "right":

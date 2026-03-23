@@ -503,3 +503,31 @@ func TestDefaultKeyMode(t *testing.T) {
 		t.Errorf("DefaultKeyMode should be vim, got %v", DefaultKeyMode)
 	}
 }
+
+// TestKeyReleaseMsg_SwallowedByModel verifies that tea.KeyReleaseMsg events
+// are silently swallowed and do not mutate model state. With ReportEventTypes
+// enabled, the terminal sends release events (e.g. the Enter key used to
+// launch the program) that must not trigger navigation or change the cursor.
+func TestKeyReleaseMsg_SwallowedByModel(t *testing.T) {
+	m := testKeyModeModel(KeyModeVim)
+	initialPath := m.Path
+	initialCursor := m.Tbl.Cursor()
+
+	// Send an Enter key release — should be swallowed.
+	result, cmd := m.Update(tea.KeyReleaseMsg{Code: tea.KeyEnter})
+
+	m2 := result.(*Model)
+
+	if cmd != nil {
+		t.Error("expected nil cmd for swallowed KeyReleaseMsg")
+	}
+	if m2.Path != initialPath {
+		t.Errorf("KeyReleaseMsg must not change Path: got %q, want %q", m2.Path, initialPath)
+	}
+	if m2.Tbl.Cursor() != initialCursor {
+		t.Errorf("KeyReleaseMsg must not move cursor: got %d, want %d", m2.Tbl.Cursor(), initialCursor)
+	}
+	if m2.LastKey != "" {
+		t.Errorf("KeyReleaseMsg must not set LastKey: got %q", m2.LastKey)
+	}
+}

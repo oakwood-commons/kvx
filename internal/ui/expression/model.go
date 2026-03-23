@@ -119,7 +119,7 @@ func (m *Model) Update(msg tea.Msg) (ui.ChildModel, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "enter":
 			// Submit the expression

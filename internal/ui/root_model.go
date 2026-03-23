@@ -107,7 +107,11 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, nil
 
-	case tea.KeyMsg:
+	case tea.KeyReleaseMsg:
+		// Swallow key release events so they never reach child models.
+		return m, nil
+
+	case tea.KeyPressMsg:
 		// Handle global quit
 		keyStr := msg.String()
 		// Check for Ctrl+C - handle both string form and raw control character (0x03)
