@@ -58,6 +58,10 @@ tasks:
         echo "  task tag VERSION=v1.0.0      # Create a signed tag"
         echo "  task tag-push VERSION=v1.0.0 # Create and push a tag"
         echo
+        echo "Docs:"
+        echo "  task docs:build  # Build Hugo documentation site"
+        echo "  task docs:serve  # Serve docs locally (live reload)"
+        echo
         echo "Variables and Values:"
         echo "  NAME:          {{ .NAME }}"
         echo "  OUTPUT_FILE:   {{ .OUTPUT_FILE }}"
@@ -360,3 +364,25 @@ tasks:
         echo "Tag {{.VERSION}} created and pushing to origin..."
         git push origin "{{.VERSION}}"
         echo "Tag {{.VERSION}} pushed."
+
+  docs:build:
+    desc: Build the Hugo documentation site
+    preconditions:
+      - sh: command -v hugo >/dev/null 2>&1
+        msg: "hugo CLI not found. Install: brew install hugo"
+    cmds:
+      - |
+        cd site
+        hugo --gc --minify
+        echo ""
+        echo "Site built to public/"
+
+  docs:serve:
+    desc: Serve the Hugo documentation site locally with live reload
+    preconditions:
+      - sh: command -v hugo >/dev/null 2>&1
+        msg: "hugo CLI not found. Install: brew install hugo"
+    cmds:
+      - |
+        cd site
+        hugo server
