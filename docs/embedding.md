@@ -1,3 +1,8 @@
+---
+title: "Embedding the TUI"
+weight: 30
+---
+
 # Embedding kvx in another app
 
 Use the public `tui` and `core` packages to run kvx inside your Go program. This guide covers data loading, configuration, and common extension points.

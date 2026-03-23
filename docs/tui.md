@@ -1,3 +1,8 @@
+---
+title: "TUI Quick Guide"
+weight: 10
+---
+
 # TUI quick guide
 
 ## Launch & sizing

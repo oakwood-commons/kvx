@@ -1,3 +1,8 @@
+---
+title: "Library Usage"
+weight: 20
+---
+
 # Using kvx as a Library
 
 This guide covers everything you need to embed kvx in your own Go application — from a five-line quickstart to advanced customization.

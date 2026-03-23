@@ -1,3 +1,8 @@
+---
+title: "Development"
+weight: 50
+---
+
 # Development
 
 ## Prerequisites

@@ -5,6 +5,7 @@
 [![Release](https://img.shields.io/github/v/release/oakwood-commons/kvx)](https://github.com/oakwood-commons/kvx/releases)
 [![CI](https://github.com/oakwood-commons/kvx/actions/workflows/ci.yml/badge.svg)](https://github.com/oakwood-commons/kvx/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/oakwood-commons/kvx/graph/badge.svg)](https://codecov.io/gh/oakwood-commons/kvx)
+[![Documentation](https://img.shields.io/badge/docs-oakwood--commons.github.io%2Fkvx-blue)](https://oakwood-commons.github.io/kvx/)
 
 > **Alpha** — kvx is under active development. APIs and CLI flags may change between
 > releases. Breaking changes are documented in release notes. Questions? Open an
