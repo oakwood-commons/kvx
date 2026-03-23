@@ -35,16 +35,30 @@ archives:
 checksum:
   name_template: "{{ .ProjectName }}_{{ .Version }}_SHA256SUMS"
   algorithm: sha256
-# signs:
-#   - artifacts: checksum
-#     args:
-#       - "--batch"
-#       - "--local-user"
-#       - "{{ .Env.GPG_FINGERPRINT }}" # set this environment variable for your signing key
-#       - "--output"
-#       - "${signature}"
-#       - "--detach-sign"
-#       - "${artifact}"
+signs:
+  - cmd: cosign
+    artifacts: checksum
+    output: true
+    args:
+      - "sign-blob"
+      - "${artifact}"
+      - "--output-certificate=${certificate}"
+      - "--output-signature=${signature}"
+      - "--yes"
+sboms:
+  - artifacts: archive
+homebrew_casks:
+  - name: kvx
+    repository:
+      owner: oakwood-commons
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/oakwood-commons/kvx"
+    description: "Terminal-based UI for exploring structured data interactively"
+    license: "Apache-2.0"
+release:
+  draft: false
+  prerelease: auto
 changelog:
   sort: asc
   use: git
