@@ -90,6 +90,11 @@ func TestBuildPathWithKeyInvalidIdentifier(t *testing.T) {
 		{name: "valid identifier uses dot notation", basePath: "_", key: "validKey", want: "_.validKey"},
 		{name: "underscore key uses dot notation", basePath: "_", key: "_internal", want: "_._internal"},
 		{name: "numeric suffix valid", basePath: "_", key: "item1", want: "_.item1"},
+		// Keys with special characters that need escaping
+		{name: "double quote in key", basePath: "_", key: `a"b`, want: `_["a\"b"]`},
+		{name: "backslash in key", basePath: "_", key: `a\b`, want: `_["a\\b"]`},
+		{name: "trailing backslash", basePath: "_", key: `endswith\`, want: `_["endswith\\"]`},
+		{name: "newline in key", basePath: "_.items", key: "line\none", want: "_.items[\"line\\none\"]"},
 	}
 
 	for _, tt := range tests {
@@ -98,6 +103,61 @@ func TestBuildPathWithKeyInvalidIdentifier(t *testing.T) {
 			got := buildPathWithKey(tt.basePath, tt.key)
 			if got != tt.want {
 				t.Fatalf("buildPathWithKey(%q, %q) = %q, want %q", tt.basePath, tt.key, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCelBracketExpr(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "plain key", in: "name", want: `["name"]`},
+		{name: "double quote", in: `a"b`, want: `["a\"b"]`},
+		{name: "backslash", in: `a\b`, want: `["a\\b"]`},
+		{name: "trailing backslash", in: `endswith\`, want: `["endswith\\"]`},
+		{name: "newline", in: "line\none", want: `["line\none"]`},
+		{name: "tab", in: "a\tb", want: `["a\tb"]`},
+		{name: "quote and backslash", in: `a\"b`, want: `["a\\\"b"]`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := celBracketExpr(tt.in)
+			if got != tt.want {
+				t.Fatalf("celBracketExpr(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRenderSegment(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "numeric", in: "0", want: "[0]"},
+		{name: "valid identifier", in: "items", want: "items"},
+		{name: "quoted string", in: `"foo"`, want: `["foo"]`},
+		{name: "dash in key", in: "build-windows", want: `["build-windows"]`},
+		{name: "double quote in key", in: `a"b`, want: `["a\"b"]`},
+		{name: "backslash in key", in: `a\b`, want: `["a\\b"]`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := renderSegment(tt.in)
+			if got != tt.want {
+				t.Fatalf("renderSegment(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
 	}
@@ -191,6 +251,10 @@ func TestRemoveLastSegment(t *testing.T) {
 		{name: "quoted key with dot", in: `_["foo.bar"]`, want: "_"},
 		{name: "nested quoted key with dot", in: `_.items["foo.bar"]`, want: "_.items"},
 		{name: "quoted key after bracket", in: `_[0]["foo.bar"]`, want: "_[0]"},
+		// Escaped quotes inside bracket notation (regression for celBracketExpr)
+		{name: "escaped quote in key", in: `_.items["a\"b"]`, want: "_.items"},
+		{name: "escaped quote nested", in: `_.items["a\"b"].child`, want: `_.items["a\"b"]`},
+		{name: "backslash in key", in: `_.items["a\\b"]`, want: "_.items"},
 	}
 
 	for _, tt := range tests {

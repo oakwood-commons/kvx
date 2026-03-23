@@ -1275,7 +1275,7 @@ func renderSegment(seg string) string {
 	if isValidCELIdentifier(seg) {
 		return seg
 	}
-	return "[\"" + seg + "\"]"
+	return celBracketExpr(seg)
 }
 
 func isValidCELIdentifier(s string) bool {
@@ -1294,6 +1294,12 @@ func isValidCELIdentifier(s string) bool {
 		}
 	}
 	return true
+}
+
+// celBracketExpr returns a CEL bracket-notation expression for the given key,
+// e.g. ["my-key"]. It uses strconv.Quote to safely escape all special characters.
+func celBracketExpr(key string) string {
+	return "[" + strconv.Quote(key) + "]"
 }
 
 func formatExprDisplay(expr string) string {
@@ -1492,7 +1498,7 @@ func buildPathWithKey(basePath, selectedKey string) string {
 			if isNumericIndex {
 				return basePath + "[" + pathKey + "]"
 			}
-			return basePath + `["` + pathKey + `"]`
+			return basePath + celBracketExpr(pathKey)
 		}
 		return basePath + "." + pathKey
 	}
@@ -1501,7 +1507,7 @@ func buildPathWithKey(basePath, selectedKey string) string {
 		if isNumericIndex {
 			return "_[" + pathKey + "]"
 		}
-		return `_["` + pathKey + `"]`
+		return "_" + celBracketExpr(pathKey)
 	}
 	return "_." + pathKey
 }
@@ -2496,7 +2502,14 @@ func (m *Model) filterSuggestions(forceDropdown ...bool) {
 				}
 			}
 		}
-		ordered := make([]string, 0, len(contextKeys)+len(funcs))
+		totalCap := len(funcs)
+		if len(contextKeys) > 0 {
+			const maxInt = int(^uint(0) >> 1)
+			if totalCap <= maxInt-len(contextKeys) {
+				totalCap += len(contextKeys)
+			}
+		}
+		ordered := make([]string, 0, totalCap)
 		ordered = append(ordered, funcs...)
 		ordered = append(ordered, contextKeys...)
 		m.FilteredSuggestions = ordered
@@ -6804,6 +6817,8 @@ func removeLastSegment(path string) string {
 	for i := 0; i < len(path); i++ {
 		ch := path[i]
 		switch {
+		case ch == '\\' && inQuote:
+			i++ // skip escaped character
 		case ch == '[' && !inQuote:
 			inBracket = true
 			lastBracketIdx = i
