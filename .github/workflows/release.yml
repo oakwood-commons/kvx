@@ -37,9 +37,27 @@ jobs:
       - name: Run linter
         run: task lint
 
+  test-windows:
+    name: Test (Windows)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run tests
+        run: go test ./...
+
   release:
     name: Release
-    needs: test
+    needs: [test, test-windows]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -73,6 +91,15 @@ jobs:
           owner: oakwood-commons
           repositories: homebrew-tap
 
+      - name: Generate winget token
+        id: winget-token
+        uses: actions/create-github-app-token@df432ceedc7162793a195dd1713ff69aefc7379e # v2.0.6
+        with:
+          app-id: ${{ vars.OC_AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.OC_AUTOMATION_APP_PRIVATE_KEY }}
+          owner: oakwood-commons
+          repositories: winget-pkgs
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@ec59f474b9834571250b370d4735c50f8e2d1e29 # v7.0.0
         with:
@@ -82,3 +109,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          WINGET_GITHUB_TOKEN: ${{ steps.winget-token.outputs.token }}

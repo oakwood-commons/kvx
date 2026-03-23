@@ -17,11 +17,19 @@ kvx is a terminal-based UI for exploring JSON, YAML, TOML, NDJSON, CSV, and JWT 
 
 ## Quick Install
 
+### macOS / Linux (Homebrew)
+
 ```bash
 brew install oakwood-commons/tap/kvx
 ```
 
-Or install from source:
+### Windows (winget)
+
+```bash
+winget install OakwoodCommons.kvx
+```
+
+### From Source
 
 ```bash
 go install github.com/oakwood-commons/kvx@latest

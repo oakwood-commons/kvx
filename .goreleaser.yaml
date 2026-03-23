@@ -56,6 +56,36 @@ homebrew_casks:
     homepage: "https://github.com/oakwood-commons/kvx"
     description: "Terminal-based UI for exploring structured data interactively"
     license: "Apache-2.0"
+winget:
+  - name: kvx
+    publisher: OakwoodCommons
+    short_description: "Terminal-based UI for exploring structured data interactively"
+    license: "Apache-2.0"
+    publisher_url: "https://github.com/oakwood-commons"
+    publisher_support_url: "https://github.com/oakwood-commons/kvx/issues"
+    package_identifier: "OakwoodCommons.kvx"
+    homepage: "https://github.com/oakwood-commons/kvx"
+    description: "kvx is a terminal-based UI for exploring structured data (JSON, YAML, TOML, CSV, JWT) in an interactive, navigable way."
+    license_url: "https://github.com/oakwood-commons/kvx/blob/main/LICENSE"
+    release_notes_url: "https://github.com/oakwood-commons/kvx/releases/tag/{{ .Tag }}"
+    tags:
+      - cli
+      - terminal
+      - data
+      - json
+      - yaml
+    skip_upload: auto
+    repository:
+      owner: oakwood-commons
+      name: winget-pkgs
+      branch: "kvx-{{ .Version }}"
+      token: "{{ .Env.WINGET_GITHUB_TOKEN }}"
+      pull_request:
+        enabled: true
+        base:
+          owner: microsoft
+          name: winget-pkgs
+          branch: master
 release:
   draft: false
   prerelease: auto
