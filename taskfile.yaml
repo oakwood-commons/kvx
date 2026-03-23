@@ -50,6 +50,7 @@ tasks:
         echo "  task test      # Runs unit tests"
         echo "  task coverage  # Runs tests with coverage report"
         echo "  task ci        # mod + lint + test + coverage"
+        echo "  task codeql    # Run CodeQL security analysis locally"
         echo
         echo "Release:"
         echo "  task release           # Build snapshot release locally"
@@ -198,6 +199,40 @@ tasks:
     desc: Alias for 'test'
     cmds:
       - task: test
+
+  codeql:
+    desc: Run CodeQL security analysis locally (mirrors CI codeql.yml)
+    preconditions:
+      - sh: command -v codeql >/dev/null 2>&1
+        msg: "codeql CLI not found. Install: brew install codeql"
+    cmds:
+      - |
+        # Ensure the Go query pack is available (matches CI codeql-action/analyze default suite)
+        codeql pack download codeql/go-queries 2>/dev/null || true
+
+        echo "Creating CodeQL database for Go..."
+        rm -rf .codeql-db
+        codeql database create .codeql-db --language=go --source-root=. \
+          --overwrite --command="go build ./..."
+
+        echo ""
+        echo "Running CodeQL analysis..."
+        codeql database analyze .codeql-db \
+          --format=sarif-latest \
+          --output=codeql-results.sarif \
+          -- codeql/go-queries
+
+        echo ""
+        count=$(jq '[.runs[].results[]] | length' codeql-results.sarif 2>/dev/null || echo "0")
+        if [ "$count" -gt 0 ]; then
+          echo "❌ CodeQL found $count alert(s):"
+          jq -r '.runs[].results[] | "  \(.ruleId): \(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine) - \(.message.text | split("\n")[0])"' codeql-results.sarif
+          rm -rf .codeql-db
+          exit 1
+        else
+          echo "✅ No CodeQL alerts found"
+        fi
+        rm -rf .codeql-db
 
   ci:
     desc: Run build and tests

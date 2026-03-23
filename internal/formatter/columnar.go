@@ -402,7 +402,14 @@ func calculateColumnWidths(columns []string, rows [][]string, availableWidth int
 
 func renderHeader(columns []string, widths []int, sepWidth, rowNumWidth int, showRowNum, noColor bool) string {
 	sep := strings.Repeat(" ", sepWidth)
-	parts := make([]string, 0, len(columns)+1)
+	sliceCap := len(columns)
+	if showRowNum {
+		const maxInt = int(^uint(0) >> 1)
+		if sliceCap < maxInt {
+			sliceCap++
+		}
+	}
+	parts := make([]string, 0, sliceCap)
 
 	// Row number header
 	if showRowNum {
@@ -428,7 +435,14 @@ func renderHeader(columns []string, widths []int, sepWidth, rowNumWidth int, sho
 
 func renderDataRow(rowIndex int, values []string, widths []int, sepWidth, rowNumWidth int, rowNumStyle string, noColor bool, colAligns []string) string {
 	sep := strings.Repeat(" ", sepWidth)
-	parts := make([]string, 0, len(values)+1)
+	sliceCap := len(values)
+	if rowNumStyle != "none" {
+		const maxInt = int(^uint(0) >> 1)
+		if sliceCap < maxInt {
+			sliceCap++
+		}
+	}
+	parts := make([]string, 0, sliceCap)
 
 	// Row number
 	if rowNumStyle != "none" {
