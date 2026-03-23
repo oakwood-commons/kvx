@@ -18,7 +18,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/xlab/treeprint v1.2.0
 	go.uber.org/zap v1.27.1
-	golang.org/x/term v0.39.0
+	golang.org/x/term v0.41.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20260128011058-8636f8732409
 	gopkg.in/yaml.v3 v3.0.1
 )
