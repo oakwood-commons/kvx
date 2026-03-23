@@ -15,6 +15,12 @@ This tutorial walks you through installing kvx, loading your first data file, an
 brew install oakwood-commons/tap/kvx
 ```
 
+### Windows (winget)
+
+```bash
+winget install OakwoodCommons.kvx
+```
+
 ### From Source
 
 ```bash

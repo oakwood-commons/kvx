@@ -23,8 +23,10 @@ git push origin vX.Y.Z
 
 - Archives for linux, darwin, and windows
 - SHA256 checksums
+- Homebrew cask (updated automatically in `oakwood-commons/homebrew-tap`)
+- Winget manifest (PR opened automatically to `microsoft/winget-pkgs`)
 
 ## Notes
 
 - GoReleaser config is in `.goreleaser.yaml`.
-- CI runs tests before publishing.
+- CI runs tests (including Windows) before publishing.
