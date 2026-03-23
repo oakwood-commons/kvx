@@ -3386,7 +3386,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Focus is handled by SyncTableState() below
 		return m, nil
 
-	case tea.KeyMsg:
+	case tea.KeyReleaseMsg:
+		// Ignore key release events — they must not reach the table or input
+		// components. With ReportEventTypes enabled the terminal delivers
+		// releases (e.g. the Enter used to launch the program) that would
+		// otherwise fall through and trigger spurious navigation.
+		return m, nil
+
+	case tea.KeyPressMsg:
 		m.LastKey = msg.String()
 		keyStr := msg.String()
 		m.logKeyEvent(keyStr)
@@ -3465,10 +3472,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if m.ViewMode == "status" {
-			if keyPress, ok := msg.(tea.KeyPressMsg); ok {
-				if handled, result, viewCmd := m.handleStatusViewKey(keyPress); handled {
-					return result, viewCmd
-				}
+			if handled, result, viewCmd := m.handleStatusViewKey(msg); handled {
+				return result, viewCmd
 			}
 		}
 
@@ -5187,7 +5192,7 @@ func (m *Model) applyTypeAheadFilter() {
 	m.SyncTableState()
 }
 
-func (m *Model) handleSearchInput(msg tea.KeyMsg, keyStr string) (bool, tea.Cmd) {
+func (m *Model) handleSearchInput(msg tea.KeyPressMsg, keyStr string) (bool, tea.Cmd) {
 	if !m.AdvancedSearchActive || m.InputFocused {
 		return false, nil
 	}

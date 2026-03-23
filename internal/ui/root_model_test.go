@@ -555,3 +555,33 @@ func TestFocusManagement(t *testing.T) {
 		t.Error("expected child1 to be focused after navigating back")
 	}
 }
+
+// TestKeyReleaseMsg_NotRoutedToChildren verifies that tea.KeyReleaseMsg events
+// are swallowed by RootModel and never forwarded to child models. This prevents
+// the Enter key release (from launching the program) from being misinterpreted
+// as navigation when ReportEventTypes is enabled.
+func TestKeyReleaseMsg_NotRoutedToChildren(t *testing.T) {
+	maker := newMockMaker()
+	initialChild := newMockChild("initial", "Initial")
+	m := NewRootModel(initialChild, maker)
+	m.SetMode(NormalMode)
+
+	child := newMockChild("test", "Test Child")
+	m.NavigateTo(child)
+
+	// Send a key release event — should be silently swallowed.
+	releaseMsg := tea.KeyReleaseMsg{Code: tea.KeyEnter}
+	result, cmd := m.Update(releaseMsg)
+
+	if result == nil {
+		t.Fatal("expected non-nil model from Update")
+	}
+
+	if cmd != nil {
+		t.Error("expected nil cmd for swallowed KeyReleaseMsg")
+	}
+
+	if child.updateCalls != 0 {
+		t.Errorf("KeyReleaseMsg must not reach child; got %d update calls", child.updateCalls)
+	}
+}
