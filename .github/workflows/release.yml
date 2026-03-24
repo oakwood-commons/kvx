@@ -140,11 +140,7 @@ jobs:
 
           echo "Creating winget PR with token..."
           BODY_FILE="$(mktemp)"
-          cat > "$BODY_FILE" <<EOF
-## Automated winget manifest update
-
-Release: https://github.com/oakwood-commons/kvx/releases/tag/$TAG
-EOF
+          printf '## Automated winget manifest update\n\nRelease: https://github.com/oakwood-commons/kvx/releases/tag/%s\n' "$TAG" > "$BODY_FILE"
 
           if gh pr create \
             --repo microsoft/winget-pkgs \
