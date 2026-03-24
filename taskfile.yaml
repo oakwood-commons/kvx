@@ -138,10 +138,15 @@ tasks:
       GOLANGCI_LINT_VERSION: "v2.8.0"
     cmds:
       - |
-        if ! command -v golangci-lint >/dev/null 2>&1; then
+        GOBIN="$(go env GOBIN)"
+        if [ -z "$GOBIN" ]; then
+          GOBIN="$(go env GOPATH | cut -d: -f1)/bin"
+        fi
+        export PATH="$GOBIN:$PATH"
+        if [ ! -x "$GOBIN/golangci-lint" ]; then
           go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@{{.GOLANGCI_LINT_VERSION}}
         fi
-        golangci-lint run ./...
+        "$GOBIN/golangci-lint" run ./...
 
   mod-check:
     desc: Verify go.mod and go.sum are tidy
