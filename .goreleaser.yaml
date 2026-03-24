@@ -81,11 +81,7 @@ winget:
       branch: "kvx-{{ .Version }}"
       token: "{{ .Env.WINGET_GITHUB_TOKEN }}"
       pull_request:
-        enabled: true
-        base:
-          owner: microsoft
-          name: winget-pkgs
-          branch: master
+        enabled: false
 release:
   draft: false
   prerelease: auto

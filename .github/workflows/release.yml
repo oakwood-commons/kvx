@@ -115,3 +115,45 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           WINGET_GITHUB_TOKEN: ${{ steps.winget-token.outputs.token }}
+
+      - name: Submit winget PR
+        if: success()
+        env:
+          WINGET_PR_PAT: ${{ secrets.WINGET_PR_PAT }}
+          GH_TOKEN: ${{ secrets.WINGET_PR_PAT }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+          BRANCH="kvx-${VERSION}"
+
+          # Skip prerelease tags (goreleaser skips winget for prereleases)
+          if [[ "$VERSION" == *-* ]]; then
+            echo "::notice::Skipping winget PR for prerelease version $VERSION"
+            exit 0
+          fi
+
+          if [ -z "$WINGET_PR_PAT" ]; then
+            echo "::warning::No WINGET_PR_PAT secret found. Winget PR must be submitted manually."
+            echo "::notice::Run locally: task winget-pr"
+            exit 0
+          fi
+
+          echo "Creating winget PR with token..."
+          BODY_FILE="$(mktemp)"
+          cat > "$BODY_FILE" <<EOF
+## Automated winget manifest update
+
+Release: https://github.com/oakwood-commons/kvx/releases/tag/$TAG
+EOF
+
+          if gh pr create \
+            --repo microsoft/winget-pkgs \
+            --head "oakwood-commons:$BRANCH" \
+            --base master \
+            --title "New version: OakwoodCommons.kvx version $VERSION" \
+            --body-file "$BODY_FILE"; then
+            echo "::notice::Winget PR created successfully."
+          else
+            echo "::warning::Failed to create winget PR. It may already exist or there was a transient API issue. Submit manually with: task winget-pr"
+          fi
+          rm -f "$BODY_FILE"
