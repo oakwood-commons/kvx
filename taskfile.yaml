@@ -53,10 +53,17 @@ tasks:
         echo "  task codeql    # Run CodeQL security analysis locally"
         echo
         echo "Release:"
-        echo "  task release           # Build snapshot release locally"
-        echo "  task release-dry-run   # Preview release build"
+        echo "  task release-local     # Build snapshot release locally"
+        echo "  task release-preview   # Validate and preview release build"
         echo "  task tag VERSION=v1.0.0      # Create a signed tag"
         echo "  task tag-push VERSION=v1.0.0 # Create and push a tag"
+        echo
+        echo "Tools:"
+        echo "  task install-tools     # Install all release dependencies"
+        echo "  task install-cosign    # Install cosign (artifact signing)"
+        echo "  task install-syft      # Install syft (SBOM generation)"
+        echo "  task install-goreleaser # Install goreleaser"
+        echo "  task test-cosign       # Test cosign signing locally"
         echo
         echo "Docs:"
         echo "  task docs:build  # Build Hugo documentation site"
@@ -140,13 +147,13 @@ tasks:
       - |
         GOBIN="$(go env GOBIN)"
         if [ -z "$GOBIN" ]; then
-          GOBIN="$(go env GOPATH | cut -d: -f1)/bin"
+          GOBIN="$(go env GOPATH)/bin"
         fi
         export PATH="$GOBIN:$PATH"
         if [ ! -x "$GOBIN/golangci-lint" ]; then
           go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@{{.GOLANGCI_LINT_VERSION}}
         fi
-        "$GOBIN/golangci-lint" run ./...
+        golangci-lint run ./...
 
   mod-check:
     desc: Verify go.mod and go.sum are tidy
@@ -168,6 +175,43 @@ tasks:
         go install github.com/sigstore/cosign/v2/cmd/cosign@{{.COSIGN_VERSION}}
         echo "cosign installed to $GOBIN"
         cosign version
+
+  install-syft:
+    desc: Install syft for SBOM generation
+    vars:
+      SYFT_VERSION: "latest"
+    cmds:
+      - |
+        GOBIN="$(go env GOBIN)"
+        if [ -z "$GOBIN" ]; then
+          GOBIN="$(go env GOPATH)/bin"
+        fi
+        export PATH="$GOBIN:$PATH"
+        go install github.com/anchore/syft/cmd/syft@{{.SYFT_VERSION}}
+        echo "syft installed to $GOBIN"
+        syft version
+
+  install-goreleaser:
+    desc: Install goreleaser for release builds
+    vars:
+      GORELEASER_VERSION: "latest"
+    cmds:
+      - |
+        GOBIN="$(go env GOBIN)"
+        if [ -z "$GOBIN" ]; then
+          GOBIN="$(go env GOPATH)/bin"
+        fi
+        export PATH="$GOBIN:$PATH"
+        go install github.com/goreleaser/goreleaser/v2@{{.GORELEASER_VERSION}}
+        echo "goreleaser installed to $GOBIN"
+        goreleaser --version
+
+  install-tools:
+    desc: Install all release toolchain dependencies
+    cmds:
+      - task: install-cosign
+      - task: install-syft
+      - task: install-goreleaser
 
   test-cosign:
     desc: Test cosign sign-blob with the same flags as .goreleaser.yaml
@@ -308,8 +352,16 @@ tasks:
     cmds:
       - task -l
 
-  release:
-    desc: Build release binaries with goreleaser and generate index.html
+  release-local:
+    desc: Build a local snapshot release (no publish)
+    deps: [install-goreleaser, install-syft, install-cosign]
+    env:
+      COSIGN_YES: "true"
+      PATH:
+        sh: |
+          GOBIN="$(go env GOBIN)"
+          if [ -z "$GOBIN" ]; then GOBIN="$(go env GOPATH)/bin"; fi
+          echo "$GOBIN:$PATH"
     vars:
       RELEASE_VERSION:
         sh: |
@@ -337,8 +389,16 @@ tasks:
         echo ""
         echo "To publish, copy dist/* to your release location."
 
-  release-dry-run:
-    desc: Preview release build without creating artifacts
+  release-preview:
+    desc: Validate config and preview release build locally
+    deps: [install-goreleaser, install-syft, install-cosign]
+    env:
+      COSIGN_YES: "true"
+      PATH:
+        sh: |
+          GOBIN="$(go env GOBIN)"
+          if [ -z "$GOBIN" ]; then GOBIN="$(go env GOPATH)/bin"; fi
+          echo "$GOBIN:$PATH"
     cmds:
       - goreleaser check
       - goreleaser release --snapshot --clean --skip=publish
