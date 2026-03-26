@@ -228,16 +228,16 @@ tasks:
         trap 'rm -rf "$tmpdir"' EXIT
         echo "test-checksum-content" > "$tmpdir/checksums.txt"
         cosign sign-blob "$tmpdir/checksums.txt" \
-          --output-certificate="$tmpdir/checksums.txt.cert" \
-          --output-signature="$tmpdir/checksums.txt.sig" \
-          --bundle="$tmpdir/checksums.txt.sig.bundle" \
-          --new-bundle-format=false \
+          --bundle="$tmpdir/checksums.txt.bundle" \
           --yes
         echo ""
         echo "--- Results ---"
-        for f in "$tmpdir"/checksums.txt.*; do
-          echo "  $(basename "$f") ($(wc -c < "$f" | tr -d ' ') bytes)"
-        done
+        if [ -f "$tmpdir/checksums.txt.bundle" ]; then
+          echo "  checksums.txt.bundle ($(wc -c < "$tmpdir/checksums.txt.bundle" | tr -d ' ') bytes)"
+        else
+          echo "ERROR: bundle file not created"
+          exit 1
+        fi
         echo "cosign sign-blob test passed"
 
   govulncheck:
@@ -353,10 +353,9 @@ tasks:
       - task -l
 
   release-local:
-    desc: Build a local snapshot release (no publish)
-    deps: [install-goreleaser, install-syft, install-cosign]
+    desc: Build a local snapshot release (no publish, no sign)
+    deps: [install-goreleaser, install-syft]
     env:
-      COSIGN_YES: "true"
       PATH:
         sh: |
           GOBIN="$(go env GOBIN)"
@@ -376,7 +375,7 @@ tasks:
     cmds:
       - |
         echo "Building release {{.RELEASE_VERSION}}..."
-        goreleaser release --snapshot --clean
+        goreleaser release --snapshot --clean --skip=sign
       - |
         echo ""
         echo "Release artifacts in dist/:"
@@ -401,7 +400,7 @@ tasks:
           echo "$GOBIN:$PATH"
     cmds:
       - goreleaser check
-      - goreleaser release --snapshot --clean --skip=publish
+      - goreleaser release --snapshot --clean --skip=publish,sign
 
   release-check:
     desc: Validate goreleaser config and preview generated release notes

@@ -38,14 +38,13 @@ checksum:
 signs:
   - cmd: cosign
     artifacts: checksum
-    output: true
+    output: false
+    signature: "${artifact}.bundle"
+    certificate: ""
     args:
       - "sign-blob"
       - "${artifact}"
-      - "--output-certificate=${certificate}"
-      - "--output-signature=${signature}"
-      - "--bundle=${signature}.bundle"
-      - "--new-bundle-format=false"
+      - "--bundle=${signature}"
       - "--yes"
 sboms:
   - artifacts: archive
