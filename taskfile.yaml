@@ -154,6 +154,47 @@ tasks:
       - go mod tidy
       - git diff --exit-code go.mod go.sum
 
+  install-cosign:
+    desc: Install cosign for artifact signing
+    vars:
+      COSIGN_VERSION: "latest"
+    cmds:
+      - |
+        GOBIN="$(go env GOBIN)"
+        if [ -z "$GOBIN" ]; then
+          GOBIN="$(go env GOPATH)/bin"
+        fi
+        export PATH="$GOBIN:$PATH"
+        go install github.com/sigstore/cosign/v2/cmd/cosign@{{.COSIGN_VERSION}}
+        echo "cosign installed to $GOBIN"
+        cosign version
+
+  test-cosign:
+    desc: Test cosign sign-blob with the same flags as .goreleaser.yaml
+    deps: [install-cosign]
+    cmds:
+      - |
+        set -e
+        GOBIN="$(go env GOBIN)"
+        if [ -z "$GOBIN" ]; then
+          GOBIN="$(go env GOPATH)/bin"
+        fi
+        export PATH="$GOBIN:$PATH"
+        tmpdir="$(mktemp -d)"
+        trap 'rm -rf "$tmpdir"' EXIT
+        echo "test-checksum-content" > "$tmpdir/checksums.txt"
+        cosign sign-blob "$tmpdir/checksums.txt" \
+          --output-certificate="$tmpdir/checksums.txt.cert" \
+          --output-signature="$tmpdir/checksums.txt.sig" \
+          --bundle="$tmpdir/checksums.txt.sig.bundle" \
+          --yes
+        echo ""
+        echo "--- Results ---"
+        for f in "$tmpdir"/checksums.txt.*; do
+          echo "  $(basename "$f") ($(wc -c < "$f" | tr -d ' ') bytes)"
+        done
+        echo "cosign sign-blob test passed"
+
   govulncheck:
     desc: Run govulncheck for known vulnerabilities
     vars:
