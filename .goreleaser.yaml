@@ -44,6 +44,7 @@ signs:
       - "${artifact}"
       - "--output-certificate=${certificate}"
       - "--output-signature=${signature}"
+      - "--bundle=${signature}.bundle"
       - "--new-bundle-format=false"
       - "--yes"
 sboms:

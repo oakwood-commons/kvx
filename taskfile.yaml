@@ -187,6 +187,7 @@ tasks:
           --output-certificate="$tmpdir/checksums.txt.cert" \
           --output-signature="$tmpdir/checksums.txt.sig" \
           --bundle="$tmpdir/checksums.txt.sig.bundle" \
+          --new-bundle-format=false \
           --yes
         echo ""
         echo "--- Results ---"
