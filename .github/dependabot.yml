@@ -4,7 +4,23 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    groups:
+      go-dependencies:
+        patterns:
+          - "*"
+  - package-ecosystem: gomod
+    directory: /site
+    schedule:
+      interval: weekly
+    groups:
+      docs-dependencies:
+        patterns:
+          - "*"
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      ci-dependencies:
+        patterns:
+          - "*"
