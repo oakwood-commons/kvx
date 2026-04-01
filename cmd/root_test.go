@@ -991,6 +991,35 @@ func TestSnapshotStartKeyF1ShowsHelp(t *testing.T) {
 	// Help overlay may occupy the main panel; no strict header requirement here.
 }
 
+// TestInteractiveHelpNoInputShowsTUIHelp is a regression test for the fix to
+// the infinite recursion panic when running `kvx -i --help` with no input data.
+// It verifies that the TUI starts with the F1 help overlay using empty data
+// instead of recursing into cmd.Help().
+func TestInteractiveHelpNoInputShowsTUIHelp(t *testing.T) {
+	out := runCLI(t, []string{
+		"kvx",
+		"-i",
+		"--help",
+		"--snapshot",
+		"--width", "80",
+		"--height", "24",
+		"--no-color",
+	})
+
+	// Should show TUI help overlay, not text help
+	if !strings.Contains(strings.ToLower(out), "navigation") {
+		t.Fatalf("expected TUI help overlay with Navigation section, got:\n%s", out)
+	}
+	// Help overlay typically contains keybinding hints
+	if !strings.Contains(out, "j/k") || !strings.Contains(out, "h/l") {
+		t.Fatalf("expected keybinding hints in TUI help overlay, got:\n%s", out)
+	}
+	// Should NOT contain text help markers (Usage:, Examples:)
+	if strings.Contains(out, "Usage:") && strings.Contains(out, "Examples:") {
+		t.Fatalf("expected TUI help overlay, not text help output, got:\n%s", out)
+	}
+}
+
 // ansiStripRe strips ANSI escape sequences for width measurements.
 var ansiStripRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\[m`)
 

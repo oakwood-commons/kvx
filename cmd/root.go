@@ -2603,11 +2603,20 @@ var rootCmd = &cobra.Command{
 			rootData, _, err := loadInputData(args, expression, debugLog, dc, *logger.FromContext(rootCtx))
 			if err != nil {
 				if errors.Is(err, errShowHelp) {
-					_ = cmd.Help()
-					return
+					// When --help was explicitly requested with -i, use empty data so
+					// the TUI can start with the F1 help overlay instead of recursing
+					// back into cmd.Help().
+					helpFlag := cmd.Flags().Lookup("help")
+					if helpFlag != nil && helpFlag.Changed {
+						rootData = map[string]any{}
+					} else {
+						_ = cmd.Help()
+						return
+					}
+				} else {
+					fmt.Fprintln(os.Stderr, err)
+					os.Exit(2)
 				}
-				fmt.Fprintln(os.Stderr, err)
-				os.Exit(2)
 			}
 			// Eager auto-decode: recursively decode all serialized scalars before
 			// expression evaluation so that CEL can see the decoded structures.
