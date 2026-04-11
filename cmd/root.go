@@ -1889,17 +1889,12 @@ func validateLimitingFlags() error {
 
 // applyWhereFilter applies the --where per-item boolean filter if set.
 // It prints an error and exits on failure.
-func applyWhereFilter(data interface{}, debugLog bool, dc *debugCollector) interface{} {
+func applyWhereFilter(engine *core.Engine, data interface{}, debugLog bool, dc *debugCollector) interface{} {
 	if whereExpr == "" {
 		return data
 	}
 	if debugLog {
 		dc.Printf("DBG: Applying --where filter: %s\n", whereExpr)
-	}
-	engine, err := core.New()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to init evaluator: %v\n", err)
-		os.Exit(1)
 	}
 	filtered, err := engine.EvaluateWhere(whereExpr, data)
 	if err != nil {
@@ -1916,18 +1911,34 @@ func applyWhereFilter(data interface{}, debugLog bool, dc *debugCollector) inter
 	return filtered
 }
 
+var (
+	whereMissingKeyPattern = regexp.MustCompile(`no such key:\s*(?:"([^"]+)"|(\S+))`)
+	whereIdentifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+)
+
 // buildWhereHint returns a helpful suggestion when a --where expression fails.
 // Currently detects "no such key" errors and suggests using has() to guard
 // against items that lack the referenced field.
 func buildWhereHint(err error, expr string) string {
-	msg := err.Error()
-	const prefix = "no such key: "
-	idx := strings.Index(msg, prefix)
-	if idx < 0 {
+	matches := whereMissingKeyPattern.FindStringSubmatch(err.Error())
+	if len(matches) == 0 {
 		return ""
 	}
-	key := msg[idx+len(prefix):]
-	return fmt.Sprintf("Hint: not all items have key %q. Try: has(_.%s) && %s", key, key, expr)
+
+	key := matches[1]
+	if key == "" {
+		key = matches[2]
+	}
+	if key == "" {
+		return ""
+	}
+
+	accessor := "_." + key
+	if !whereIdentifierPattern.MatchString(key) {
+		accessor = "_[" + strconv.Quote(key) + "]"
+	}
+
+	return fmt.Sprintf("Hint: not all items have key %q. Try: has(%s) && %s", key, accessor, expr)
 }
 
 // applyLimiting applies the record-limiting configuration to data.
@@ -2668,19 +2679,21 @@ var rootCmd = &cobra.Command{
 				rootData = loader.RecursiveDecode(rootData)
 			}
 
-			// Apply --where per-item filter before expression
-			rootData = applyWhereFilter(rootData, debugLog, dc)
+			// Apply --where per-item filter and evaluate expression.
+			// Create one engine for both operations to avoid redundant initialization.
+			engine, err := core.New()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "failed to init evaluator: %v\n", err)
+				os.Exit(1)
+			}
+
+			rootData = applyWhereFilter(engine, rootData, debugLog, dc)
 
 			// Evaluate expression for snapshot parity with CLI limiting
 			snapshotNode := rootData
 			if expression != "" {
 				if debug {
 					dc.Printf("DBG: Evaluating expression for snapshot: %s\n", expression)
-				}
-				engine, err := core.New()
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "failed to init evaluator: %v\n", err)
-					os.Exit(1)
 				}
 				n, err := engine.Evaluate(expression, rootData)
 				if err != nil {
@@ -3068,8 +3081,15 @@ var rootCmd = &cobra.Command{
 			root = loader.RecursiveDecode(root)
 		}
 
-		// Apply --where per-item filter before expression
-		root = applyWhereFilter(root, debugLog, dc)
+		// Apply --where per-item filter and evaluate expression.
+		// Create one engine for both operations to avoid redundant initialization.
+		engine, err := core.New()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to init evaluator: %v\n", err)
+			os.Exit(1)
+		}
+
+		root = applyWhereFilter(engine, root, debugLog, dc)
 
 		// All interactive and snapshot flows are handled earlier; reaching here should
 		// always mean non-interactive CLI output.
@@ -3086,11 +3106,6 @@ var rootCmd = &cobra.Command{
 				dc.Printf("DBG: Evaluating expression: %s\n", expression)
 			}
 			// Strict CLI mode: evaluate explore as CEL; require explicit '_' or valid CEL
-			engine, err := core.New()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "failed to init evaluator: %v\n", err)
-				os.Exit(1)
-			}
 			n, err := engine.Evaluate(expression, root)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "explore expression error: %v\n", err)

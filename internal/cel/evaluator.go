@@ -108,15 +108,23 @@ func (e *Evaluator) EvaluateWhere(expr string, data interface{}) ([]interface{},
 		return nil, fmt.Errorf("where filter compilation error: %w", issues.Err())
 	}
 
+	// Reject expressions whose compile-time output type is known and non-boolean.
+	if ot := ast.OutputType(); ot != nil && ot.String() != "bool" && ot.String() != "dyn" {
+		return nil, fmt.Errorf("where filter expression must return a boolean, got %s", ot)
+	}
+
 	prg, err := e.env.Program(ast)
 	if err != nil {
 		return nil, fmt.Errorf("where filter program error: %w", err)
 	}
 
 	result := make([]interface{}, 0, len(items))
+	activation := map[string]interface{}{"_": nil}
 
 	for _, item := range items {
-		out, _, err := prg.Eval(map[string]interface{}{"_": item})
+		activation["_"] = item
+
+		out, _, err := prg.Eval(activation)
 		if err != nil {
 			return nil, fmt.Errorf("where filter eval error: %w", err)
 		}

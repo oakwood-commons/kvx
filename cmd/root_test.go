@@ -805,6 +805,18 @@ func TestBuildWhereHint(t *testing.T) {
 			want: `Hint: not all items have key "user_id". Try: has(_.user_id) && _.user_id > 200`,
 		},
 		{
+			name: "special char key uses bracket notation",
+			err:  fmt.Errorf(`no such key: "bad-key"`),
+			expr: `_["bad-key"] == "x"`,
+			want: `Hint: not all items have key "bad-key". Try: has(_["bad-key"]) && _["bad-key"] == "x"`,
+		},
+		{
+			name: "key with dots uses bracket notation",
+			err:  fmt.Errorf("no such key: my.field"),
+			expr: `_["my.field"] == 1`,
+			want: `Hint: not all items have key "my.field". Try: has(_["my.field"]) && _["my.field"] == 1`,
+		},
+		{
 			name:    "unrelated error returns empty",
 			err:     fmt.Errorf("some other error"),
 			expr:    "_.x == 1",

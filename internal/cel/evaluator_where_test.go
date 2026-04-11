@@ -81,10 +81,22 @@ func TestEvaluateWhere(t *testing.T) {
 			wantErr: "EvaluateWhere requires list data",
 		},
 		{
-			name:    "non-boolean expression errors",
+			name:    "non-boolean expression errors at runtime",
 			expr:    `_.name`,
 			data:    []interface{}{map[string]interface{}{"name": "x"}},
 			wantErr: "where filter expression must return a boolean",
+		},
+		{
+			name:    "non-boolean expression rejected at compile time",
+			expr:    `size(_)`,
+			data:    []interface{}{map[string]interface{}{"name": "x"}},
+			wantErr: "where filter expression must return a boolean, got int",
+		},
+		{
+			name:    "non-boolean expression on empty list rejected",
+			expr:    `_.name + "x"`,
+			data:    []interface{}{},
+			wantErr: "where filter expression must return a boolean, got string",
 		},
 		{
 			name:    "invalid CEL syntax errors",
