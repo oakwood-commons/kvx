@@ -93,6 +93,63 @@ func (e *Evaluator) Evaluate(expr string, data interface{}) (interface{}, error)
 	return EvaluateExpressionWithEnv(e.env, expr, data)
 }
 
+// EvaluateWhere filters a list by applying a CEL boolean expression to each item.
+// The expression receives each item as '_'. Returns the filtered list.
+// Returns an error if data is not a list or the expression does not return bool.
+func (e *Evaluator) EvaluateWhere(expr string, data interface{}) ([]interface{}, error) {
+	items, ok := toSlice(data)
+	if !ok {
+		return nil, fmt.Errorf("EvaluateWhere requires list data; got %T", data)
+	}
+
+	// Compile the program once and reuse for each item.
+	ast, issues := e.env.Compile(expr)
+	if issues != nil && issues.Err() != nil {
+		return nil, fmt.Errorf("where filter compilation error: %w", issues.Err())
+	}
+
+	prg, err := e.env.Program(ast)
+	if err != nil {
+		return nil, fmt.Errorf("where filter program error: %w", err)
+	}
+
+	result := make([]interface{}, 0, len(items))
+
+	for _, item := range items {
+		out, _, err := prg.Eval(map[string]interface{}{"_": item})
+		if err != nil {
+			return nil, fmt.Errorf("where filter eval error: %w", err)
+		}
+
+		b, ok := out.Value().(bool)
+		if !ok {
+			return nil, fmt.Errorf("where filter expression must return a boolean, got %s", out.Type().TypeName())
+		}
+
+		if b {
+			result = append(result, item)
+		}
+	}
+
+	return result, nil
+}
+
+// toSlice converts data to []interface{} if it is a slice type.
+func toSlice(data interface{}) ([]interface{}, bool) {
+	switch v := data.(type) {
+	case []interface{}:
+		return v, true
+	case []map[string]interface{}:
+		s := make([]interface{}, len(v))
+		for i, item := range v {
+			s[i] = item
+		}
+		return s, true
+	default:
+		return nil, false
+	}
+}
+
 // ToGo converts CEL types to Go native types recursively.
 // Handles both CEL primitive types and collection types (List, Map).
 func ToGo(val ref.Val) interface{} {

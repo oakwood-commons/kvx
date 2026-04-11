@@ -126,6 +126,7 @@ func resetRootCmdState() {
 	interactive = false
 	output = "auto"
 	expression = ""
+	whereExpr = ""
 	searchTerm = ""
 	debug = false
 	noColor = false
@@ -752,6 +753,74 @@ func TestCLI_LimitingTailIgnoresOffsetJSON(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(out), &arr))
 	require.Len(t, arr, 1)
 	require.Equal(t, "matcha", arr[0]["name"])
+}
+
+func TestCLI_WhereFiltersNDJSON(t *testing.T) {
+	out := runCLI(t, []string{"kvx", filepath.Join("..", "tests", "sample.ndjson"), "-o", "json", "-w", `_.level == "ERROR"`})
+	var arr []map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(out), &arr))
+	require.Len(t, arr, 1)
+	assert.Equal(t, "ERROR", arr[0]["level"])
+	assert.Equal(t, "payment-service", arr[0]["service"])
+}
+
+func TestCLI_WhereWithExpressionComposition(t *testing.T) {
+	// --where filters first, then -e transforms
+	out := runCLI(t, []string{"kvx", filepath.Join("..", "tests", "sample.ndjson"), "-o", "json", "-w", `_.level == "INFO"`, "-e", `_.map(x, x.service)`})
+	var arr []interface{}
+	require.NoError(t, json.Unmarshal([]byte(out), &arr))
+	require.Len(t, arr, 3)
+	for _, v := range arr {
+		assert.Contains(t, []string{"api-gateway", "database"}, v)
+	}
+}
+
+func TestCLI_WhereWithLimit(t *testing.T) {
+	out := runCLI(t, []string{"kvx", filepath.Join("..", "tests", "sample.ndjson"), "-o", "json", "-w", `_.level == "INFO"`, "--limit", "1"})
+	var arr []map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(out), &arr))
+	require.Len(t, arr, 1)
+	assert.Equal(t, "INFO", arr[0]["level"])
+}
+
+func TestCLI_WhereEmptyResult(t *testing.T) {
+	out := runCLI(t, []string{"kvx", filepath.Join("..", "tests", "sample.ndjson"), "-o", "json", "-w", `_.level == "NONEXISTENT"`})
+	var arr []interface{}
+	require.NoError(t, json.Unmarshal([]byte(out), &arr))
+	assert.Empty(t, arr)
+}
+
+func TestBuildWhereHint(t *testing.T) {
+	tests := []struct {
+		name    string
+		err     error
+		expr    string
+		want    string
+		wantNil bool
+	}{
+		{
+			name: "no such key suggests has()",
+			err:  fmt.Errorf("where filter eval error: no such key: user_id"),
+			expr: "_.user_id > 200",
+			want: `Hint: not all items have key "user_id". Try: has(_.user_id) && _.user_id > 200`,
+		},
+		{
+			name:    "unrelated error returns empty",
+			err:     fmt.Errorf("some other error"),
+			expr:    "_.x == 1",
+			wantNil: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hint := buildWhereHint(tt.err, tt.expr)
+			if tt.wantNil {
+				assert.Empty(t, hint)
+			} else {
+				assert.Equal(t, tt.want, hint)
+			}
+		})
+	}
 }
 
 func TestSuggestion_SpecialCharKey(t *testing.T) {

@@ -13,6 +13,7 @@ import (
 // Evaluator evaluates expressions against a root node.
 type Evaluator interface {
 	Evaluate(expr string, root interface{}) (interface{}, error)
+	EvaluateWhere(expr string, root interface{}) ([]interface{}, error)
 }
 
 // Navigator defines navigation and row conversion behavior.
@@ -139,6 +140,14 @@ func (e *Engine) Evaluate(expr string, root interface{}) (interface{}, error) {
 		return nil, fmt.Errorf("evaluator is not configured")
 	}
 	return e.Evaluator.Evaluate(expr, root)
+}
+
+// EvaluateWhere filters list data by applying a per-item boolean expression.
+func (e *Engine) EvaluateWhere(expr string, root interface{}) ([]interface{}, error) {
+	if e == nil || e.Evaluator == nil {
+		return nil, fmt.Errorf("evaluator is not configured")
+	}
+	return e.Evaluator.EvaluateWhere(expr, root)
 }
 
 // NodeAtPath navigates a path into the root using navigator rules.
