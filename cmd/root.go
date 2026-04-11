@@ -187,6 +187,7 @@ var (
 	output          string // for rootCmd (default: table)
 	configOutput    string // for configCmd (default: yaml)
 	expression      string
+	whereExpr       string
 	searchTerm      string
 	themeName       string
 	configFile      string
@@ -1886,6 +1887,60 @@ func validateLimitingFlags() error {
 	return cfg.Validate()
 }
 
+// applyWhereFilter applies the --where per-item boolean filter if set.
+// It prints an error and exits on failure.
+func applyWhereFilter(engine *core.Engine, data interface{}, debugLog bool, dc *debugCollector) interface{} {
+	if whereExpr == "" {
+		return data
+	}
+	if debugLog {
+		dc.Printf("DBG: Applying --where filter: %s\n", whereExpr)
+	}
+	filtered, err := engine.EvaluateWhere(whereExpr, data)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "where filter error: %v\n", err)
+		if hint := buildWhereHint(err, whereExpr); hint != "" {
+			fmt.Fprintln(os.Stderr, hint)
+		}
+		os.Exit(2)
+	}
+	if debugLog {
+		dc.Printf("DBG: --where filtered %d items\n", len(filtered))
+	}
+	// EvaluateWhere already returns a fresh []interface{}.
+	return filtered
+}
+
+var (
+	whereMissingKeyPattern = regexp.MustCompile(`no such key:\s*(?:"([^"]+)"|(\S+))`)
+	whereIdentifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+)
+
+// buildWhereHint returns a helpful suggestion when a --where expression fails.
+// Currently detects "no such key" errors and suggests using has() to guard
+// against items that lack the referenced field.
+func buildWhereHint(err error, expr string) string {
+	matches := whereMissingKeyPattern.FindStringSubmatch(err.Error())
+	if len(matches) == 0 {
+		return ""
+	}
+
+	key := matches[1]
+	if key == "" {
+		key = matches[2]
+	}
+	if key == "" {
+		return ""
+	}
+
+	accessor := "_." + key
+	if !whereIdentifierPattern.MatchString(key) {
+		accessor = "_[" + strconv.Quote(key) + "]"
+	}
+
+	return fmt.Sprintf("Hint: not all items have key %q. Try: has(%s) && %s", key, accessor, expr)
+}
+
 // applyLimiting applies the record-limiting configuration to data.
 func applyLimiting(data interface{}) interface{} {
 	cfg := limiter.Config{
@@ -2482,7 +2537,7 @@ var rootCmd = &cobra.Command{
 	Use:     "kvx [file]",
 	Short:   getCLIShortHelp(),
 	Long:    getCLILongHelp(),
-	Example: "\n  kvx tests/sample.yaml\n  kvx tests/sample.yaml -e '_.items[0].name'\n  kvx tests/sample.yaml -e 'type(_)'\n  kvx tests/sample.yaml -e '_.metadata[\"bad-key\"]'\n  type tests/sample.yaml | kvx -e '_.items.filter(x, x.available)'\n",
+	Example: "\n  kvx tests/sample.yaml\n  kvx tests/sample.yaml -e '_.items[0].name'\n  kvx tests/sample.yaml -e 'type(_)'\n  kvx tests/sample.yaml -e '_.metadata[\"bad-key\"]'\n  kvx tests/sample.yaml -w '_.available == true'\n  kvx tests/sample.yaml -w '_.type == \"oci\"' -e '_.map(x, x.name)'\n  type tests/sample.yaml | kvx -e '_.items.filter(x, x.available)'\n",
 	Args:    cobra.MaximumNArgs(1),
 	PersistentPreRun: func(cmd *cobra.Command, _ []string) {
 		// Initialize structured logger with JSON output
@@ -2624,16 +2679,21 @@ var rootCmd = &cobra.Command{
 				rootData = loader.RecursiveDecode(rootData)
 			}
 
+			// Apply --where per-item filter and evaluate expression.
+			// Create one engine for both operations to avoid redundant initialization.
+			engine, err := core.New()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "failed to init evaluator: %v\n", err)
+				os.Exit(1)
+			}
+
+			rootData = applyWhereFilter(engine, rootData, debugLog, dc)
+
 			// Evaluate expression for snapshot parity with CLI limiting
 			snapshotNode := rootData
 			if expression != "" {
 				if debug {
 					dc.Printf("DBG: Evaluating expression for snapshot: %s\n", expression)
-				}
-				engine, err := core.New()
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "failed to init evaluator: %v\n", err)
-					os.Exit(1)
 				}
 				n, err := engine.Evaluate(expression, rootData)
 				if err != nil {
@@ -3021,6 +3081,16 @@ var rootCmd = &cobra.Command{
 			root = loader.RecursiveDecode(root)
 		}
 
+		// Apply --where per-item filter and evaluate expression.
+		// Create one engine for both operations to avoid redundant initialization.
+		engine, err := core.New()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to init evaluator: %v\n", err)
+			os.Exit(1)
+		}
+
+		root = applyWhereFilter(engine, root, debugLog, dc)
+
 		// All interactive and snapshot flows are handled earlier; reaching here should
 		// always mean non-interactive CLI output.
 		if interactive || renderSnapshot {
@@ -3036,11 +3106,6 @@ var rootCmd = &cobra.Command{
 				dc.Printf("DBG: Evaluating expression: %s\n", expression)
 			}
 			// Strict CLI mode: evaluate explore as CEL; require explicit '_' or valid CEL
-			engine, err := core.New()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "failed to init evaluator: %v\n", err)
-				os.Exit(1)
-			}
 			n, err := engine.Evaluate(expression, root)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "explore expression error: %v\n", err)
@@ -3161,6 +3226,7 @@ func init() { //nolint:gochecknoinits
 	rootCmd.Flags().BoolVarP(&interactive, "interactive", "i", false, "start interactive TUI")
 	rootCmd.Flags().StringVarP(&output, "output", "o", "auto", "output format: auto|table|list|tree|mermaid|yaml|json|toml|csv|raw")
 	rootCmd.Flags().StringVarP(&expression, "expression", "e", "", "CEL expression using '_' as root. Examples: '_.items[0].name', 'type(_)'. For special keys use bracket notation: '_.metadata[\"bad-key\"]'.")
+	rootCmd.Flags().StringVarP(&whereExpr, "where", "w", "", "Per-item CEL boolean filter for list data. '_' refers to the current item. Example: '_.type == \"oci\"'")
 	rootCmd.Flags().StringVar(&searchTerm, "search", "", "Search keys and values (case-insensitive) and display matches")
 	// --sort requires a value; default comes from config (or none)
 	rootCmd.Flags().StringVar(&sortOrder, "sort", "", "Sort map keys: ascending|asc|descending|desc|none (default from config or none)")

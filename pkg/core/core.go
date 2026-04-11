@@ -15,6 +15,12 @@ type Evaluator interface {
 	Evaluate(expr string, root interface{}) (interface{}, error)
 }
 
+// WhereEvaluator optionally evaluates per-item boolean filters against list data.
+// Evaluators that support --where filtering should implement this interface.
+type WhereEvaluator interface {
+	EvaluateWhere(expr string, root interface{}) ([]interface{}, error)
+}
+
 // Navigator defines navigation and row conversion behavior.
 type Navigator interface {
 	NodeAtPath(root interface{}, path string) (interface{}, error)
@@ -139,6 +145,19 @@ func (e *Engine) Evaluate(expr string, root interface{}) (interface{}, error) {
 		return nil, fmt.Errorf("evaluator is not configured")
 	}
 	return e.Evaluator.Evaluate(expr, root)
+}
+
+// EvaluateWhere filters list data by applying a per-item boolean expression.
+// The evaluator must implement WhereEvaluator; otherwise an error is returned.
+func (e *Engine) EvaluateWhere(expr string, root interface{}) ([]interface{}, error) {
+	if e == nil || e.Evaluator == nil {
+		return nil, fmt.Errorf("evaluator is not configured")
+	}
+	weval, ok := e.Evaluator.(WhereEvaluator)
+	if !ok {
+		return nil, fmt.Errorf("evaluator does not support where filtering")
+	}
+	return weval.EvaluateWhere(expr, root)
 }
 
 // NodeAtPath navigates a path into the root using navigator rules.
