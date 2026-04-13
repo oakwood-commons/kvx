@@ -96,6 +96,10 @@ func (e *Evaluator) Evaluate(expr string, data interface{}) (interface{}, error)
 // EvaluateWhere filters a list by applying a CEL boolean expression to each item.
 // The expression receives each item as '_'. Returns the filtered list.
 // Returns an error if data is not a list or the expression does not return bool.
+//
+// When a map item is missing a key referenced by the expression, the item is
+// silently skipped (treated as non-matching) instead of returning an error.
+// This handles structs serialised with omitempty where some fields are absent.
 func (e *Evaluator) EvaluateWhere(expr string, data interface{}) ([]interface{}, error) {
 	items, ok := toSlice(data)
 	if !ok {
@@ -126,6 +130,12 @@ func (e *Evaluator) EvaluateWhere(expr string, data interface{}) ([]interface{},
 
 		out, _, err := prg.Eval(activation)
 		if err != nil {
+			// Items missing a key referenced by the expression are treated as
+			// non-matching rather than hard errors. This is the standard cel-go
+			// error message for absent map keys.
+			if strings.Contains(err.Error(), "no such key") {
+				continue
+			}
 			return nil, fmt.Errorf("where filter eval error: %w", err)
 		}
 
