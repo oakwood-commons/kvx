@@ -115,6 +115,38 @@ func TestEvaluateWhere(t *testing.T) {
 				map[string]interface{}{"count": int64(2)},
 			},
 		},
+		{
+			name: "missing key treated as nil not error",
+			expr: `_.group == "core"`,
+			data: []interface{}{
+				map[string]interface{}{"name": "foo", "group": "core"},
+				map[string]interface{}{"name": "bar"},
+			},
+			expected: []interface{}{
+				map[string]interface{}{"name": "foo", "group": "core"},
+			},
+		},
+		{
+			name: "all items missing filtered key returns empty",
+			expr: `_.group == "core"`,
+			data: []interface{}{
+				map[string]interface{}{"name": "foo"},
+				map[string]interface{}{"name": "bar"},
+			},
+			expected: []interface{}{},
+		},
+		{
+			name: "compound expression with missing key skips item",
+			expr: `_.group == "core" || _.name == "bar"`,
+			data: []interface{}{
+				map[string]interface{}{"name": "foo", "group": "core"},
+				map[string]interface{}{"name": "bar"},
+			},
+			expected: []interface{}{
+				map[string]interface{}{"name": "foo", "group": "core"},
+				map[string]interface{}{"name": "bar"},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -129,6 +161,25 @@ func TestEvaluateWhere(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestEvaluateWhere_NoMutation(t *testing.T) {
+	eval, err := NewEvaluator()
+	require.NoError(t, err)
+
+	original := map[string]interface{}{"name": "bar"}
+	data := []interface{}{
+		map[string]interface{}{"name": "foo", "group": "core"},
+		original,
+	}
+
+	_, err = eval.EvaluateWhere(`_.group == "core"`, data)
+	require.NoError(t, err)
+
+	// The original map must not have been modified.
+	assert.Equal(t, map[string]interface{}{"name": "bar"}, original)
+	_, hasGroup := original["group"]
+	assert.False(t, hasGroup, "original map should not have gained a 'group' key")
 }
 
 func BenchmarkEvaluateWhere(b *testing.B) {
