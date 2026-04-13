@@ -133,7 +133,7 @@ func (e *Evaluator) EvaluateWhere(expr string, data interface{}) ([]interface{},
 			// Items missing a key referenced by the expression are treated as
 			// non-matching rather than hard errors. This is the standard cel-go
 			// error message for absent map keys.
-			if strings.Contains(err.Error(), "no such key") {
+			if strings.Contains(err.Error(), "no such key: ") {
 				continue
 			}
 			return nil, fmt.Errorf("where filter eval error: %w", err)

@@ -136,7 +136,7 @@ func TestEvaluateWhere(t *testing.T) {
 			expected: []interface{}{},
 		},
 		{
-			name: "compound expression with missing key skips item",
+			name: "compound expression matches via other branch despite missing key",
 			expr: `_.group == "core" || _.name == "bar"`,
 			data: []interface{}{
 				map[string]interface{}{"name": "foo", "group": "core"},
