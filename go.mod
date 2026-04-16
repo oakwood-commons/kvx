@@ -4,9 +4,9 @@ go 1.26.1
 
 require (
 	charm.land/bubbles/v2 v2.1.0
-	charm.land/bubbletea/v2 v2.0.2
-	charm.land/lipgloss/v2 v2.0.2
-	github.com/charmbracelet/x/ansi v0.11.6
+	charm.land/bubbletea/v2 v2.0.6
+	charm.land/lipgloss/v2 v2.0.3
+	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/go-logr/logr v1.4.3
 	github.com/go-logr/zapr v1.3.0
 	github.com/gomarkdown/markdown v0.0.0-20260412113850-134a5b2cce7f
@@ -19,7 +19,7 @@ require (
 	github.com/xlab/treeprint v1.2.0
 	go.uber.org/zap v1.27.1
 	golang.org/x/term v0.42.0
-	google.golang.org/genproto/googleapis/api v0.0.0-20260406210006-6f92a3bedf2d
+	google.golang.org/genproto/googleapis/api v0.0.0-20260414002931-afd174a4e478
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -28,7 +28,7 @@ require (
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
-	github.com/charmbracelet/ultraviolet v0.0.0-20260413133134-73592393e1ad // indirect
+	github.com/charmbracelet/ultraviolet v0.0.0-20260416161146-9c68a866306c // indirect
 	github.com/charmbracelet/x/exp/golden v0.0.0-20251201173703-9f73bfd934ff // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect
 	github.com/charmbracelet/x/termios v0.1.1 // indirect
@@ -47,6 +47,6 @@ require (
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/text v0.36.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260406210006-6f92a3bedf2d // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260414002931-afd174a4e478 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
