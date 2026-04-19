@@ -10,6 +10,7 @@ import (
 	"github.com/oakwood-commons/kvx/internal/navigator"
 	"github.com/oakwood-commons/kvx/internal/ui"
 	"github.com/oakwood-commons/kvx/pkg/core"
+	"github.com/pelletier/go-toml/v2"
 	"gopkg.in/yaml.v3"
 )
 
@@ -40,10 +41,16 @@ const (
 	FormatYAML OutputFormat = "yaml"
 	// FormatJSON renders data as indented JSON.
 	FormatJSON OutputFormat = "json"
+	// FormatCSV renders data as CSV.
+	FormatCSV OutputFormat = "csv"
+	// FormatTOML renders data as TOML.
+	FormatTOML OutputFormat = "toml"
 	// FormatTree renders data as an ASCII tree structure.
 	FormatTree OutputFormat = "tree"
 	// FormatMermaid renders data as a Mermaid flowchart diagram.
 	FormatMermaid OutputFormat = "mermaid"
+	// FormatAuto renders as a table when readable, falling back to list view.
+	FormatAuto OutputFormat = "auto"
 )
 
 // PanelOptions configures data panel rendering.
@@ -512,6 +519,21 @@ func renderColumnarTable(node any, opts TableOptions, termWidth int) string {
 		}
 	}
 
+	// Fall back to list rendering when columns would be truncated to unreadable widths.
+	// This intentionally returns plain list output even when Bordered is true,
+	// because an unreadable truncated table inside a border is worse than a
+	// readable list without one.
+	if !formatter.IsColumnarReadable(columns, rows, contentWidth, fmtHints, formatter.IsColumnarReadableOpts{
+		HiddenColumns:  hiddenCols,
+		RowNumberStyle: rowNumStyle,
+	}) {
+		return formatter.FormatAsList(node, formatter.ListOptions{
+			NoColor:       opts.NoColor,
+			ArrayStyle:    rowNumStyle,
+			HiddenColumns: hiddenCols,
+		})
+	}
+
 	// Render columnar content — pass original column names so that
 	// filterColumns matches HiddenColumns correctly and the formatter
 	// applies DisplayName overrides in a single place.
@@ -694,14 +716,16 @@ func RenderMermaid(node any, opts MermaidOptions) string {
 
 // Render formats data according to the given OutputFormat.
 //
-// FormatTable and FormatList accept TableOptions for fine-tuning (borders, columnar mode, etc.).
-// FormatYAML and FormatJSON ignore opts and render plain serialized output.
+// FormatTable, FormatList, and FormatAuto accept TableOptions for fine-tuning
+// (borders, columnar mode, column hints, etc.).
+// Serialization formats (FormatYAML, FormatJSON, FormatCSV, FormatTOML) ignore
+// opts and render plain serialized output.
 //
 // Example:
 //
 //	fmt.Print(tui.Render(data, tui.FormatTable, tui.TableOptions{Bordered: true}))
-//	fmt.Print(tui.Render(data, tui.FormatList, tui.TableOptions{NoColor: true}))
 //	fmt.Print(tui.Render(data, tui.FormatJSON, tui.TableOptions{}))
+//	fmt.Print(tui.Render(data, tui.FormatCSV, tui.TableOptions{}))
 func Render(node any, format OutputFormat, opts TableOptions) string {
 	switch format {
 	case FormatTable:
@@ -712,19 +736,25 @@ func Render(node any, format OutputFormat, opts TableOptions) string {
 		return renderYAML(node)
 	case FormatJSON:
 		return renderJSON(node)
+	case FormatCSV:
+		return formatter.FormatAsCSV(node)
+	case FormatTOML:
+		return renderTOML(node)
 	case FormatTree:
 		return RenderTree(node, TreeOptions{})
 	case FormatMermaid:
 		return RenderMermaid(node, MermaidOptions{})
-	default:
+	case FormatAuto:
 		return RenderTable(node, opts)
 	}
+
+	return RenderTable(node, opts)
 }
 
 func renderYAML(node any) string {
 	b, err := yaml.Marshal(node)
 	if err != nil {
-		return fmt.Sprintf("error: %v\n", err)
+		return fmt.Sprintf("yaml marshal error: %v\n", err)
 	}
 	return string(b)
 }
@@ -732,7 +762,15 @@ func renderYAML(node any) string {
 func renderJSON(node any) string {
 	b, err := json.MarshalIndent(node, "", "  ")
 	if err != nil {
-		return fmt.Sprintf("error: %v\n", err)
+		return fmt.Sprintf("json marshal error: %v\n", err)
 	}
 	return string(b) + "\n"
+}
+
+func renderTOML(node any) string {
+	b, err := toml.Marshal(node)
+	if err != nil {
+		return fmt.Sprintf("toml marshal error: %v\n", err)
+	}
+	return string(b)
 }

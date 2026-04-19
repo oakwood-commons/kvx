@@ -501,6 +501,74 @@ func TestRenderTable_LargeColumnarBordered(t *testing.T) {
 	assert.Contains(t, out, "users")
 }
 
+func TestRenderTable_ColumnarFallbackWhenUnreadable(t *testing.T) {
+	// 8+ columns with long values in a narrow width should trigger list fallback
+	data := []any{
+		map[string]any{
+			"category": "error", "code": "E001", "severity": "high",
+			"message": "missing field", "file": "main.go", "line": 42,
+			"column": 10, "suggestion": "add required field",
+		},
+	}
+
+	// Narrow width forces aggressive truncation → should fall back to list
+	out := RenderTable(data, TableOptions{
+		NoColor:      true,
+		Width:        60,
+		ColumnarMode: "always",
+	})
+
+	// List format renders key: value lines, not columnar headers with truncation
+	assert.Contains(t, out, "category")
+	assert.Contains(t, out, "suggestion")
+	// Verify list format is used (key: value pattern)
+	assert.Contains(t, out, ": ")
+}
+
+func TestRenderTable_ColumnarFallbackBordered(t *testing.T) {
+	data := []any{
+		map[string]any{
+			"category": "error", "code": "E001", "severity": "high",
+			"message": "missing field", "file": "main.go", "line": 42,
+			"column": 10, "suggestion": "add required field",
+		},
+	}
+
+	out := RenderTable(data, TableOptions{
+		Bordered:     true,
+		NoColor:      true,
+		Width:        60,
+		ColumnarMode: "always",
+	})
+
+	// Should fall back to list format showing all fields readable
+	assert.Contains(t, out, "category")
+	assert.Contains(t, out, "suggestion")
+	// Verify list format is used (key: value pattern)
+	assert.Contains(t, out, ": ")
+}
+
+func TestRenderTable_ColumnarFallbackArrayStyle(t *testing.T) {
+	data := []any{
+		map[string]any{
+			"category": "error", "code": "E001", "severity": "high",
+			"message": "missing field", "file": "main.go", "line": 42,
+			"column": 10, "suggestion": "add required field",
+		},
+	}
+
+	out := RenderTable(data, TableOptions{
+		NoColor:      true,
+		Width:        60,
+		ColumnarMode: "always",
+		ArrayStyle:   "bullet",
+	})
+
+	// Bullet style should propagate to the list fallback
+	assert.Contains(t, out, "•")
+	assert.Contains(t, out, "category")
+}
+
 func TestRenderTable_ColumnarWithColor(t *testing.T) {
 	node := []any{
 		map[string]any{"name": "x", "val": 1},
@@ -531,4 +599,29 @@ func TestRenderTable_BorderedWithColor(t *testing.T) {
 		Width:    80,
 	})
 	assert.Contains(t, out, "╭")
+}
+
+func TestRender_CSVFormat(t *testing.T) {
+	data := []any{
+		map[string]any{"name": "alice", "age": 30},
+		map[string]any{"name": "bob", "age": 25},
+	}
+	out := Render(data, FormatCSV, TableOptions{})
+	assert.Contains(t, out, "age,name")
+	assert.Contains(t, out, "alice")
+	assert.Contains(t, out, "bob")
+}
+
+func TestRender_TOMLFormat(t *testing.T) {
+	data := map[string]any{"name": "test", "count": int64(42)}
+	out := Render(data, FormatTOML, TableOptions{})
+	assert.Contains(t, out, "count = 42")
+	assert.Regexp(t, `name = ['"]test['"]`, out)
+}
+
+func TestRender_AutoFormat(t *testing.T) {
+	data := map[string]any{"key": "value"}
+	out := Render(data, FormatAuto, TableOptions{NoColor: true, Width: 80})
+	assert.Contains(t, out, "key")
+	assert.Contains(t, out, "value")
 }
