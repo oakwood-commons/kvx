@@ -502,116 +502,6 @@ func loadInputData(args []string, expr string, debugLog bool, dc *debugCollector
 	return root, fromStdin, nil
 }
 
-// escapeCSVField escapes a CSV field according to RFC 4180.
-// Fields are quoted if they contain:
-//   - Commas (required by RFC 4180)
-//   - Double quotes (required by RFC 4180)
-//   - Line breaks (newlines/carriage returns, required by RFC 4180)
-//   - Spaces (common practice for readability, not required by RFC 4180)
-//
-// When a field is quoted, any double quotes inside are escaped by doubling them.
-func escapeCSVField(field string) string {
-	needsQuoting := strings.Contains(field, ",") ||
-		strings.Contains(field, "\"") ||
-		strings.Contains(field, "\n") ||
-		strings.Contains(field, "\r") ||
-		strings.Contains(field, " ") // Quote spaces for readability (not RFC required)
-
-	if needsQuoting {
-		// RFC 4180: Escape double quotes by doubling them
-		escaped := strings.ReplaceAll(field, `"`, `""`)
-		return `"` + escaped + `"`
-	}
-	return field
-}
-
-// formatAsCSV converts data to CSV format
-func formatAsCSV(node interface{}) string {
-	var buf bytes.Buffer
-	// We'll write CSV manually to have full control over quoting
-
-	writeCSVRow := func(fields []string) {
-		for i, field := range fields {
-			if i > 0 {
-				buf.WriteString(",")
-			}
-			buf.WriteString(escapeCSVField(field))
-		}
-		buf.WriteString("\n")
-	}
-
-	switch v := node.(type) {
-	case []interface{}:
-		if len(v) == 0 {
-			return ""
-		}
-		// Check if it's an array of objects (maps)
-		firstElem := v[0]
-		if _, ok := firstElem.(map[string]interface{}); ok {
-			// Array of objects: use object keys as headers
-			// Get all unique keys from all objects
-			keySet := make(map[string]bool)
-			for _, elem := range v {
-				if obj, ok := elem.(map[string]interface{}); ok {
-					for k := range obj {
-						keySet[k] = true
-					}
-				}
-			}
-			// Sort keys for consistent output
-			keys := make([]string, 0, len(keySet))
-			for k := range keySet {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-
-			// Write header
-			writeCSVRow(keys)
-
-			// Write rows
-			for _, elem := range v {
-				if obj, ok := elem.(map[string]interface{}); ok {
-					row := make([]string, len(keys))
-					for i, key := range keys {
-						val := ""
-						if v, ok := obj[key]; ok {
-							val = formatter.Stringify(v)
-						}
-						row[i] = val
-					}
-					writeCSVRow(row)
-				}
-			}
-		} else {
-			// Simple array: single column
-			writeCSVRow([]string{"value"})
-			for _, elem := range v {
-				val := formatter.Stringify(elem)
-				writeCSVRow([]string{val})
-			}
-		}
-	case map[string]interface{}:
-		// Map: output as key,value pairs
-		writeCSVRow([]string{"key", "value"})
-		keys := make([]string, 0, len(v))
-		for k := range v {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			val := formatter.Stringify(v[k])
-			writeCSVRow([]string{k, val})
-		}
-	default:
-		// Scalar: single value
-		writeCSVRow([]string{"value"})
-		val := formatter.Stringify(node)
-		writeCSVRow([]string{val})
-	}
-
-	return buf.String()
-}
-
 // renderBorderedTable creates a bordered table view without the shell panels.
 // Shows just the table with top border (title), data, and bottom border (footer).
 // widthHint allows callers to respect --width flags when stdout size is not the desired width.
@@ -1305,8 +1195,7 @@ func printEvalResult(node interface{}, output string, noColor bool, keyColWidth,
 			}
 		}
 	case "csv":
-		csvOutput := formatAsCSV(node)
-		fmt.Print(csvOutput) //nolint:forbidigo
+		fmt.Print(formatter.FormatAsCSV(node)) //nolint:forbidigo
 	case "yaml", "raw":
 		if s, err := formatter.FormatYAML(node, yamlOpts); err == nil {
 			fmt.Print(s) //nolint:forbidigo

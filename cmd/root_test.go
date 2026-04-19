@@ -1686,36 +1686,12 @@ func TestCLI_TreeOutputScalarArrayInline(t *testing.T) {
 	}
 }
 
-func TestEscapeCSVField_Plain(t *testing.T) {
-	assert.Equal(t, "hello", escapeCSVField("hello"))
-}
-
-func TestEscapeCSVField_WithComma(t *testing.T) {
-	assert.Equal(t, `"a,b"`, escapeCSVField("a,b"))
-}
-
-func TestEscapeCSVField_WithQuotes(t *testing.T) {
-	assert.Equal(t, `"say ""hi"""`, escapeCSVField(`say "hi"`))
-}
-
-func TestEscapeCSVField_WithNewline(t *testing.T) {
-	assert.Equal(t, "\"line1\nline2\"", escapeCSVField("line1\nline2"))
-}
-
-func TestEscapeCSVField_WithSpace(t *testing.T) {
-	assert.Equal(t, `"hello world"`, escapeCSVField("hello world"))
-}
-
-func TestEscapeCSVField_Empty(t *testing.T) {
-	assert.Equal(t, "", escapeCSVField(""))
-}
-
 func TestFormatAsCSV_ArrayOfMaps(t *testing.T) {
 	data := []interface{}{
 		map[string]interface{}{"name": "alice", "age": 30},
 		map[string]interface{}{"name": "bob", "age": 25},
 	}
-	result := formatAsCSV(data)
+	result := formatter.FormatAsCSV(data)
 	assert.Contains(t, result, "age,name")
 	assert.Contains(t, result, "alice")
 	assert.Contains(t, result, "bob")
@@ -1723,7 +1699,7 @@ func TestFormatAsCSV_ArrayOfMaps(t *testing.T) {
 
 func TestFormatAsCSV_SimpleArray(t *testing.T) {
 	data := []interface{}{"a", "b", "c"}
-	result := formatAsCSV(data)
+	result := formatter.FormatAsCSV(data)
 	assert.Contains(t, result, "value")
 	assert.Contains(t, result, "a\n")
 	assert.Contains(t, result, "b\n")
@@ -1732,19 +1708,19 @@ func TestFormatAsCSV_SimpleArray(t *testing.T) {
 
 func TestFormatAsCSV_Map(t *testing.T) {
 	data := map[string]interface{}{"name": "test", "count": 42}
-	result := formatAsCSV(data)
+	result := formatter.FormatAsCSV(data)
 	assert.Contains(t, result, "key,value")
 	assert.Contains(t, result, "name,test")
 }
 
 func TestFormatAsCSV_Scalar(t *testing.T) {
-	result := formatAsCSV("hello")
+	result := formatter.FormatAsCSV("hello")
 	assert.Contains(t, result, "value")
 	assert.Contains(t, result, "hello")
 }
 
 func TestFormatAsCSV_EmptyArray(t *testing.T) {
-	result := formatAsCSV([]interface{}{})
+	result := formatter.FormatAsCSV([]interface{}{})
 	assert.Empty(t, result)
 }
 

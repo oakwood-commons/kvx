@@ -6,8 +6,9 @@ import (
 
 // ListOptions controls list output formatting.
 type ListOptions struct {
-	NoColor    bool   // disable color output
-	ArrayStyle string // array index style: index, numbered, bullet, none
+	NoColor       bool     // disable color output
+	ArrayStyle    string   // array index style: index, numbered, bullet, none
+	HiddenColumns []string // columns to exclude from output
 }
 
 // FormatAsList renders data in a vertical list format.
@@ -21,7 +22,7 @@ func FormatAsList(node interface{}, opts ListOptions) string {
 	case []interface{}:
 		b.WriteString(formatArrayAsList(v, opts))
 	case map[string]interface{}:
-		b.WriteString(formatMapAsList(v, "", opts.NoColor))
+		b.WriteString(formatMapAsList(v, "", opts.NoColor, opts.HiddenColumns))
 	default:
 		// Scalar values: display with "value:" label
 		labelStr := "value"
@@ -86,7 +87,7 @@ func formatArrayAsList(arr []interface{}, opts ListOptions) string {
 				indent = ""
 			}
 			if m, ok := elem.(map[string]interface{}); ok {
-				b.WriteString(formatMapAsList(m, indent, opts.NoColor))
+				b.WriteString(formatMapAsList(m, indent, opts.NoColor, opts.HiddenColumns))
 			}
 		}
 	} else {
@@ -100,7 +101,7 @@ func formatArrayAsList(arr []interface{}, opts ListOptions) string {
 	return b.String()
 }
 
-func formatMapAsList(m map[string]interface{}, indent string, noColor bool) string {
+func formatMapAsList(m map[string]interface{}, indent string, noColor bool, hiddenColumns ...[]string) string {
 	if len(m) == 0 {
 		return ""
 	}
@@ -109,6 +110,21 @@ func formatMapAsList(m map[string]interface{}, indent string, noColor bool) stri
 
 	// Get sorted keys for consistent output
 	keys := getSortedKeys(m)
+
+	// Filter out hidden columns when provided
+	if len(hiddenColumns) > 0 && len(hiddenColumns[0]) > 0 {
+		hidden := make(map[string]bool, len(hiddenColumns[0]))
+		for _, col := range hiddenColumns[0] {
+			hidden[col] = true
+		}
+		filtered := make([]string, 0, len(keys))
+		for _, k := range keys {
+			if !hidden[k] {
+				filtered = append(filtered, k)
+			}
+		}
+		keys = filtered
+	}
 
 	for i, key := range keys {
 		if i > 0 {
