@@ -308,8 +308,9 @@ type FeaturesConfig struct {
 
 // DisplayConfig holds display and layout settings.
 type DisplayConfig struct {
-	KeyColWidth *int    `yaml:"key_col_width,omitempty" yamlcomment:"Width of the KEY column (default: 30)"`
-	Sort        *string `yaml:"sort,omitempty" yamlcomment:"Sort order for map keys: none|ascending|descending"`
+	KeyColWidth   *int    `yaml:"key_col_width,omitempty" yamlcomment:"Width of the KEY column (default: 30)"`
+	ValueColWidth *int    `yaml:"value_col_width,omitempty" yamlcomment:"Width of the VALUE column (default: auto)"`
+	Sort          *string `yaml:"sort,omitempty" yamlcomment:"Sort order for map keys: none|ascending|descending"`
 }
 
 // BehaviorConfig holds user behavior and interaction settings.
@@ -368,6 +369,11 @@ type TableFormattingConfig struct {
 
 	// HiddenColumns specifies columns to omit from columnar tables.
 	HiddenColumns []string `yaml:"hidden_columns,omitempty" yamlcomment:"Columns to hide in columnar display"`
+
+	// MaxValueLines caps how many lines a multi-line value renders in the
+	// key-value table view. 0 disables multi-line (escapes newlines).
+	// Negative means unlimited. Default: 10.
+	MaxValueLines *int `yaml:"max_value_lines,omitempty" yamlcomment:"Max lines for multi-line values (0=disable, -1=unlimited, default: 10)"`
 
 	// SchemaFile is a path to a JSON Schema file used to derive column display hints.
 	SchemaFile *string `yaml:"schema_file,omitempty" yamlcomment:"JSON Schema file for column display hints"`

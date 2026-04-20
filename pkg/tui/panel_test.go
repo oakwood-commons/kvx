@@ -625,3 +625,38 @@ func TestRender_AutoFormat(t *testing.T) {
 	assert.Contains(t, out, "key")
 	assert.Contains(t, out, "value")
 }
+
+func TestSetMaxValueLines_RoundTrip(t *testing.T) {
+	orig := MaxValueLines()
+	t.Cleanup(func() { SetMaxValueLines(orig) })
+
+	SetMaxValueLines(5)
+	assert.Equal(t, 5, MaxValueLines())
+
+	SetMaxValueLines(0)
+	assert.Equal(t, 0, MaxValueLines())
+
+	SetMaxValueLines(-1)
+	assert.Equal(t, -1, MaxValueLines())
+}
+
+func TestRenderTable_PerCallMaxValueLines(t *testing.T) {
+	orig := MaxValueLines()
+	t.Cleanup(func() { SetMaxValueLines(orig) })
+
+	SetMaxValueLines(10) // global default
+
+	// Per-call override: disable multiline
+	zero := 0
+	node := map[string]any{"msg": "a\nb"}
+	out := RenderTable(node, TableOptions{
+		NoColor:       true,
+		Width:         80,
+		MaxValueLines: &zero,
+	})
+	// With maxValueLines=0, newlines should be escaped
+	assert.Contains(t, out, `a\nb`)
+
+	// Global should be restored after RenderTable returns
+	assert.Equal(t, 10, MaxValueLines())
+}

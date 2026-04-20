@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"gopkg.in/yaml.v3"
 )
 
@@ -460,4 +461,176 @@ func TestRenderTable_Array(t *testing.T) {
 	if result == "" {
 		t.Fatal("expected non-empty output")
 	}
+}
+
+func TestRenderMultilineRow_SplitsLines(t *testing.T) {
+	orig := MaxValueLines()
+	SetMaxValueLines(10)
+	t.Cleanup(func() { SetMaxValueLines(orig) })
+
+	node := map[string]any{"msg": "line1\nline2\nline3"}
+	out := RenderTable(node, true, 10, 30)
+
+	assert.Contains(t, out, "line1")
+	assert.Contains(t, out, "line2")
+	assert.Contains(t, out, "line3")
+
+	// Continuation lines should not repeat the key
+	lines := strings.Split(out, "\n")
+	var keyCount int
+	for _, l := range lines {
+		if strings.Contains(l, "msg") {
+			keyCount++
+		}
+	}
+	assert.Equal(t, 1, keyCount, "key should appear once; continuation lines have blank key")
+}
+
+func TestRenderMultilineRow_DisabledEscapesNewlines(t *testing.T) {
+	orig := MaxValueLines()
+	SetMaxValueLines(0)
+	t.Cleanup(func() { SetMaxValueLines(orig) })
+
+	node := map[string]any{"msg": "line1\nline2"}
+	out := RenderTable(node, true, 10, 40)
+
+	// With multi-line disabled, value should be flattened with escaped newlines
+	assert.Contains(t, out, `line1\nline2`)
+	// No continuation row
+	lines := strings.Split(out, "\n")
+	for _, l := range lines {
+		trimmed := strings.TrimSpace(l)
+		assert.NotEqual(t, "line2", trimmed, "line2 should not appear as a separate row")
+	}
+}
+
+func TestRenderMultilineRow_TruncatesWithIndicator(t *testing.T) {
+	orig := MaxValueLines()
+	SetMaxValueLines(3)
+	t.Cleanup(func() { SetMaxValueLines(orig) })
+
+	node := map[string]any{"data": "a\nb\nc\nd\ne"}
+	out := RenderTable(node, true, 10, 20)
+
+	// First 3 lines should appear
+	assert.Contains(t, out, "a")
+	assert.Contains(t, out, "b")
+	assert.Contains(t, out, "c")
+	// Truncation indicator
+	assert.Contains(t, out, "...")
+	// Lines beyond cap should not appear as standalone rows
+	lines := strings.Split(out, "\n")
+	for _, l := range lines {
+		trimmed := strings.TrimSpace(l)
+		if trimmed == "d" || trimmed == "e" {
+			t.Errorf("line %q should be truncated", trimmed)
+		}
+	}
+}
+
+func TestRenderMultilineRow_UnlimitedShowsAll(t *testing.T) {
+	orig := MaxValueLines()
+	SetMaxValueLines(-1)
+	t.Cleanup(func() { SetMaxValueLines(orig) })
+
+	node := map[string]any{"data": "a\nb\nc\nd\ne"}
+	out := RenderTable(node, true, 10, 20)
+
+	for _, ch := range []string{"a", "b", "c", "d", "e"} {
+		assert.Contains(t, out, ch)
+	}
+	// No truncation indicator
+	lines := strings.Split(out, "\n")
+	for _, l := range lines {
+		assert.NotEqual(t, "...", strings.TrimSpace(l))
+	}
+}
+
+func TestNaturalValueWidth_FlattenedWhenDisabled(t *testing.T) {
+	orig := MaxValueLines()
+	SetMaxValueLines(0)
+	t.Cleanup(func() { SetMaxValueLines(orig) })
+
+	// "a\nb" flattened to "a\\nb" has width 4
+	w := naturalValueWidth("a\nb")
+	assert.Equal(t, 4, w)
+}
+
+func TestNaturalValueWidth_WidestLineWhenEnabled(t *testing.T) {
+	orig := MaxValueLines()
+	SetMaxValueLines(10)
+	t.Cleanup(func() { SetMaxValueLines(orig) })
+
+	// Widest line is "hello" (5)
+	w := naturalValueWidth("hi\nhello\nbye")
+	assert.Equal(t, 5, w)
+}
+
+func TestDefaultMaxValueLines(t *testing.T) {
+	assert.Equal(t, 10, DefaultMaxValueLines())
+}
+
+func TestRenderMultilineRow_ColorBranches(t *testing.T) {
+	// Exercise the noColor=false paths in renderMultilineRow
+	orig := MaxValueLines()
+	t.Cleanup(func() { SetMaxValueLines(orig) })
+
+	// Enabled mode with color
+	SetMaxValueLines(10)
+	node := map[string]any{"key": "a\nb"}
+	out := RenderTable(node, false, 10, 20)
+	assert.Contains(t, out, "a")
+	assert.Contains(t, out, "b")
+
+	// Disabled mode with color
+	SetMaxValueLines(0)
+	out = RenderTable(node, false, 10, 30)
+	assert.Contains(t, out, `a\nb`)
+
+	// Truncation with color
+	SetMaxValueLines(2)
+	node2 := map[string]any{"k": "x\ny\nz\nw"}
+	out = RenderTable(node2, false, 10, 20)
+	assert.Contains(t, out, "...")
+}
+
+func TestRenderMultilineRow_TrailingEmptyLineTrimmed(t *testing.T) {
+	orig := MaxValueLines()
+	SetMaxValueLines(10)
+	t.Cleanup(func() { SetMaxValueLines(orig) })
+
+	// YAML block scalars often have a trailing newline -> trailing empty line
+	node := map[string]any{"note": "line1\nline2\n"}
+	out := RenderTable(node, true, 10, 20)
+	// Should show 2 lines, not 3 (trailing empty trimmed)
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	var valueLines int
+	for _, l := range lines[2:] { // skip header + separator
+		if strings.TrimSpace(l) != "" {
+			valueLines++
+		}
+	}
+	assert.Equal(t, 2, valueLines, "trailing empty line should be trimmed")
+}
+
+func TestRenderRows_ColorBranches(t *testing.T) {
+	orig := MaxValueLines()
+	SetMaxValueLines(10)
+	t.Cleanup(func() { SetMaxValueLines(orig) })
+
+	rows := [][]string{{"key", "a\nb"}}
+	out := RenderRows(rows, false, 10, 20)
+	assert.Contains(t, out, "a")
+	assert.Contains(t, out, "b")
+}
+
+func TestRenderTableFitContent_ColorBranches(t *testing.T) {
+	orig := MaxValueLines()
+	SetMaxValueLines(10)
+	t.Cleanup(func() { SetMaxValueLines(orig) })
+
+	rows := [][]string{{"key", "a\nb"}}
+	out := RenderTableFitContent(rows, false, 0)
+	assert.Contains(t, out, "a")
+	assert.Contains(t, out, "b")
 }

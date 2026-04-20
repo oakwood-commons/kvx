@@ -422,7 +422,7 @@ func NodeToRowsWithOptions(node interface{}, opts RowOptions) [][]string {
 	case map[string]interface{}:
 		// Treat empty maps as scalar values
 		if len(t) == 0 {
-			rows = append(rows, []string{ScalarValueKey, formatter.Stringify(node)})
+			rows = append(rows, []string{ScalarValueKey, formatter.StringifyPreserveNewlines(node)})
 			return rows
 		}
 		keys := make([]string, 0, len(t))
@@ -439,23 +439,23 @@ func NodeToRowsWithOptions(node interface{}, opts RowOptions) [][]string {
 		}
 		for _, k := range keys {
 			v := t[k]
-			rows = append(rows, []string{k, formatter.Stringify(v)})
+			rows = append(rows, []string{k, formatter.StringifyPreserveNewlines(v)})
 		}
 	case []interface{}:
 		// Treat empty arrays as scalar values
 		if len(t) == 0 {
-			rows = append(rows, []string{ScalarValueKey, formatter.Stringify(node)})
+			rows = append(rows, []string{ScalarValueKey, formatter.StringifyPreserveNewlines(node)})
 			return rows
 		}
 		for i, v := range t {
 			key := formatArrayIndex(i, opts.ArrayStyle)
-			rows = append(rows, []string{key, formatter.Stringify(v)})
+			rows = append(rows, []string{key, formatter.StringifyPreserveNewlines(v)})
 		}
 	default:
 		rv := reflect.ValueOf(node)
 		if rv.Kind() == reflect.Map && rv.IsValid() && rv.Type().Key().Kind() == reflect.String {
 			if rv.Len() == 0 {
-				rows = append(rows, []string{ScalarValueKey, formatter.Stringify(node)})
+				rows = append(rows, []string{ScalarValueKey, formatter.StringifyPreserveNewlines(node)})
 				return rows
 			}
 			keys := make([]string, 0, rv.Len())
@@ -472,7 +472,7 @@ func NodeToRowsWithOptions(node interface{}, opts RowOptions) [][]string {
 			}
 			for _, k := range keys {
 				value := rv.MapIndex(reflect.ValueOf(k)).Interface()
-				rows = append(rows, []string{k, formatter.Stringify(value)})
+				rows = append(rows, []string{k, formatter.StringifyPreserveNewlines(value)})
 			}
 			return rows
 		}
@@ -481,10 +481,10 @@ func NodeToRowsWithOptions(node interface{}, opts RowOptions) [][]string {
 			for i := 0; i < rv.Len(); i++ {
 				v := rv.Index(i).Interface()
 				key := formatArrayIndex(i, opts.ArrayStyle)
-				rows = append(rows, []string{key, formatter.Stringify(v)})
+				rows = append(rows, []string{key, formatter.StringifyPreserveNewlines(v)})
 			}
 		} else {
-			rows = append(rows, []string{ScalarValueKey, formatter.Stringify(node)})
+			rows = append(rows, []string{ScalarValueKey, formatter.StringifyPreserveNewlines(node)})
 		}
 	}
 	return rows
