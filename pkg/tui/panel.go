@@ -53,6 +53,21 @@ const (
 	FormatAuto OutputFormat = "auto"
 )
 
+// SetMaxValueLines sets the default maximum number of lines rendered for
+// multi-line values in the key-value table view. 0 disables multi-line
+// rendering (newlines are escaped). Negative values mean unlimited.
+// The default is 10.
+//
+// This can be overridden per-call via [TableOptions.MaxValueLines].
+func SetMaxValueLines(n int) {
+	formatter.SetMaxValueLines(n)
+}
+
+// MaxValueLines returns the current default multi-line value line cap.
+func MaxValueLines() int {
+	return formatter.MaxValueLines()
+}
+
 // PanelOptions configures data panel rendering.
 //
 // Deprecated: Use TableOptions instead.
@@ -154,6 +169,12 @@ type TableOptions struct {
 	// Keys are the original field names in the data. Use [ParseSchema] to derive hints
 	// from a JSON Schema, or construct directly for programmatic control.
 	ColumnHints map[string]ColumnHint
+
+	// MaxValueLines caps how many lines a multi-line string value renders
+	// in the key-value table view. If nil, the package-level default is used
+	// (initially 10). A non-nil pointer to 0 disables multiline rendering.
+	// Set to -1 for unlimited, or a positive number to cap at that many lines.
+	MaxValueLines *int
 }
 
 // RenderTable renders a two-column key/value table for the given node.
@@ -175,6 +196,16 @@ func RenderTable(node any, opts TableOptions) string {
 		ValueColor:     th.ValueColor,
 		SeparatorColor: th.SeparatorColor,
 	})
+
+	// Apply per-call MaxValueLines override if provided.
+	// NOTE: This temporarily mutates the package-level formatter global and is
+	// not safe for concurrent use. Callers must serialise RenderTable calls
+	// when using per-call overrides.
+	if opts.MaxValueLines != nil {
+		prev := formatter.MaxValueLines()
+		formatter.SetMaxValueLines(*opts.MaxValueLines)
+		defer formatter.SetMaxValueLines(prev)
+	}
 
 	// Auto-detect terminal width if not specified
 	termWidth := opts.Width

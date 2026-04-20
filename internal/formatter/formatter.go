@@ -24,6 +24,15 @@ var (
 	keyStyle       lipgloss.Style
 	valueStyle     lipgloss.Style
 	separatorStyle lipgloss.Style
+
+	// maxValueLines caps how many lines a multi-line value renders in
+	// the key-value table view. 0 disables multi-line (escapes newlines).
+	// Negative means unlimited. Default: 10.
+	maxValueLines = 10
+
+	// defaultMaxValueLines is the initial value of maxValueLines, used to
+	// reset the global when config omits the setting.
+	defaultMaxValueLines = 10
 )
 
 // TableColors controls the rendered colors for the formatter table.
@@ -68,6 +77,24 @@ func applyTableTheme(tc TableColors) {
 // fields to fall back to formatter defaults.
 func SetTableTheme(tc TableColors) {
 	applyTableTheme(tc)
+}
+
+// SetMaxValueLines sets the maximum number of lines rendered for multi-line
+// values in the key-value table view. 0 disables multi-line rendering
+// (newlines are escaped). Negative values mean unlimited.
+func SetMaxValueLines(n int) {
+	maxValueLines = n
+}
+
+// MaxValueLines returns the current multi-line value cap.
+func MaxValueLines() int {
+	return maxValueLines
+}
+
+// DefaultMaxValueLines returns the built-in default so callers can reset
+// the global when their configuration omits an explicit value.
+func DefaultMaxValueLines() int {
+	return defaultMaxValueLines
 }
 
 //nolint:gochecknoinits // initialize default table theme for package consumers
@@ -232,7 +259,7 @@ func CalculateNaturalTableWidth(rows [][]string) int {
 			}
 		}
 		if len(row) > 1 {
-			w := lipgloss.Width(row[1])
+			w := naturalValueWidth(row[1])
 			if w > maxValWidth {
 				maxValWidth = w
 			}
@@ -261,7 +288,7 @@ func RenderTableFitContent(rows [][]string, noColor bool, maxWidth int) string {
 			}
 		}
 		if len(row) > 1 {
-			w := lipgloss.Width(row[1])
+			w := naturalValueWidth(row[1])
 			if w > maxValWidth {
 				maxValWidth = w
 			}
@@ -323,12 +350,7 @@ func RenderTableFitContent(rows [][]string, noColor bool, maxWidth int) string {
 			val = row[1]
 		}
 		keyStr := padRight(truncate(key, keyWidth), keyWidth)
-		valStr := padRight(truncate(val, valueWidth), valueWidth)
-		if !noColor {
-			keyStr = keyStyle.Render(keyStr)
-			valStr = valueStyle.Render(valStr)
-		}
-		b.WriteString(keyStr + sep + valStr + "\n")
+		renderMultilineRow(&b, keyStr, val, keyWidth, valueWidth, noColor, sep)
 	}
 
 	return b.String()
@@ -390,22 +412,14 @@ func RenderTable(node any, noColor bool, keyColWidth, valueColWidth int) string 
 		for _, k := range keys {
 			v := t[k]
 			keyStr := padRight(truncate(k, keyWidth), keyWidth)
-			valStr := padRight(truncate(Stringify(v), valueWidth), valueWidth)
-			if !noColor {
-				keyStr = keyStyle.Render(keyStr)
-				valStr = valueStyle.Render(valStr)
-			}
-			b.WriteString(keyStr + sep + valStr + "\n")
+			valRaw := StringifyPreserveNewlines(v)
+			renderMultilineRow(&b, keyStr, valRaw, keyWidth, valueWidth, noColor, sep)
 		}
 	case []any:
 		for i, v := range t {
 			keyStr := padRight(fmt.Sprintf("[%d]", i), keyWidth)
-			valStr := padRight(truncate(Stringify(v), valueWidth), valueWidth)
-			if !noColor {
-				keyStr = keyStyle.Render(keyStr)
-				valStr = valueStyle.Render(valStr)
-			}
-			b.WriteString(keyStr + sep + valStr + "\n")
+			valRaw := StringifyPreserveNewlines(v)
+			renderMultilineRow(&b, keyStr, valRaw, keyWidth, valueWidth, noColor, sep)
 		}
 	default:
 		// Check if it's a slice type (could be []map, []string, etc.)
@@ -414,22 +428,14 @@ func RenderTable(node any, noColor bool, keyColWidth, valueColWidth int) string 
 			for i := 0; i < sliceVal.Len(); i++ {
 				v := sliceVal.Index(i).Interface()
 				keyStr := padRight(fmt.Sprintf("[%d]", i), keyWidth)
-				valStr := padRight(truncate(Stringify(v), valueWidth), valueWidth)
-				if !noColor {
-					keyStr = keyStyle.Render(keyStr)
-					valStr = valueStyle.Render(valStr)
-				}
-				b.WriteString(keyStr + sep + valStr + "\n")
+				valRaw := StringifyPreserveNewlines(v)
+				renderMultilineRow(&b, keyStr, valRaw, keyWidth, valueWidth, noColor, sep)
 			}
 		} else {
 			// scalar value - must match navigator.ScalarValueKey (can't import due to cycle)
 			keyStr := padRight("(value)", keyWidth)
-			valStr := padRight(truncate(Stringify(node), valueWidth), valueWidth)
-			if !noColor {
-				keyStr = keyStyle.Render(keyStr)
-				valStr = valueStyle.Render(valStr)
-			}
-			b.WriteString(keyStr + sep + valStr + "\n")
+			valRaw := StringifyPreserveNewlines(node)
+			renderMultilineRow(&b, keyStr, valRaw, keyWidth, valueWidth, noColor, sep)
 		}
 	}
 
@@ -484,15 +490,27 @@ func RenderRows(rows [][]string, noColor bool, keyColWidth, valueColWidth int) s
 			val = row[1]
 		}
 		keyStr := padRight(truncate(key, keyWidth), keyWidth)
-		valStr := padRight(truncate(val, valueWidth), valueWidth)
-		if !noColor {
-			keyStr = keyStyle.Render(keyStr)
-			valStr = valueStyle.Render(valStr)
-		}
-		b.WriteString(keyStr + sep + valStr + "\n")
+		renderMultilineRow(&b, keyStr, val, keyWidth, valueWidth, noColor, sep)
 	}
 
 	return b.String()
+}
+
+// naturalValueWidth returns the display width of a value as it will actually be
+// rendered. When multiline rendering is disabled (maxValueLines == 0) the value
+// is flattened with escaped newlines, so the width is measured from the flattened
+// form. Otherwise it returns the width of the widest individual line.
+func naturalValueWidth(val string) int {
+	if maxValueLines == 0 {
+		return lipgloss.Width(escapeScalarString(val))
+	}
+	best := 0
+	for _, line := range strings.Split(val, "\n") {
+		if w := lipgloss.Width(line); w > best {
+			best = w
+		}
+	}
+	return best
 }
 
 // padRight pads a string to the specified width, right-aligned
@@ -501,4 +519,60 @@ func padRight(s string, width int) string {
 		return s[:width]
 	}
 	return s + strings.Repeat(" ", width-len(s))
+}
+
+// renderMultilineRow writes a key-value row to b, splitting multi-line values
+// across multiple display rows. The first line appears next to the key; continuation
+// lines are indented to align under the value column with an empty key column.
+func renderMultilineRow(b *strings.Builder, keyStr, valRaw string, keyWidth, valueWidth int, noColor bool, sep string) {
+	// When multi-line rendering is disabled (maxValueLines == 0), flatten to single line.
+	if maxValueLines == 0 {
+		valFlat := padRight(truncate(escapeScalarString(valRaw), valueWidth), valueWidth)
+		k := keyStr
+		if !noColor {
+			k = keyStyle.Render(k)
+			valFlat = valueStyle.Render(valFlat)
+		}
+		b.WriteString(k + sep + valFlat + "\n")
+		return
+	}
+
+	lines := strings.Split(valRaw, "\n")
+	// Trim trailing empty line that YAML block scalars often leave
+	if len(lines) > 1 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+
+	// Cap visible lines when a positive limit is set.
+	truncated := false
+	if maxValueLines > 0 && len(lines) > maxValueLines {
+		lines = lines[:maxValueLines]
+		truncated = true
+	}
+
+	for i, line := range lines {
+		var k string
+		if i == 0 {
+			k = keyStr
+		} else {
+			k = padRight("", keyWidth)
+		}
+		v := padRight(truncate(line, valueWidth), valueWidth)
+		if !noColor {
+			k = keyStyle.Render(k)
+			v = valueStyle.Render(v)
+		}
+		b.WriteString(k + sep + v + "\n")
+	}
+
+	// Show truncation indicator
+	if truncated {
+		k := padRight("", keyWidth)
+		v := padRight(truncate("...", valueWidth), valueWidth)
+		if !noColor {
+			k = keyStyle.Render(k)
+			v = valueStyle.Render(v)
+		}
+		b.WriteString(k + sep + v + "\n")
+	}
 }

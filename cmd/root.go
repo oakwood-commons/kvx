@@ -1342,6 +1342,14 @@ func tableFormatOptionsFromConfig(cfg ui.ThemeConfigFile) formatter.TableFormatO
 		opts.HiddenColumns = cfg.Formatting.Table.HiddenColumns
 	}
 
+	// Apply multi-line value cap from config, or reset to the formatter
+	// default so state from an earlier call cannot leak into this run.
+	if cfg.Formatting.Table.MaxValueLines != nil {
+		formatter.SetMaxValueLines(*cfg.Formatting.Table.MaxValueLines)
+	} else {
+		formatter.SetMaxValueLines(formatter.DefaultMaxValueLines())
+	}
+
 	// Load JSON Schema for column display hints.
 	// Priority: CLI --schema flag > config schema_file > config inline schema.
 	var schemaHints map[string]tui.ColumnHint
@@ -2940,6 +2948,7 @@ var rootCmd = &cobra.Command{
 			}
 			cfg = cfgFile
 			keyColWidthPtr = cfgFile.Display.KeyColWidth
+			valueColWidthPtr = cfgFile.Display.ValueColWidth
 		} else {
 			// No config file - load default config and initialize themes
 			cfgFile, err := loadConfigState("", themeName, themeFlagSet, true, true, false)

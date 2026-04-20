@@ -2272,3 +2272,140 @@ func TestCLI_EmbeddedJSON(t *testing.T) {
 	out := runCLI(t, []string{"kvx", filepath.Join("..", "tests", "embedded_json.json"), "--no-color"})
 	assert.NotEmpty(t, out)
 }
+
+func TestCLI_MultilineValueRendersMultipleRows(t *testing.T) {
+	out := runCLI(t, []string{
+		"kvx", filepath.Join("..", "tests", "multiline.json"),
+		"--no-color", "-o", "table",
+	})
+	// "description" value should span 3 rows: first with key, two continuation lines
+	assert.Contains(t, out, "description")
+	assert.Contains(t, out, "line one")
+	assert.Contains(t, out, "line two")
+	assert.Contains(t, out, "line three")
+
+	// Continuation lines should have blank key column (indented under value)
+	lines := strings.Split(out, "\n")
+	var descIdx int
+	for i, l := range lines {
+		if strings.Contains(l, "description") && strings.Contains(l, "line one") {
+			descIdx = i
+			break
+		}
+	}
+	require.Greater(t, descIdx, 0, "should find 'description  line one' row")
+	// Next line should be a continuation (no key, just indented value)
+	require.Contains(t, lines[descIdx+1], "line two")
+	assert.NotContains(t, lines[descIdx+1], "description", "continuation line should not repeat key")
+}
+
+func TestCLI_MultilineTruncatesAtMaxValueLines(t *testing.T) {
+	out := runCLI(t, []string{
+		"kvx", filepath.Join("..", "tests", "multiline.json"),
+		"--no-color", "-o", "table",
+	})
+	// "config" has 12 lines; default maxValueLines=10, so it should truncate
+	assert.Contains(t, out, "config")
+	// First 10 lines (a through j) should appear
+	for _, ch := range []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j"} {
+		assert.Contains(t, out, ch)
+	}
+	// Truncation indicator
+	assert.Contains(t, out, "...")
+	// Lines beyond the cap (k, l) should NOT appear as standalone values
+	lines := strings.Split(out, "\n")
+	for _, l := range lines {
+		trimmed := strings.TrimSpace(l)
+		// Skip lines that contain these letters as part of other words
+		if trimmed == "k" || trimmed == "l" {
+			t.Errorf("line %q should be truncated, but appeared in output", trimmed)
+		}
+	}
+}
+
+func TestCLI_MultilineDisabledEscapesNewlines(t *testing.T) {
+	// Temporarily disable multi-line rendering
+	orig := formatter.MaxValueLines()
+	formatter.SetMaxValueLines(0)
+	t.Cleanup(func() { formatter.SetMaxValueLines(orig) })
+
+	out := runCLI(t, []string{
+		"kvx", filepath.Join("..", "tests", "multiline.json"),
+		"--no-color", "-o", "table",
+	})
+	// With multi-line disabled, description should appear on a single row
+	// (value may be truncated by column width, but no continuation rows)
+	lines := strings.Split(out, "\n")
+	// Count how many lines contain "description" — should be exactly one
+	descCount := 0
+	for _, l := range lines {
+		if strings.Contains(l, "description") {
+			descCount++
+		}
+	}
+	assert.Equal(t, 1, descCount, "description should appear on exactly one row")
+	// "line two" should NOT appear on its own continuation row
+	var hasContinuation bool
+	for _, l := range lines {
+		trimmed := strings.TrimSpace(l)
+		if trimmed == "line two" {
+			hasContinuation = true
+		}
+	}
+	assert.False(t, hasContinuation, "with multi-line disabled, 'line two' should not be a continuation row")
+}
+
+func TestCLI_MultilineUnlimitedShowsAllLines(t *testing.T) {
+	// Set unlimited mode
+	orig := formatter.MaxValueLines()
+	formatter.SetMaxValueLines(-1)
+	t.Cleanup(func() { formatter.SetMaxValueLines(orig) })
+
+	out := runCLI(t, []string{
+		"kvx", filepath.Join("..", "tests", "multiline.json"),
+		"--no-color", "-o", "table",
+	})
+	// "config" has 12 lines; unlimited should show all without "..."
+	assert.Contains(t, out, "config")
+	// All 12 lines should appear
+	for _, ch := range []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"} {
+		assert.Contains(t, out, ch)
+	}
+	// No truncation indicator
+	lines := strings.Split(out, "\n")
+	var hasTruncation bool
+	for _, l := range lines {
+		if strings.TrimSpace(l) == "..." {
+			hasTruncation = true
+		}
+	}
+	assert.False(t, hasTruncation, "unlimited mode should not show truncation indicator")
+}
+
+func TestCLI_MultilineScalarExpression(t *testing.T) {
+	// When extracting a single multi-line scalar via expression, it should render
+	// with line breaks (raw scalar output)
+	out := runCLI(t, []string{
+		"kvx", filepath.Join("..", "tests", "multiline.json"),
+		"--no-color", "-e", "_.description",
+	})
+	expected := "line one\nline two\nline three\n"
+	assert.Equal(t, expected, out)
+}
+
+func TestCLI_MultilineConfigResetToDefault(t *testing.T) {
+	// When config omits max_value_lines, the global should reset to the default
+	// so a stale value from a previous run doesn't leak.
+	orig := formatter.MaxValueLines()
+	formatter.SetMaxValueLines(3) // simulate a previous run setting a custom cap
+	t.Cleanup(func() { formatter.SetMaxValueLines(orig) })
+
+	// Running the CLI without a config file should reset to the default (10)
+	out := runCLI(t, []string{
+		"kvx", filepath.Join("..", "tests", "multiline.json"),
+		"--no-color", "-o", "table",
+	})
+	assert.NotEmpty(t, out)
+	// After the CLI run, the global should have been reset to default
+	assert.Equal(t, formatter.DefaultMaxValueLines(), formatter.MaxValueLines())
+}
