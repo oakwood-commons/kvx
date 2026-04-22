@@ -395,3 +395,29 @@ func TestRenderPanelLayout_HelpPopupOverridesHelpText(t *testing.T) {
 		t.Fatalf("expected base help text to be suppressed when popup is present")
 	}
 }
+
+func TestRenderPanelLayout_MultilineValueEscaped(t *testing.T) {
+	// Multi-line values must be escaped (shown as \n) in the interactive table
+	// so cursor/selection tracks one logical row per key.
+	state := PanelLayoutState{
+		WinWidth:    100,
+		WinHeight:   30,
+		Title:       "kvx",
+		DisplayNode: map[string]any{"msg": "line1\nline2\nline3"},
+		RowCount:    1,
+		SelectedRow: 0,
+		PathLabel:   "_",
+		KeyColWidth: DefaultKeyColWidth,
+		NoColor:     true,
+	}
+
+	output := RenderPanelLayout(state)
+	if !strings.Contains(output, `\n`) {
+		t.Fatalf("expected escaped newlines (\\n) in interactive table, got:\n%s", output)
+	}
+	// The value should NOT be split across multiple rows.
+	// Count occurrences of "msg" — should appear exactly once.
+	if strings.Count(output, "msg") != 1 {
+		t.Fatalf("expected exactly one row for 'msg' key, got multiple:\n%s", output)
+	}
+}
