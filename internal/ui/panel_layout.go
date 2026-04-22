@@ -240,6 +240,12 @@ func RenderPanelLayout(state PanelLayoutState) string {
 			ValueColor:     th.ValueColor,
 			SeparatorColor: th.SeparatorColor,
 		})
+		// Disable multi-line value rendering for the interactive table.
+		// The TUI cursor tracks logical rows (one per key), so multi-line
+		// expansion would break selection highlighting and navigation.
+		prevLines := formatter.MaxValueLines()
+		formatter.SetMaxValueLines(0)
+		defer formatter.SetMaxValueLines(prevLines)
 		tableText = formatter.RenderTable(displayNode, state.NoColor, keyColWidth, availableForValues)
 		// Clamp to the inner content width (panel width minus borders) to prevent wrapping.
 		// Clamp with +2 to preserve all three ellipsis dots that truncate() adds.
