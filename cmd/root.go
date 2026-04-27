@@ -1253,14 +1253,21 @@ func printEvalResult(node interface{}, output string, noColor bool, keyColWidth,
 						RowNumberStyle: tableOpts.ArrayStyle,
 					}
 					if columns != nil && !formatter.IsColumnarReadable(columns, rows, termWidth-2, tableOpts.ColumnHints, readableOpts) {
-						// Table would be unreadable — fall back to list view
-						listOpts := formatter.ListOptions{
-							NoColor:    noColor,
-							ArrayStyle: arrayStyle,
+						// Try dropping low-priority columns to keep table view
+						toDrop := formatter.ColumnsToDropForReadability(columns, rows, termWidth-2, tableOpts.ColumnHints, readableOpts)
+						if toDrop != nil {
+							tableOpts.HiddenColumns = append(tableOpts.HiddenColumns, toDrop...)
+							fmt.Print(renderColumnarBorderedTable(node, noColor, termWidth, appName, path, tableOpts)) //nolint:forbidigo
+						} else {
+							// Table would be unreadable even after dropping columns — fall back to list view
+							listOpts := formatter.ListOptions{
+								NoColor:    noColor,
+								ArrayStyle: arrayStyle,
+							}
+							fmt.Print(formatter.FormatAsList(node, listOpts)) //nolint:forbidigo
 						}
-						fmt.Print(formatter.FormatAsList(node, listOpts)) //nolint:forbidigo
 					} else {
-						fmt.Print(renderColumnarBorderedTable(node, noColor, width, appName, path, tableOpts)) //nolint:forbidigo
+						fmt.Print(renderColumnarBorderedTable(node, noColor, termWidth, appName, path, tableOpts)) //nolint:forbidigo
 					}
 				}
 			} else {

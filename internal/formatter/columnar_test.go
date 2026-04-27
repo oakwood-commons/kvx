@@ -293,6 +293,99 @@ func TestIsColumnarReadable(t *testing.T) {
 	})
 }
 
+func TestColumnsToDropForReadability(t *testing.T) {
+	t.Run("already readable returns nil", func(t *testing.T) {
+		columns := []string{"name", "age"}
+		rows := [][]string{{"Alice", "30"}}
+		result := ColumnsToDropForReadability(columns, rows, 120, nil, IsColumnarReadableOpts{})
+		assert.Nil(t, result)
+	})
+
+	t.Run("drops lowest priority column first", func(t *testing.T) {
+		columns := []string{"name", "email", "address", "phone"}
+		rows := [][]string{
+			{"Alice Johnson", "alice@example.com", "123 Main St, Apt 4", "555-123-4567"},
+		}
+		hints := map[string]ColumnHint{
+			"name":    {Priority: 20},
+			"email":   {Priority: 10},
+			"address": {Priority: 2},
+			"phone":   {Priority: 1},
+		}
+		result := ColumnsToDropForReadability(columns, rows, 40, hints, IsColumnarReadableOpts{})
+		assert.NotNil(t, result)
+		// Lowest priority columns should be dropped first
+		assert.Contains(t, result, "phone")
+	})
+
+	t.Run("drops multiple columns if needed", func(t *testing.T) {
+		columns := []string{"name", "email", "address", "phone", "company", "department"}
+		rows := [][]string{
+			{"Alice Johnson", "alice@example.com", "123 Main St", "555-1234", "Acme Corp", "Engineering"},
+		}
+		hints := map[string]ColumnHint{
+			"name":       {Priority: 30},
+			"email":      {Priority: 20},
+			"address":    {Priority: 5},
+			"phone":      {Priority: 4},
+			"company":    {Priority: 3},
+			"department": {Priority: 2},
+		}
+		result := ColumnsToDropForReadability(columns, rows, 45, hints, IsColumnarReadableOpts{})
+		assert.NotNil(t, result)
+		assert.Greater(t, len(result), 1, "should drop multiple low-priority columns")
+		// High priority columns should not be dropped
+		assert.NotContains(t, result, "name")
+		assert.NotContains(t, result, "email")
+	})
+
+	t.Run("returns nil when even dropping all leaves unreadable", func(t *testing.T) {
+		columns := []string{"very_long_column_name_a", "very_long_column_name_b"}
+		rows := [][]string{
+			{"some long value here", "another long value here"},
+		}
+		// Width so narrow that even 1 column can't fit readably
+		result := ColumnsToDropForReadability(columns, rows, 5, nil, IsColumnarReadableOpts{})
+		assert.Nil(t, result)
+	})
+
+	t.Run("respects already hidden columns", func(t *testing.T) {
+		columns := []string{"name", "email", "address", "phone"}
+		rows := [][]string{
+			{"Alice Johnson", "alice@example.com", "123 Main St", "555-1234"},
+		}
+		hints := map[string]ColumnHint{
+			"name":    {Priority: 20},
+			"email":   {Priority: 10},
+			"address": {Priority: 2},
+			"phone":   {Priority: 1},
+		}
+		opts := IsColumnarReadableOpts{HiddenColumns: []string{"phone"}}
+		result := ColumnsToDropForReadability(columns, rows, 40, hints, opts)
+		// phone is already hidden, so it should not appear in result
+		if result != nil {
+			assert.NotContains(t, result, "phone")
+		}
+	})
+
+	t.Run("never drops below one visible column", func(t *testing.T) {
+		columns := []string{"name", "email"}
+		rows := [][]string{
+			{"Alice Johnson", "alice@example.com"},
+		}
+		hints := map[string]ColumnHint{
+			"name":  {Priority: 10},
+			"email": {Priority: 1},
+		}
+		// Very narrow: even after dropping email, name alone may not be readable
+		result := ColumnsToDropForReadability(columns, rows, 3, hints, IsColumnarReadableOpts{})
+		// Should not drop both columns
+		if result != nil {
+			assert.Less(t, len(result), len(columns), "should keep at least one column")
+		}
+	})
+}
+
 func TestRenderColumnarTable_WithHints(t *testing.T) {
 	columns := []string{"name", "value"}
 	rows := [][]string{
@@ -520,4 +613,103 @@ func TestCalculateNaturalColumnarWidthWithHints(t *testing.T) {
 func TestCalculateNaturalColumnarWidth_Empty(t *testing.T) {
 	assert.Equal(t, 0, CalculateNaturalColumnarWidth(nil, nil, false, 0))
 	assert.Equal(t, 0, CalculateNaturalColumnarWidth([]string{}, nil, false, 0))
+}
+
+func TestColumnDropRendering(t *testing.T) {
+	columns := []string{"user_id", "full_name", "score", "department"}
+	rows := [][]string{
+		{"u001", "Alice Smith", "95", "Engineering"},
+		{"u002", "Bob Jones", "87", "Sales"},
+		{"u003", "Carol White", "92", "Engineering"},
+	}
+	hints := map[string]ColumnHint{
+		"user_id":    {Priority: 20, MaxWidth: 8, DisplayName: "ID"},
+		"full_name":  {Priority: 18, DisplayName: "Name"},
+		"score":      {Priority: 5, Align: "right", DisplayName: "Score"},
+		"department": {Priority: 3, DisplayName: "Dept"},
+	}
+
+	t.Run("wide table shows all columns", func(t *testing.T) {
+		opts := IsColumnarReadableOpts{RowNumberStyle: "none"}
+		toDrop := ColumnsToDropForReadability(columns, rows, 80, hints, opts)
+		assert.Nil(t, toDrop, "should not drop any columns at 80 width")
+
+		result := RenderColumnarTable(columns, rows, ColumnarOptions{
+			NoColor:        true,
+			TotalWidth:     80,
+			RowNumberStyle: "none",
+			ColumnHints:    hints,
+		})
+		assert.Contains(t, result, "ID")
+		assert.Contains(t, result, "Name")
+		assert.Contains(t, result, "Score")
+		assert.Contains(t, result, "Dept")
+	})
+
+	t.Run("narrow table drops low-priority columns", func(t *testing.T) {
+		opts := IsColumnarReadableOpts{RowNumberStyle: "none"}
+		toDrop := ColumnsToDropForReadability(columns, rows, 30, hints, opts)
+		require.NotNil(t, toDrop, "should drop columns at 30 width")
+
+		// Dropped columns should be lowest priority
+		for _, col := range toDrop {
+			assert.True(t, hints[col].Priority < 10,
+				"dropped column %q (priority %d) should be low priority", col, hints[col].Priority)
+		}
+
+		// Render with dropped columns hidden
+		result := RenderColumnarTable(columns, rows, ColumnarOptions{
+			NoColor:        true,
+			TotalWidth:     30,
+			RowNumberStyle: "none",
+			HiddenColumns:  toDrop,
+			ColumnHints:    hints,
+		})
+		// High-priority columns survive
+		assert.Contains(t, result, "Name")
+		assert.Contains(t, result, "ID")
+		// Low-priority columns are gone
+		for _, col := range toDrop {
+			assert.NotContains(t, result, hints[col].DisplayName,
+				"dropped column %q should not appear in output", col)
+		}
+	})
+
+	t.Run("explicit table override keeps all columns", func(t *testing.T) {
+		// Simulates -o table: render all columns regardless of width
+		result := RenderColumnarTable(columns, rows, ColumnarOptions{
+			NoColor:        true,
+			TotalWidth:     30,
+			RowNumberStyle: "none",
+			ColumnHints:    hints,
+		})
+		// All columns present even if truncated
+		assert.Contains(t, result, "ID")
+		assert.Contains(t, result, "Name")
+	})
+}
+
+func TestColumnsToDropForReadability_EqualPriority(t *testing.T) {
+	columns := []string{"alpha", "bravo", "charlie", "delta"}
+	rows := [][]string{
+		{"value_alpha", "value_bravo", "value_charlie", "value_delta"},
+	}
+	// No hints: all priorities are 0, tie-breaker should drop later columns first
+	result := ColumnsToDropForReadability(columns, rows, 30, nil, IsColumnarReadableOpts{})
+	require.NotNil(t, result)
+	// delta (index 3) should be dropped before charlie (index 2), etc.
+	assert.Equal(t, "delta", result[0], "highest index should be dropped first")
+	if len(result) > 1 {
+		assert.Equal(t, "charlie", result[1], "second highest index should be dropped second")
+	}
+}
+
+func TestColumnsToDropForReadability_SingleColumn(t *testing.T) {
+	// With only one visible column, there's nothing to drop
+	columns := []string{"name"}
+	rows := [][]string{
+		{"Alice Johnson"},
+	}
+	result := ColumnsToDropForReadability(columns, rows, 3, nil, IsColumnarReadableOpts{})
+	assert.Nil(t, result, "should not drop the only column")
 }
