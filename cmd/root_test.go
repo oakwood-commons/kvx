@@ -2409,3 +2409,30 @@ func TestCLI_MultilineConfigResetToDefault(t *testing.T) {
 	// After the CLI run, the global should have been reset to default
 	assert.Equal(t, formatter.DefaultMaxValueLines(), formatter.MaxValueLines())
 }
+
+func TestCLI_AutoDropsColumnsNarrowWidth(t *testing.T) {
+	// At narrow width with schema hints, auto mode should drop low-priority
+	// columns instead of falling back to list view.
+	out := runCLI(t, []string{
+		"kvx", filepath.Join("..", "examples", "data", "users.json"),
+		"--schema", filepath.Join("..", "examples", "data", "users_schema.json"),
+		"--no-color", "-o", "auto", "--width", "30",
+	})
+	// High-priority columns (required: user_id, full_name) should survive
+	assert.Contains(t, out, "ID")
+	assert.Contains(t, out, "Name")
+	// Low-priority columns should be dropped to fit
+	assert.NotContains(t, out, "Dept")
+}
+
+func TestCLI_AutoFallsBackToListExtremeNarrow(t *testing.T) {
+	// At extremely narrow width, even after dropping columns the table
+	// can't be readable, so auto mode should fall back to list view.
+	out := runCLI(t, []string{
+		"kvx", filepath.Join("..", "examples", "data", "users.json"),
+		"--schema", filepath.Join("..", "examples", "data", "users_schema.json"),
+		"--no-color", "-o", "auto", "--width", "10",
+	})
+	// Should still produce output
+	assert.NotEmpty(t, out)
+}

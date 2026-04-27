@@ -646,6 +646,71 @@ func IsColumnarReadable(columns []string, rows [][]string, availableWidth int, h
 	return true
 }
 
+// ColumnsToDropForReadability returns the names of columns that should be
+// hidden (dropped) so the remaining table is readable at the given width.
+// It drops columns one at a time, starting with the lowest priority, until
+// the table becomes readable. It never drops below minKeepColumns visible
+// columns. If the table is already readable, it returns nil.
+func ColumnsToDropForReadability(columns []string, rows [][]string, availableWidth int, hints map[string]ColumnHint, opts IsColumnarReadableOpts) []string {
+	if IsColumnarReadable(columns, rows, availableWidth, hints, opts) {
+		return nil
+	}
+
+	const minKeepColumns = 1
+
+	// Filter out already-hidden columns to get visible set
+	visibleCols, _ := filterColumns(columns, rows, opts.HiddenColumns)
+	if len(visibleCols) <= minKeepColumns {
+		return nil
+	}
+
+	// Build priority-sorted list of droppable columns (lowest priority first).
+	// Use stable sort so that equal-priority columns preserve their original
+	// declaration order, giving deterministic results across Go versions.
+	type colPri struct {
+		name     string
+		priority int
+		index    int
+	}
+	droppable := make([]colPri, len(visibleCols))
+	for i, col := range visibleCols {
+		pri := 0
+		if h, ok := hints[col]; ok {
+			pri = h.Priority
+		}
+		droppable[i] = colPri{name: col, priority: pri, index: i}
+	}
+	sort.SliceStable(droppable, func(a, b int) bool {
+		if droppable[a].priority != droppable[b].priority {
+			return droppable[a].priority < droppable[b].priority
+		}
+		// Equal priority: drop later columns first (higher index = less important)
+		return droppable[a].index > droppable[b].index
+	})
+
+	// Iteratively drop lowest-priority columns until readable
+	var toDrop []string
+	hidden := append([]string{}, opts.HiddenColumns...)
+
+	for _, cp := range droppable {
+		if len(visibleCols)-len(toDrop) <= minKeepColumns {
+			break
+		}
+		toDrop = append(toDrop, cp.name)
+		hidden = append(hidden, cp.name)
+		checkOpts := IsColumnarReadableOpts{
+			HiddenColumns:  hidden,
+			RowNumberStyle: opts.RowNumberStyle,
+		}
+		if IsColumnarReadable(columns, rows, availableWidth, hints, checkOpts) {
+			return toDrop
+		}
+	}
+
+	// Even after dropping all droppable columns, still not readable
+	return nil
+}
+
 // padLeft right-aligns s within the given width, padding with spaces on the left.
 func padLeft(s string, width int) string {
 	w := lipgloss.Width(s)
