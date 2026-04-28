@@ -142,8 +142,9 @@ func TestParseSchema_ArrayItems(t *testing.T) {
 	assert.Equal(t, 20, hints["label"].MaxWidth)
 }
 
-func TestParseSchema_MaxLengthOverridesEnum(t *testing.T) {
-	// When both maxLength and enum are present, maxLength takes precedence
+func TestParseSchema_MaxLengthWithHeaderFloor(t *testing.T) {
+	// When both maxLength and enum are present, maxLength takes precedence.
+	// The result is then floored at the header width to prevent truncation.
 	schema := `{
 		"type": "object",
 		"properties": {
@@ -158,6 +159,98 @@ func TestParseSchema_MaxLengthOverridesEnum(t *testing.T) {
 	hints, err := ParseSchema([]byte(schema))
 	require.NoError(t, err)
 
-	// maxLength=5 should win over enum longest ("inactive"=8)
-	assert.Equal(t, 5, hints["status"].MaxWidth)
+	// maxLength=5 would win over enum ("inactive"=8), but header
+	// "status" (6 chars) is wider, so MaxWidth floors at 6.
+	assert.Equal(t, 6, hints["status"].MaxWidth)
+}
+
+func TestParseSchema_MaxWidthFloorsAtHeaderWidth(t *testing.T) {
+	// When enum-derived MaxWidth is narrower than the header (title or key),
+	// MaxWidth should be bumped to the header width so the header is not truncated.
+	schema := `{
+		"type": "object",
+		"properties": {
+			"severity": {
+				"type": "string",
+				"title": "Severity",
+				"enum": ["error", "warn", "info"]
+			},
+			"short": {
+				"type": "string",
+				"title": "S",
+				"enum": ["longvalue"]
+			}
+		}
+	}`
+
+	hints, err := ParseSchema([]byte(schema))
+	require.NoError(t, err)
+
+	// "Severity" (8 chars) > max enum "error" (5 chars) → MaxWidth = 8
+	assert.Equal(t, 8, hints["severity"].MaxWidth)
+	// "S" (1 char) < max enum "longvalue" (9 chars) → MaxWidth stays 9
+	assert.Equal(t, 9, hints["short"].MaxWidth)
+}
+
+func TestParseSchema_FlexAutoSet(t *testing.T) {
+	schema := `{
+		"type": "object",
+		"properties": {
+			"severity": {
+				"type": "string",
+				"enum": ["error", "warn", "info"]
+			},
+			"message": {
+				"type": "string"
+			},
+			"count": {
+				"type": "integer"
+			},
+			"timestamp": {
+				"type": "string",
+				"format": "date-time"
+			}
+		}
+	}`
+
+	hints, err := ParseSchema([]byte(schema))
+	require.NoError(t, err)
+
+	// severity has enum → MaxWidth set → not flex
+	assert.False(t, hints["severity"].Flex, "enum column should not be flex")
+	assert.Greater(t, hints["severity"].MaxWidth, 0)
+
+	// message has no maxLength/enum/format → MaxWidth=0 → flex
+	assert.True(t, hints["message"].Flex, "unconstrained string column should be flex")
+	assert.Equal(t, 0, hints["message"].MaxWidth)
+
+	// count is integer with no constraints → MaxWidth=0 → flex
+	assert.True(t, hints["count"].Flex, "unconstrained integer column should be flex")
+
+	// timestamp has format → MaxWidth set → not flex
+	assert.False(t, hints["timestamp"].Flex, "format-constrained column should not be flex")
+	assert.Greater(t, hints["timestamp"].MaxWidth, 0)
+}
+
+func TestParseSchema_HiddenColumnNotFlex(t *testing.T) {
+	schema := `{
+		"type": "object",
+		"properties": {
+			"name": { "type": "string" },
+			"internal_code": {
+				"type": "string",
+				"deprecated": true
+			}
+		}
+	}`
+
+	hints, err := ParseSchema([]byte(schema))
+	require.NoError(t, err)
+
+	// name: no constraints, not hidden → flex
+	assert.True(t, hints["name"].Flex, "visible unconstrained column should be flex")
+
+	// internal_code: deprecated (hidden), no constraints → should NOT be flex
+	assert.True(t, hints["internal_code"].Hidden, "deprecated column should be hidden")
+	assert.False(t, hints["internal_code"].Flex, "hidden column should not be flex")
 }

@@ -251,6 +251,49 @@ output := tui.RenderTable(root, tui.TableOptions{
 | `deprecated: true` | `Hidden: true` |
 | `required` array | `Priority` boost |
 
+### Flex columns (fill terminal width)
+
+By default, bordered tables shrink to fit the natural content width. When you want
+one or more columns to absorb remaining terminal space (e.g. a "message" or
+"description" column), mark them with `Flex: true`:
+
+```go
+hints := map[string]tui.ColumnHint{
+    "severity": {MaxWidth: 8, Priority: 10},
+    "message":  {Flex: true},  // absorbs remaining terminal width
+}
+
+output := tui.RenderTable(root, tui.TableOptions{
+    Bordered:    true,
+    ColumnHints: hints,
+})
+```
+
+Key behaviors:
+
+- When any column has `Flex: true`, the bordered table fills the full terminal width
+  instead of shrinking to content.
+- Surplus space is distributed evenly among flex columns.
+- `MaxWidth` acts as a minimum guarantee for flex columns during initial sizing,
+  not a cap on expansion. Flex columns start at `MaxWidth` (if set) and grow to
+  fill remaining space.
+- Non-flex columns keep their natural (content-fitted) width.
+- If no column is marked `Flex`, behavior is unchanged (fit-to-content).
+
+### Calculating table overhead
+
+In most cases you do not need to calculate overhead manually -- use `Flex: true`
+and let kvx handle the layout math internally.
+
+For advanced use cases where you need to compute available content width (e.g.
+to set a dynamic `MaxWidth`), the overhead formula is:
+
+~~~
+overhead = 2 (borders) + (numCols - 1) * 2 (separators)
+~~~
+
+Add the row-number column width if row numbers are enabled.
+
 ### Unified `Render` function
 
 If you want to let the caller choose the output format at runtime (table, list, YAML, JSON),
@@ -412,3 +455,21 @@ tui.Run(root, cfg)
 | `tui.NewCELExpressionProvider(env, hints)` | Create an expression provider from a CEL env |
 | `tui.SetExpressionProvider(p)` | Override the global expression provider |
 | `tui.ResetExpressionProvider()` | Restore the default provider |
+
+### `tui.ColumnHint` fields
+
+| Field | Type | Description |
+|---|---|---|
+| `MaxWidth` | `int` | Cap column width (0 = no cap). For flex columns, acts as a minimum guarantee — the column starts at MaxWidth but can expand beyond it |
+| `Priority` | `int` | Column importance during shrinking (higher = resists more) |
+| `DisplayName` | `string` | Override column header text |
+| `Align` | `string` | `"right"` or `"left"` (default) |
+| `Hidden` | `bool` | Omit column from output |
+| `Flex` | `bool` | Absorb remaining terminal width after fixed columns. Auto-set by `ParseSchema` for columns without `maxLength`/`enum`/`format` constraints |
+
+### `internal/formatter` (advanced)
+
+| Function | Description |
+|---|---|
+| `formatter.ColumnarOverhead(numCols, showRowNum, numRows)` | Calculate fixed overhead (borders + separators + row numbers) |
+| `formatter.HasFlexColumn(hints)` | Check if any hint has `Flex: true` |

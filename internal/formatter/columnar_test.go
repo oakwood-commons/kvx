@@ -188,6 +188,169 @@ func TestCalculateColumnWidths_WithHints(t *testing.T) {
 		assert.Greater(t, widths[0], widths[1],
 			"higher-priority column should retain more width")
 	})
+
+	t.Run("flex column absorbs surplus", func(t *testing.T) {
+		columns := []string{"status", "message"}
+		rows := [][]string{
+			{"ok", "short msg"},
+		}
+		hints := []ColumnHint{
+			{},           // status - fixed
+			{Flex: true}, // message - flex
+		}
+
+		// Natural widths: status=6("status"), message=9("short msg")
+		// Total natural = 6+9 = 15, seps = 2, so 17 needed.
+		// Give 60 chars available → 43 surplus should go to message.
+		widths := calculateColumnWidths(columns, rows, 60, hints)
+		require.Len(t, widths, 2)
+		assert.Equal(t, 6, widths[0], "fixed column stays at natural width")
+		assert.Equal(t, 52, widths[1], "flex column absorbs remaining space (60-2sep-6)")
+	})
+
+	t.Run("flex column expands beyond MaxWidth", func(t *testing.T) {
+		columns := []string{"id", "description"}
+		rows := [][]string{
+			{"1", "short"},
+		}
+		hints := []ColumnHint{
+			{},                         // id - fixed
+			{Flex: true, MaxWidth: 30}, // description - flex
+		}
+
+		// Natural: id=2, description=11("description" header)
+		// MaxWidth caps initial size to 30, but flex expands beyond that.
+		// Give 100 chars → flex gets 100 - 2sep - 2 = 96.
+		widths := calculateColumnWidths(columns, rows, 100, hints)
+		require.Len(t, widths, 2)
+		assert.Equal(t, 2, widths[0], "fixed column stays at natural width")
+		assert.Equal(t, 96, widths[1], "flex column expands beyond MaxWidth to fill space")
+	})
+
+	t.Run("multiple flex columns split surplus", func(t *testing.T) {
+		columns := []string{"a", "b", "c"}
+		rows := [][]string{{"x", "y", "z"}}
+		hints := []ColumnHint{
+			{},           // a - fixed
+			{Flex: true}, // b - flex
+			{Flex: true}, // c - flex
+		}
+
+		// Natural: a=1, b=1, c=1, seps=4 → 7 total. Give 27 → 20 surplus
+		// split between b and c.
+		widths := calculateColumnWidths(columns, rows, 27, hints)
+		require.Len(t, widths, 3)
+		assert.Equal(t, 1, widths[0], "fixed column unchanged")
+		total := widths[1] + widths[2]
+		assert.Equal(t, 22, total, "flex columns absorb all surplus")
+	})
+
+	t.Run("no flex no expansion", func(t *testing.T) {
+		columns := []string{"name", "age"}
+		rows := [][]string{{"Alice", "30"}}
+		hints := []ColumnHint{
+			{Priority: 5},
+			{Priority: 5},
+		}
+
+		// Natural: name=5("Alice"), age=3("age"), seps=2 → 10 total.
+		// Give 100 chars → no expansion since no flex columns.
+		widths := calculateColumnWidths(columns, rows, 100, hints)
+		require.Len(t, widths, 2)
+		assert.Equal(t, 5, widths[0], "non-flex stays at natural width")
+		assert.Equal(t, 3, widths[1], "non-flex stays at natural width")
+	})
+}
+
+func TestHasFlexColumn(t *testing.T) {
+	t.Run("no hints", func(t *testing.T) {
+		assert.False(t, HasFlexColumn(nil))
+	})
+
+	t.Run("no flex", func(t *testing.T) {
+		hints := map[string]ColumnHint{
+			"a": {MaxWidth: 10},
+			"b": {Priority: 5},
+		}
+		assert.False(t, HasFlexColumn(hints))
+	})
+
+	t.Run("has flex", func(t *testing.T) {
+		hints := map[string]ColumnHint{
+			"a": {MaxWidth: 10},
+			"b": {Flex: true},
+		}
+		assert.True(t, HasFlexColumn(hints))
+	})
+
+	t.Run("hidden flex column ignored", func(t *testing.T) {
+		hints := map[string]ColumnHint{
+			"a": {MaxWidth: 10},
+			"b": {Flex: true, Hidden: true},
+		}
+		assert.False(t, HasFlexColumn(hints), "hidden flex column should be ignored")
+	})
+}
+
+func TestColumnarOverhead(t *testing.T) {
+	t.Run("single column no row numbers", func(t *testing.T) {
+		// Just borders: 2
+		assert.Equal(t, 2, ColumnarOverhead(1, false, 0))
+	})
+
+	t.Run("three columns no row numbers", func(t *testing.T) {
+		// 2 borders + 2 separators * 2 = 6
+		assert.Equal(t, 6, ColumnarOverhead(3, false, 0))
+	})
+
+	t.Run("two columns with row numbers", func(t *testing.T) {
+		// 2 borders + 1 sep between cols + rowNumWidth(3 for "10"+2pad=4) + 1 sep for rowNum
+		// = 2 + 2 + 4 + 2 = 10
+		assert.Equal(t, 10, ColumnarOverhead(2, true, 10))
+	})
+}
+
+func TestShrinkProportional(t *testing.T) {
+	t.Run("narrow columns preserved while wide columns shrink", func(t *testing.T) {
+		// 3 narrow (7 each) + 1 wide (40). Total = 61. usableWidth = 40.
+		// Narrow columns should stay near natural size; wide column absorbs shrink.
+		widths := shrinkProportional([]int{7, 7, 7, 40}, 40)
+		total := totalUsed(widths)
+		assert.Equal(t, 40, total, "total must equal usableWidth")
+
+		// Narrow columns should keep their natural width (7) since they fit
+		// within a fair share of 10.
+		for i := 0; i < 3; i++ {
+			assert.Equal(t, 7, widths[i], "narrow column %d should be preserved", i)
+		}
+		// Wide column gets the remainder
+		assert.Equal(t, 19, widths[3], "wide column absorbs the shrink")
+	})
+
+	t.Run("lock guard prevents starvation of wide column", func(t *testing.T) {
+		// Regression test: [7,7,7,40] at usableWidth=28.
+		// Without the guard, locking [7,7,7] leaves only 7 for the wide column
+		// (below minReadableWidth=8). The guard should detect this and fall back
+		// to proportional shrink across all columns.
+		widths := shrinkProportional([]int{7, 7, 7, 40}, 28)
+		total := totalUsed(widths)
+		assert.Equal(t, 28, total, "total must equal usableWidth")
+		assert.GreaterOrEqual(t, widths[3], minReadableWidth,
+			"wide column must stay above minReadableWidth after lock guard")
+	})
+
+	t.Run("all columns fit within usableWidth", func(t *testing.T) {
+		widths := shrinkProportional([]int{5, 5, 5}, 30)
+		assert.Equal(t, []int{5, 5, 5}, widths, "no shrinking needed")
+	})
+
+	t.Run("defaultMaxColWidth caps excessive widths", func(t *testing.T) {
+		widths := shrinkProportional([]int{100, 10}, 60)
+		total := totalUsed(widths)
+		assert.Equal(t, 50, total, "total should equal usableWidth after cap+shrink")
+		assert.LessOrEqual(t, widths[0], defaultMaxColWidth,
+			"wide column should be capped at defaultMaxColWidth initially")
+	})
 }
 
 func TestShrinkByPriority(t *testing.T) {
@@ -290,6 +453,79 @@ func TestIsColumnarReadable(t *testing.T) {
 		assert.False(t, IsColumnarReadable(columns, rows, 45, nil, IsColumnarReadableOpts{RowNumberStyle: "numbered"}))
 		// With ample width, always readable
 		assert.True(t, IsColumnarReadable(columns, rows, 70, nil, IsColumnarReadableOpts{RowNumberStyle: "numbered"}))
+	})
+
+	t.Run("MaxWidth hint below minReadable does not flag column as unreadable", func(t *testing.T) {
+		// A column with a long header name ("severity"=8) but MaxWidth=5 (from
+		// an enum like ["error","warn","info"]) should not be treated as unreadable.
+		// The MaxWidth cap means the column is designed to be narrow.
+		columns := []string{"severity", "message"}
+		rows := [][]string{
+			{"error", "something went wrong"},
+			{"warn", "check this out"},
+		}
+		hints := map[string]ColumnHint{
+			"severity": {MaxWidth: 5, Priority: 10},
+			"message":  {Priority: 15},
+		}
+		// At 60 chars both columns fit; severity gets capped to 5 which is fine
+		assert.True(t, IsColumnarReadable(columns, rows, 60, hints, IsColumnarReadableOpts{}))
+	})
+
+	t.Run("flex column never triggers unreadable", func(t *testing.T) {
+		// A flex column with very wide data should not cause list fallback.
+		// Flex columns accept whatever width they get by design.
+		columns := []string{"severity", "message"}
+		rows := [][]string{
+			{"error", "validating https://scafctl.dev/api/v1/clusters/prod-east-1/nodes/worker-07 against schema version 2.4.1"},
+			{"warn", "certificate expiry approaching for endpoint https://scafctl.dev/api/v1/auth/tokens/refresh"},
+		}
+		hints := map[string]ColumnHint{
+			"severity": {MaxWidth: 8, Priority: 10},
+			"message":  {Flex: true, Priority: 5},
+		}
+		// At 80 chars, the 128-char message would normally be unreadable,
+		// but since it's Flex, the table should still be considered readable.
+		assert.True(t, IsColumnarReadable(columns, rows, 80, hints, IsColumnarReadableOpts{}))
+		// Also works at wider widths
+		assert.True(t, IsColumnarReadable(columns, rows, 120, hints, IsColumnarReadableOpts{}))
+		assert.True(t, IsColumnarReadable(columns, rows, 160, hints, IsColumnarReadableOpts{}))
+	})
+
+	t.Run("flex column with MaxWidth never triggers unreadable", func(t *testing.T) {
+		columns := []string{"severity", "message"}
+		rows := [][]string{
+			{"error", "validating https://scafctl.dev/api/v1/clusters/prod-east-1"},
+		}
+		hints := map[string]ColumnHint{
+			"severity": {MaxWidth: 8, Priority: 10},
+			"message":  {Flex: true, MaxWidth: 60, Priority: 5},
+		}
+		assert.True(t, IsColumnarReadable(columns, rows, 80, hints, IsColumnarReadableOpts{}))
+	})
+
+	t.Run("flex-only no MaxWidth does not squeeze fixed columns", func(t *testing.T) {
+		// Simulates schema-parsed columns where unbounded strings get
+		// Flex: true with no MaxWidth. The flex column's wide content
+		// must not inflate totalNeeded and squeeze fixed columns below
+		// minReadableWidth.
+		columns := []string{"name", "status", "description"}
+		rows := [][]string{
+			{"prod-east-1", "healthy", "primary production cluster serving east-coast traffic with 47 worker nodes across 3 availability zones"},
+			{"staging-west", "degraded", "staging environment for west-coast deployment pipeline validation and integration testing"},
+		}
+		hints := map[string]ColumnHint{
+			"name":        {Priority: 20},
+			"status":      {Priority: 15, MaxWidth: 10},
+			"description": {Flex: true, Priority: 5},
+		}
+		// At 80 chars, fixed columns (name=12, status=10) fit easily.
+		// The 115-char description is flex and should not cause fallback.
+		assert.True(t, IsColumnarReadable(columns, rows, 80, hints, IsColumnarReadableOpts{}),
+			"flex-only column with wide content should not trigger list fallback")
+		// Even at narrow widths, flex absorbs the squeeze
+		assert.True(t, IsColumnarReadable(columns, rows, 50, hints, IsColumnarReadableOpts{}),
+			"flex-only column should keep table readable at narrow width")
 	})
 }
 

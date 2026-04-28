@@ -912,9 +912,11 @@ func renderColumnarBorderedTable(node interface{}, noColor bool, widthHint int, 
 	showRowNum := tableOpts.ArrayStyle != "none"
 	naturalContentWidth := formatter.CalculateNaturalColumnarWidthWithHints(columns, rows, showRowNum, len(rows), tableOpts.ColumnHints, tableOpts.HiddenColumns)
 
-	// Table width: use natural width if it fits, otherwise use terminal width
+	// Table width: use natural width if it fits, otherwise use terminal width.
+	// When any column has Flex: true, always fill the terminal width so that
+	// flex columns can absorb the surplus space.
 	tableWidth := termWidth
-	if naturalContentWidth+2 < termWidth {
+	if naturalContentWidth+2 < termWidth && !formatter.HasFlexColumn(tableOpts.ColumnHints) {
 		// Content fits naturally - use fit-to-content width
 		tableWidth = naturalContentWidth + 2
 	}
@@ -1414,6 +1416,8 @@ func tableFormatOptionsFromConfig(cfg ui.ThemeConfigFile) formatter.TableFormatO
 				Priority:    h.Priority,
 				Align:       h.Align,
 				DisplayName: h.DisplayName,
+				Hidden:      h.Hidden,
+				Flex:        h.Flex,
 			}
 			if h.Hidden {
 				opts.HiddenColumns = append(opts.HiddenColumns, k)

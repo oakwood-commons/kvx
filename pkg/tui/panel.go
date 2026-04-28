@@ -495,7 +495,7 @@ func renderColumnarTable(node any, opts TableOptions, termWidth int) string {
 		}
 		naturalContentWidth := formatter.CalculateNaturalColumnarWidthWithHints(columns, rows, showRowNum, len(rows), fmtHintsForWidth, allHidden)
 		naturalTableWidth := naturalContentWidth + 2 // +2 for side borders
-		if naturalTableWidth < termWidth {
+		if naturalTableWidth < termWidth && !HasFlexColumn(opts.ColumnHints) {
 			tableWidth = naturalTableWidth
 		}
 
@@ -546,6 +546,8 @@ func renderColumnarTable(node any, opts TableOptions, termWidth int) string {
 				Priority:    h.Priority,
 				Align:       h.Align,
 				DisplayName: h.DisplayName,
+				Hidden:      h.Hidden,
+				Flex:        h.Flex,
 			}
 		}
 	}
