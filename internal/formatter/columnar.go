@@ -303,7 +303,6 @@ func calculateColumnWidths(columns []string, rows [][]string, availableWidth int
 	}
 
 	const sepWidth = 2
-	const minColWidth = 3
 	widths := make([]int, numCols)
 	for i, col := range columns {
 		widths[i] = lipgloss.Width(col)
@@ -332,6 +331,25 @@ func calculateColumnWidths(columns []string, rows [][]string, availableWidth int
 	totalSeps := (numCols - 1) * sepWidth
 	usableWidth := availableWidth - totalSeps
 
+	// Separate flex and non-flex columns. Flex columns are sized to
+	// their header width during the shrink phase; they receive whatever
+	// remains via distributeSurplus afterward.
+	var flexIdxs []int
+	if len(hints) > 0 {
+		for i := range hints {
+			if i < numCols && hints[i].Flex {
+				flexIdxs = append(flexIdxs, i)
+				// Reduce flex columns to header width for the shrink phase.
+				// This prevents their content from inflating totalNeeded
+				// and squeezing non-flex columns.
+				widths[i] = lipgloss.Width(columns[i])
+				if hints[i].MaxWidth > 0 && widths[i] < hints[i].MaxWidth {
+					widths[i] = hints[i].MaxWidth
+				}
+			}
+		}
+	}
+
 	// Calculate total needed
 	totalNeeded := 0
 	for _, w := range widths {
@@ -344,60 +362,84 @@ func calculateColumnWidths(columns []string, rows [][]string, availableWidth int
 			// Priority-based shrinking: shrink lowest-priority columns first
 			widths = shrinkByPriority(widths, usableWidth, hints)
 		} else {
-			// Original behavior: cap then proportional shrink
-			maxColWidth := 40
-			for i := range widths {
-				if widths[i] > maxColWidth {
-					widths[i] = maxColWidth
-				}
-			}
-
-			totalNeeded = 0
-			for _, w := range widths {
-				totalNeeded += w
-			}
-
-			if totalNeeded > usableWidth {
-				totalOriginal := 0
-				for _, w := range widths {
-					totalOriginal += w
-				}
-
-				for i := range widths {
-					proportion := float64(widths[i]) / float64(totalOriginal)
-					newWidth := int(proportion * float64(usableWidth))
-					if newWidth < minColWidth {
-						newWidth = minColWidth
-					}
-					widths[i] = newWidth
-				}
-
-				// Final adjustment: ensure total doesn't exceed usableWidth
-				for {
-					total := 0
-					for _, w := range widths {
-						total += w
-					}
-					if total <= usableWidth {
-						break
-					}
-					maxIdx := 0
-					for i := 1; i < numCols; i++ {
-						if widths[i] > widths[maxIdx] {
-							maxIdx = i
-						}
-					}
-					if widths[maxIdx] > minColWidth {
-						widths[maxIdx]--
-					} else {
-						break
-					}
-				}
-			}
+			widths = shrinkProportional(widths, usableWidth)
 		}
 	}
 
+	// Distribute surplus space to flex columns.
+	if surplus := usableWidth - totalUsed(widths); surplus > 0 && len(flexIdxs) > 0 {
+		distributeSurplus(widths, flexIdxs, surplus)
+	}
+
 	return widths
+}
+
+// totalUsed returns the sum of all column widths.
+func totalUsed(widths []int) int {
+	t := 0
+	for _, w := range widths {
+		t += w
+	}
+	return t
+}
+
+// distributeSurplus distributes extra space evenly among flex columns.
+// Flex columns expand freely — MaxWidth is treated as a minimum guarantee
+// (already applied during initial sizing), not a cap on expansion.
+func distributeSurplus(widths []int, flexIdxs []int, surplus int) {
+	if len(flexIdxs) == 0 {
+		return
+	}
+	remaining := surplus
+	for remaining > 0 {
+		share := remaining / len(flexIdxs)
+		if share == 0 {
+			share = 1
+		}
+		for _, idx := range flexIdxs {
+			if remaining <= 0 {
+				break
+			}
+			add := share
+			if add > remaining {
+				add = remaining
+			}
+			widths[idx] += add
+			remaining -= add
+		}
+	}
+}
+
+// HasFlexColumn reports whether any visible (non-hidden) hint has Flex set.
+// Hidden columns are excluded because they are never rendered and should not
+// influence table width decisions.
+func HasFlexColumn(hints map[string]ColumnHint) bool {
+	for _, h := range hints {
+		if h.Flex && !h.Hidden {
+			return true
+		}
+	}
+	return false
+}
+
+// ColumnarOverhead returns the fixed character overhead for a columnar table
+// with borders: 2 for side borders + 2 per inter-column separator.
+// Callers can use this to compute available content width:
+//
+//	contentWidth = termWidth - ColumnarOverhead(numCols, showRowNum, numRows)
+func ColumnarOverhead(numCols int, showRowNum bool, numRows int) int {
+	const sepWidth = 2
+	const borderWidth = 2 // left + right border characters
+
+	overhead := borderWidth
+	if numCols > 1 {
+		overhead += (numCols - 1) * sepWidth
+	}
+	if showRowNum && numCols > 0 {
+		rowNumWidth := len(fmt.Sprintf("%d", numRows)) + 2
+		overhead += rowNumWidth + sepWidth
+	}
+	return overhead
 }
 
 func renderHeader(columns []string, widths []int, sepWidth, rowNumWidth int, showRowNum, noColor bool) string {
@@ -554,6 +596,135 @@ func shrinkByPriority(widths []int, usableWidth int, hints []ColumnHint) []int {
 	return widths
 }
 
+// defaultMaxColWidth is the initial cap applied to columns before proportional
+// shrinking. It prevents a single column from dominating the entire table width.
+const defaultMaxColWidth = 40
+
+// shrinkProportional reduces column widths to fit within usableWidth using
+// proportional allocation. Columns whose natural width already fits within a
+// fair share are preserved at their natural size, and only wider columns are
+// shrunk. This prevents short columns (e.g. "severity"=8) from being truncated
+// while longer columns still have unused padding.
+func shrinkProportional(naturalWidths []int, usableWidth int) []int {
+	const minColWidth = 3
+	numCols := len(naturalWidths)
+	widths := make([]int, numCols)
+	copy(widths, naturalWidths)
+
+	// Cap excessively wide columns first
+	for i := range widths {
+		if widths[i] > defaultMaxColWidth {
+			widths[i] = defaultMaxColWidth
+		}
+	}
+
+	if totalUsed(widths) <= usableWidth {
+		return widths
+	}
+
+	// Two-pass approach: lock columns that fit at natural size, shrink the rest.
+	// A column "fits" if its natural (capped) width is at or below the fair
+	// share (usableWidth / numCols). Locked columns keep their natural width;
+	// the remaining space is distributed proportionally among the rest.
+	//
+	// Guard: if locking would leave unlocked columns with less than
+	// minReadableWidth each, skip locking entirely and shrink all columns
+	// proportionally. This prevents narrow-but-locked columns from starving
+	// wider columns below the readability threshold.
+	fairShare := usableWidth / numCols
+	locked := make([]bool, numCols)
+	lockedTotal := 0
+	unlocked := 0
+	for i, w := range widths {
+		if w <= fairShare {
+			locked[i] = true
+			lockedTotal += w
+		} else {
+			unlocked++
+		}
+	}
+
+	// If locking would starve unlocked columns, fall back to full proportional.
+	if unlocked > 0 {
+		perUnlocked := (usableWidth - lockedTotal) / unlocked
+		if perUnlocked < minReadableWidth {
+			// Reset: treat all columns as unlocked
+			for i := range locked {
+				locked[i] = false
+			}
+			lockedTotal = 0
+			unlocked = numCols
+		}
+	}
+
+	if unlocked == 0 {
+		// All columns are at or below fair share — shouldn't happen since
+		// total > usableWidth, but handle it gracefully with equal split.
+		each := usableWidth / numCols
+		for i := range widths {
+			widths[i] = each
+			if widths[i] < minColWidth {
+				widths[i] = minColWidth
+			}
+		}
+		return widths
+	}
+
+	remainingWidth := usableWidth - lockedTotal
+	// Distribute remaining space proportionally among unlocked columns
+	unlockedTotal := 0
+	for i := range widths {
+		if !locked[i] {
+			unlockedTotal += widths[i]
+		}
+	}
+	for i := range widths {
+		if locked[i] {
+			continue
+		}
+		proportion := float64(widths[i]) / float64(unlockedTotal)
+		widths[i] = int(proportion * float64(remainingWidth))
+		if widths[i] < minColWidth {
+			widths[i] = minColWidth
+		}
+	}
+
+	adjustRounding(widths, locked, usableWidth, minColWidth)
+
+	return widths
+}
+
+// adjustRounding corrects rounding errors from proportional allocation by
+// adding to or removing from the widest unlocked columns until the total
+// matches targetWidth exactly.
+func adjustRounding(widths []int, locked []bool, targetWidth, minWidth int) {
+	for totalUsed(widths) < targetWidth {
+		bestIdx := -1
+		for i := range widths {
+			if !locked[i] && (bestIdx == -1 || widths[i] > widths[bestIdx]) {
+				bestIdx = i
+			}
+		}
+		if bestIdx == -1 {
+			break
+		}
+		widths[bestIdx]++
+	}
+
+	for totalUsed(widths) > targetWidth {
+		maxIdx := -1
+		for i := range widths {
+			if !locked[i] && (maxIdx == -1 || widths[i] > widths[maxIdx]) {
+				maxIdx = i
+			}
+		}
+		if maxIdx == -1 || widths[maxIdx] <= minWidth {
+			break
+		}
+		widths[maxIdx]--
+	}
+}
+
 // minReadableWidth is the minimum column width before data becomes unreadable.
 // Below this, columns show mostly ellipsis (e.g. "ab...") which is useless.
 const minReadableWidth = 8
@@ -606,10 +777,17 @@ func IsColumnarReadable(columns []string, rows [][]string, availableWidth int, h
 		return false
 	}
 
-	// Calculate natural widths to know each column's unconstrained size
+	// Build display column names matching the renderer so that natural
+	// width calculations and assigned widths are consistent.
+	displayCols := make([]string, len(visibleCols))
 	naturalWidths := make([]int, len(visibleCols))
 	for i, col := range visibleCols {
-		naturalWidths[i] = lipgloss.Width(col)
+		header := col
+		if h, ok := hints[col]; ok && h.DisplayName != "" {
+			header = h.DisplayName
+		}
+		displayCols[i] = header
+		naturalWidths[i] = lipgloss.Width(header)
 	}
 	for _, row := range visibleRows {
 		for i, val := range row {
@@ -618,6 +796,16 @@ func IsColumnarReadable(columns []string, rows [][]string, availableWidth int, h
 					naturalWidths[i] = w
 				}
 			}
+		}
+	}
+
+	// Cap naturalWidths at MaxWidth when set: columns with a MaxWidth
+	// hint are intentionally narrow (e.g. enum-only fields), so their
+	// effective natural width for readability purposes is the cap, not
+	// the header width.
+	for i, col := range visibleCols {
+		if h, ok := hints[col]; ok && h.MaxWidth > 0 && naturalWidths[i] > h.MaxWidth {
+			naturalWidths[i] = h.MaxWidth
 		}
 	}
 
@@ -632,12 +820,20 @@ func IsColumnarReadable(columns []string, rows [][]string, availableWidth int, h
 		}
 	}
 
-	// Calculate assigned widths using the same algorithm the renderer uses
-	assigned := calculateColumnWidths(visibleCols, visibleRows, effectiveWidth, hintSlice)
+	// Calculate assigned widths using the same algorithm the renderer uses.
+	// Pass displayCols so header widths match the renderer exactly.
+	assigned := calculateColumnWidths(displayCols, visibleRows, effectiveWidth, hintSlice)
 
-	// Check if any column that naturally needs more than minReadableWidth
-	// was shrunk below that threshold
+	// A column is unreadable when its allocated width drops below
+	// minReadableWidth. We only flag columns whose content naturally
+	// needs that much space; tiny columns (e.g. "ok"/"yn") are fine
+	// at narrow widths. Flex columns are skipped entirely — they are
+	// designed to accept whatever width remains after fixed columns
+	// are allocated, so they should never trigger a list fallback.
 	for i, w := range assigned {
+		if len(hintSlice) > i && hintSlice[i].Flex {
+			continue
+		}
 		if naturalWidths[i] >= minReadableWidth && w < minReadableWidth {
 			return false
 		}

@@ -1,0 +1,37 @@
+{
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["severity", "message"],
+    "properties": {
+      "severity": {
+        "type": "string",
+        "title": "Sev",
+        "enum": ["error", "warn", "info"]
+      },
+      "message": {
+        "type": "string",
+        "title": "Message"
+      },
+      "category": {
+        "type": "string",
+        "title": "Cat",
+        "maxLength": 10
+      },
+      "location": {
+        "type": "string",
+        "title": "Location",
+        "maxLength": 30
+      },
+      "ruleName": {
+        "type": "string",
+        "title": "Rule",
+        "maxLength": 20
+      },
+      "suggestion": {
+        "type": "string",
+        "title": "Fix"
+      }
+    }
+  }
+}

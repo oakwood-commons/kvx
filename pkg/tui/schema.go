@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+
+	"charm.land/lipgloss/v2"
 )
 
 // ColumnHint provides display hints for a specific column in columnar table rendering.
@@ -36,6 +38,27 @@ type ColumnHint struct {
 	// Derived from JSON Schema deprecated: true.
 	// Merges with the existing HiddenColumns mechanism.
 	Hidden bool
+
+	// Flex marks this column as a flex column that absorbs remaining
+	// terminal width after fixed columns are allocated. When set, bordered
+	// tables fill the full terminal width instead of shrinking to content.
+	// MaxWidth acts as a minimum guarantee during initial sizing, not a
+	// cap on expansion.
+	// Derived from JSON Schema when a property has no maxLength, enum,
+	// or format constraint (i.e. MaxWidth == 0). Can also be set manually.
+	Flex bool
+}
+
+// HasFlexColumn reports whether any visible (non-hidden) hint has Flex set.
+// Hidden columns are excluded because they are never rendered and should not
+// influence table width decisions.
+func HasFlexColumn(hints map[string]ColumnHint) bool {
+	for _, h := range hints {
+		if h.Flex && !h.Hidden {
+			return true
+		}
+	}
+	return false
 }
 
 // ParseSchema extracts [ColumnHint] values from a standard JSON Schema document.
@@ -134,8 +157,8 @@ func parseSchemaObject(raw map[string]any) (map[string]ColumnHint, error) { //no
 			maxEnum := 0
 			for _, v := range enumVals {
 				s := fmt.Sprintf("%v", v)
-				if len(s) > maxEnum {
-					maxEnum = len(s)
+				if w := lipgloss.Width(s); w > maxEnum {
+					maxEnum = w
 				}
 			}
 			if maxEnum > 0 && (hint.MaxWidth == 0 || maxEnum < hint.MaxWidth) {
@@ -161,6 +184,19 @@ func parseSchemaObject(raw map[string]any) (map[string]ColumnHint, error) { //no
 			hint.Hidden = true
 		}
 
+		// Ensure MaxWidth is at least as wide as the display header so the
+		// column title is not truncated by a width cap derived from data
+		// (e.g. enum values shorter than the header text).
+		if hint.MaxWidth > 0 {
+			header := key
+			if hint.DisplayName != "" {
+				header = hint.DisplayName
+			}
+			if hw := lipgloss.Width(header); hw > hint.MaxWidth {
+				hint.MaxWidth = hw
+			}
+		}
+
 		// Priority: required fields get a boost of +10,
 		// then ordered by declaration (first property = highest base priority).
 		basePriority := numProps - i // first property gets highest base
@@ -168,6 +204,15 @@ func parseSchemaObject(raw map[string]any) (map[string]ColumnHint, error) { //no
 			basePriority += 10
 		}
 		hint.Priority = basePriority
+
+		// Columns without a MaxWidth constraint (no maxLength, enum, or
+		// format cap) are natural flex candidates — they have unbounded
+		// content that should absorb remaining terminal width.
+		// Hidden columns are excluded — they are never rendered and should
+		// not influence table width decisions.
+		if hint.MaxWidth == 0 && !hint.Hidden {
+			hint.Flex = true
+		}
 
 		hints[key] = hint
 	}

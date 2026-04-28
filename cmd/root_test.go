@@ -462,7 +462,9 @@ func TestCLI_SchemaAppliesColumnHints(t *testing.T) {
 	})
 
 	t.Run("maxLength caps column width", func(t *testing.T) {
-		// Create a schema with maxLength on full_name
+		// Create a schema with maxLength on full_name using a short title
+		// so the header doesn't widen beyond the cap (MaxWidth floors at
+		// header width to prevent header truncation).
 		schemaWithMax := filepath.Join(tmpDir, "schema_max.json")
 		err := os.WriteFile(schemaWithMax, []byte(`{
 			"type": "array",
@@ -471,6 +473,7 @@ func TestCLI_SchemaAppliesColumnHints(t *testing.T) {
 				"properties": {
 					"full_name": {
 						"type": "string",
+						"title": "Name",
 						"maxLength": 4
 					}
 				}
@@ -480,6 +483,7 @@ func TestCLI_SchemaAppliesColumnHints(t *testing.T) {
 
 		out := runCLI(t, []string{"kvx", dataFile, "--no-color", "--schema", schemaWithMax, "-o", "table"})
 		// "Alice" (5 chars) should be truncated to 4 chars by maxLength cap
+		// (title "Name" = 4 chars, so MaxWidth stays at 4)
 		require.NotContains(t, out, "Alice", "full_name should be truncated by maxLength 4; output:\n%s", out)
 	})
 }
@@ -2411,8 +2415,9 @@ func TestCLI_MultilineConfigResetToDefault(t *testing.T) {
 }
 
 func TestCLI_AutoDropsColumnsNarrowWidth(t *testing.T) {
-	// At narrow width with schema hints, auto mode should drop low-priority
-	// columns instead of falling back to list view.
+	// At narrow width with schema hints, auto mode renders a table.
+	// full_name has no maxLength, so ParseSchema marks it Flex — the flex
+	// column absorbs the squeeze and non-flex columns retain their width.
 	out := runCLI(t, []string{
 		"kvx", filepath.Join("..", "examples", "data", "users.json"),
 		"--schema", filepath.Join("..", "examples", "data", "users_schema.json"),
@@ -2421,8 +2426,9 @@ func TestCLI_AutoDropsColumnsNarrowWidth(t *testing.T) {
 	// High-priority columns (required: user_id, full_name) should survive
 	assert.Contains(t, out, "ID")
 	assert.Contains(t, out, "Name")
-	// Low-priority columns should be dropped to fit
-	assert.NotContains(t, out, "Dept")
+	// With flex, Dept (non-flex, enum-constrained) also survives because
+	// the flex column (Name) absorbs the width squeeze.
+	assert.Contains(t, out, "Dept")
 }
 
 func TestCLI_AutoFallsBackToListExtremeNarrow(t *testing.T) {
