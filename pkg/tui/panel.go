@@ -175,6 +175,11 @@ type TableOptions struct {
 	// (initially 10). A non-nil pointer to 0 disables multiline rendering.
 	// Set to -1 for unlimited, or a positive number to cap at that many lines.
 	MaxValueLines *int
+
+	// Schema provides a display schema for automatic column derivation and
+	// schema-aware rendering. When set and ColumnOrder/HiddenColumns are
+	// empty, DeriveTableOptionsFromSchema is called to populate them.
+	Schema *DisplaySchema
 }
 
 // RenderTable renders a two-column key/value table for the given node.
@@ -187,7 +192,59 @@ type TableOptions struct {
 // If Width is 0, terminal size is auto-detected.
 // When Bordered is true, the table shrinks to fit its content width rather
 // than always expanding to the full terminal width.
+// DeriveTableOptionsFromSchema extracts column ordering and hidden fields
+// from a DisplaySchema for use in non-interactive table rendering.
+// Column order is derived from list config (titleField, badgeFields,
+// secondaryFields, subtitleField). Hidden columns come from detail config
+// (hiddenFields).
+func DeriveTableOptionsFromSchema(ds *DisplaySchema) (columnOrder, hiddenColumns []string) {
+	if ds == nil {
+		return nil, nil
+	}
+	if ds.List != nil {
+		seen := map[string]bool{}
+		addUnique := func(field string) {
+			if field != "" && !seen[field] {
+				seen[field] = true
+				columnOrder = append(columnOrder, field)
+			}
+		}
+		addUnique(ds.List.TitleField)
+		for _, f := range ds.List.BadgeFields {
+			addUnique(f)
+		}
+		for _, f := range ds.List.SecondaryFields {
+			addUnique(f)
+		}
+		if ds.List.SubtitleField != "" {
+			addUnique(ds.List.SubtitleField)
+		}
+	}
+	if ds.Detail != nil {
+		seen := map[string]bool{}
+		for _, f := range ds.Detail.HiddenFields {
+			if !seen[f] {
+				seen[f] = true
+				hiddenColumns = append(hiddenColumns, f)
+			}
+		}
+	}
+	return columnOrder, hiddenColumns
+}
+
 func RenderTable(node any, opts TableOptions) string {
+	// Auto-apply schema-derived column options when Schema is set and the
+	// caller has not provided explicit overrides.
+	if opts.Schema != nil {
+		order, hidden := DeriveTableOptionsFromSchema(opts.Schema)
+		if len(opts.ColumnOrder) == 0 && len(order) > 0 {
+			opts.ColumnOrder = order
+		}
+		if len(opts.HiddenColumns) == 0 && len(hidden) > 0 {
+			opts.HiddenColumns = hidden
+		}
+	}
+
 	th := ui.CurrentTheme()
 	formatter.SetTableTheme(formatter.TableColors{
 		HeaderFG:       th.HeaderFG,
@@ -806,4 +863,136 @@ func renderTOML(node any) string {
 		return fmt.Sprintf("toml marshal error: %v\n", err)
 	}
 	return string(b)
+}
+
+// ---------------------------------------------------------------------------
+// High-level rendering helpers for library consumers (#63)
+// ---------------------------------------------------------------------------
+
+// CardListOptions configures the card-list renderer.
+type CardListOptions struct {
+	Width   int
+	Height  int
+	Schema  *DisplaySchema
+	NoColor bool
+}
+
+// RenderCardList renders an array of objects as detail-view cards using the
+// detail display schema (x-kvx-detail).  Each card is rendered via
+// BuildDetailView with sections, layouts, and nested tables.
+// Falls back to a plain table (via RenderTable) if no detail schema is
+// available or BuildDetailView returns nil.
+func RenderCardList(items []map[string]any, opts CardListOptions) string {
+	if opts.Width <= 0 {
+		opts.Width = 120
+	}
+	if opts.Height <= 0 {
+		opts.Height = 1000
+	}
+
+	var schema *ui.DisplaySchema
+	if opts.Schema != nil {
+		schema = opts.Schema
+	}
+
+	lines := make([]string, 0, len(items))
+	for _, item := range items {
+		dv := ui.BuildDetailView(item, schema, opts.Width, opts.Height)
+		if dv == nil {
+			// No detail schema available -- fall back to plain table rendering
+			// for the entire array instead of silently skipping items.
+			anyItems := make([]any, len(items))
+			for i, it := range items {
+				anyItems[i] = it
+			}
+			return RenderTable(anyItems, TableOptions{
+				Width:   opts.Width,
+				NoColor: opts.NoColor,
+				Schema:  opts.Schema,
+			})
+		}
+		rendered := dv.Render(opts.Width, opts.Height, opts.NoColor)
+		lines = append(lines, rendered)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// DetailViewOptions configures the detail-view renderer.
+type DetailViewOptions struct {
+	Width   int
+	Height  int
+	Schema  *DisplaySchema
+	NoColor bool
+}
+
+// RenderDetailView renders a single object as a detail view using the detail
+// display schema (x-kvx-detail).  Sections, hidden fields, layouts, and
+// column ordering are all honoured.
+func RenderDetailView(obj any, opts DetailViewOptions) string {
+	if opts.Width <= 0 {
+		opts.Width = 120
+	}
+	if opts.Height <= 0 {
+		opts.Height = 1000 // large enough to show all content without scrolling
+	}
+
+	m, ok := obj.(map[string]any)
+	if !ok {
+		return fmt.Sprintf("%v", obj)
+	}
+
+	var schema *ui.DisplaySchema
+	if opts.Schema != nil {
+		schema = opts.Schema
+	}
+
+	dv := ui.BuildDetailView(m, schema, opts.Width, opts.Height)
+	if dv == nil {
+		return fmt.Sprintf("%v", obj)
+	}
+	return dv.Render(opts.Width, opts.Height, opts.NoColor)
+}
+
+// RenderSchemaView renders data using the display schema: if the data is an
+// array of objects it uses card-list mode; if it's a single object it uses
+// detail-view mode.
+func RenderSchemaView(data any, schema *DisplaySchema, width int, noColor ...bool) string {
+	if width <= 0 {
+		width = 120
+	}
+	nc := len(noColor) > 0 && noColor[0]
+
+	switch v := data.(type) {
+	case []any:
+		items := make([]map[string]any, 0, len(v))
+		for _, elem := range v {
+			if m, ok := elem.(map[string]any); ok {
+				items = append(items, m)
+			}
+		}
+		if len(items) > 0 {
+			out := RenderCardList(items, CardListOptions{Width: width, Schema: schema, NoColor: nc})
+			if !strings.HasSuffix(out, "\n") {
+				out += "\n"
+			}
+			return out
+		}
+	case []map[string]any:
+		if len(v) > 0 {
+			out := RenderCardList(v, CardListOptions{Width: width, Schema: schema, NoColor: nc})
+			if !strings.HasSuffix(out, "\n") {
+				out += "\n"
+			}
+			return out
+		}
+	case map[string]any:
+		out := RenderDetailView(v, DetailViewOptions{Width: width, Schema: schema, NoColor: nc})
+		if !strings.HasSuffix(out, "\n") {
+			out += "\n"
+		}
+		return out
+	}
+
+	// Fallback: just stringify.
+	return fmt.Sprintf("%v\n", data)
 }

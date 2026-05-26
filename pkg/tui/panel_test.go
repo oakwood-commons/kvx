@@ -660,3 +660,229 @@ func TestRenderTable_PerCallMaxValueLines(t *testing.T) {
 	// Global should be restored after RenderTable returns
 	assert.Equal(t, 10, MaxValueLines())
 }
+
+func TestRenderCardList(t *testing.T) {
+	schema := &DisplaySchema{
+		Detail: &DetailDisplayConfig{
+			TitleField: "name",
+			Sections: []DetailSection{
+				{Fields: []string{"name", "desc"}, Layout: "table"},
+			},
+		},
+	}
+
+	t.Run("renders items", func(t *testing.T) {
+		items := []map[string]any{
+			{"name": "alpha", "desc": "First item"},
+			{"name": "beta", "desc": "Second item"},
+		}
+		out := RenderCardList(items, CardListOptions{Width: 80, Schema: schema})
+		// Title field is hidden from sections (used in header), but desc appears in content
+		assert.Contains(t, out, "First item")
+		assert.Contains(t, out, "Second item")
+	})
+
+	t.Run("nil schema falls back to table", func(t *testing.T) {
+		items := []map[string]any{{"name": "x"}}
+		out := RenderCardList(items, CardListOptions{Width: 80})
+		assert.NotEmpty(t, out)
+		assert.Contains(t, out, "x")
+	})
+
+	t.Run("empty items", func(t *testing.T) {
+		out := RenderCardList(nil, CardListOptions{Width: 80, Schema: schema})
+		assert.Empty(t, out)
+	})
+}
+
+func TestRenderDetailView(t *testing.T) {
+	schema := &DisplaySchema{
+		Detail: &DetailDisplayConfig{
+			TitleField: "name",
+			Sections: []DetailSection{
+				{Fields: []string{"status", "version"}, Layout: "table"},
+			},
+		},
+	}
+
+	t.Run("renders object", func(t *testing.T) {
+		obj := map[string]any{"name": "test", "status": "ok", "version": "1.0"}
+		out := RenderDetailView(obj, DetailViewOptions{Width: 80, Schema: schema})
+		assert.Contains(t, out, "status")
+		assert.Contains(t, out, "ok")
+	})
+
+	t.Run("non-map returns stringified", func(t *testing.T) {
+		out := RenderDetailView("scalar", DetailViewOptions{Width: 80})
+		assert.Equal(t, "scalar", out)
+	})
+
+	t.Run("nil schema returns fallback", func(t *testing.T) {
+		obj := map[string]any{"key": "val"}
+		out := RenderDetailView(obj, DetailViewOptions{Width: 80})
+		// No schema -> BuildDetailView returns nil -> fallback to Sprintf
+		assert.Contains(t, out, "val")
+	})
+}
+
+func TestRenderSchemaView(t *testing.T) {
+	detailSchema := &DisplaySchema{
+		Detail: &DetailDisplayConfig{
+			TitleField: "name",
+			Sections: []DetailSection{
+				{Fields: []string{"status"}, Layout: "table"},
+			},
+		},
+	}
+
+	t.Run("map uses detail view", func(t *testing.T) {
+		obj := map[string]any{"name": "single", "status": "ok"}
+		out := RenderSchemaView(obj, detailSchema, 80)
+		assert.NotEmpty(t, out)
+		assert.Contains(t, out, "status")
+	})
+
+	t.Run("nil schema returns fallback", func(t *testing.T) {
+		obj := map[string]any{"name": "x"}
+		out := RenderSchemaView(obj, nil, 80)
+		assert.NotEmpty(t, out)
+	})
+
+	t.Run("scalar returns stringified", func(t *testing.T) {
+		out := RenderSchemaView("hello", detailSchema, 80)
+		assert.Contains(t, out, "hello")
+	})
+}
+
+func TestDeriveTableOptionsFromSchema(t *testing.T) {
+	t.Run("nil schema returns nil", func(t *testing.T) {
+		order, hidden := DeriveTableOptionsFromSchema(nil)
+		assert.Nil(t, order)
+		assert.Nil(t, hidden)
+	})
+
+	t.Run("list config derives column order", func(t *testing.T) {
+		ds := &DisplaySchema{
+			List: &ListDisplayConfig{
+				TitleField:      "name",
+				SubtitleField:   "description",
+				BadgeFields:     []string{"version", "category"},
+				SecondaryFields: []string{"status"},
+			},
+		}
+		order, hidden := DeriveTableOptionsFromSchema(ds)
+		assert.Equal(t, []string{"name", "version", "category", "status", "description"}, order)
+		assert.Nil(t, hidden)
+	})
+
+	t.Run("detail config derives hidden columns", func(t *testing.T) {
+		ds := &DisplaySchema{
+			Detail: &DetailDisplayConfig{
+				HiddenFields: []string{"internal", "secret"},
+			},
+		}
+		order, hidden := DeriveTableOptionsFromSchema(ds)
+		assert.Nil(t, order)
+		assert.Equal(t, []string{"internal", "secret"}, hidden)
+	})
+
+	t.Run("both list and detail", func(t *testing.T) {
+		ds := &DisplaySchema{
+			List: &ListDisplayConfig{
+				TitleField:  "name",
+				BadgeFields: []string{"version"},
+			},
+			Detail: &DetailDisplayConfig{
+				HiddenFields: []string{"internal"},
+			},
+		}
+		order, hidden := DeriveTableOptionsFromSchema(ds)
+		assert.Equal(t, []string{"name", "version"}, order)
+		assert.Equal(t, []string{"internal"}, hidden)
+	})
+
+	t.Run("empty list config returns nil order", func(t *testing.T) {
+		ds := &DisplaySchema{List: &ListDisplayConfig{}}
+		order, _ := DeriveTableOptionsFromSchema(ds)
+		assert.Nil(t, order)
+	})
+
+	t.Run("duplicate fields deduplicated", func(t *testing.T) {
+		ds := &DisplaySchema{
+			List: &ListDisplayConfig{
+				TitleField:      "name",
+				BadgeFields:     []string{"name", "status"},
+				SecondaryFields: []string{"status"},
+			},
+		}
+		order, _ := DeriveTableOptionsFromSchema(ds)
+		assert.Equal(t, []string{"name", "status"}, order)
+	})
+}
+
+func TestRenderTable_WithSchema(t *testing.T) {
+	schema := &DisplaySchema{
+		List: &ListDisplayConfig{
+			TitleField:  "name",
+			BadgeFields: []string{"status"},
+		},
+		Detail: &DetailDisplayConfig{
+			HiddenFields: []string{"internal"},
+		},
+	}
+
+	data := []any{
+		map[string]any{"name": "alpha", "status": "ok", "internal": "hidden", "extra": "val"},
+		map[string]any{"name": "beta", "status": "fail", "internal": "hidden2", "extra": "val2"},
+	}
+
+	out := RenderTable(data, TableOptions{Width: 120, Schema: schema})
+	assert.Contains(t, out, "alpha")
+	assert.Contains(t, out, "beta")
+	assert.NotContains(t, out, "hidden")
+	assert.NotContains(t, out, "hidden2")
+}
+
+func TestRender_SchemaRoutesDetailView(t *testing.T) {
+	schema := &DisplaySchema{
+		Detail: &DetailDisplayConfig{
+			TitleField: "name",
+			Sections: []DetailSection{
+				{Fields: []string{"status"}, Layout: "table"},
+			},
+		},
+	}
+
+	obj := map[string]any{"name": "test", "status": "ok"}
+
+	for _, format := range []OutputFormat{FormatTable, FormatAuto} {
+		t.Run(string(format), func(t *testing.T) {
+			out := Render(obj, format, TableOptions{Width: 80, Schema: schema})
+			assert.Contains(t, out, "status")
+			assert.Contains(t, out, "ok")
+		})
+	}
+}
+
+func TestRender_SchemaArrayUsesColumnar(t *testing.T) {
+	schema := &DisplaySchema{
+		Detail: &DetailDisplayConfig{
+			TitleField: "name",
+			Sections:   []DetailSection{{Fields: []string{"status"}, Layout: "table"}},
+		},
+		List: &ListDisplayConfig{
+			TitleField:  "name",
+			BadgeFields: []string{"status"},
+		},
+	}
+
+	data := []any{
+		map[string]any{"name": "a", "status": "ok"},
+		map[string]any{"name": "b", "status": "fail"},
+	}
+
+	out := Render(data, FormatTable, TableOptions{Width: 120, Schema: schema})
+	// Arrays should NOT route to detail view -- should use columnar table
+	assert.Contains(t, out, "a")
+	assert.Contains(t, out, "b")
+}

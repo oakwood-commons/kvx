@@ -82,6 +82,11 @@ type DetailSection struct {
 	//   - "tags"      — colored pill badges (for arrays of strings)
 	//   - "table"     — standard KEY/VALUE table rows (default)
 	Layout string `json:"layout,omitempty"`
+
+	// ColumnOrder specifies the preferred column order when a field contains
+	// []map[string]any data rendered as an inline table. Fields not listed
+	// are appended in alphabetical order after the specified ones.
+	ColumnOrder []string `json:"columnOrder,omitempty"`
 }
 
 // Layout constants for DetailSection.

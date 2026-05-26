@@ -254,6 +254,10 @@ type Model struct {
 
 	// Status screen async completion (set by library consumers via Config.Done)
 	DoneChan <-chan StatusResult // Optional channel signaling async operation completion
+
+	// ExprProvider overrides CEL expression evaluation when set.
+	// It allows library consumers to inject custom expression handling.
+	ExprProvider ExpressionProvider
 }
 
 // DebugEvent captures a debug message with a timestamp for post-exit logging.
@@ -2976,6 +2980,24 @@ func SearchRows(node interface{}, query string) [][]string {
 	return rows
 }
 
+// evaluateExpression uses the per-instance ExprProvider when set,
+// otherwise falls back to the package-level EvaluateExpression.
+func (m *Model) evaluateExpression(expr string, root interface{}) (interface{}, error) {
+	if m.ExprProvider != nil {
+		return m.ExprProvider.Evaluate(expr, root)
+	}
+	return EvaluateExpression(expr, root)
+}
+
+// isExpression checks via the per-instance ExprProvider when set,
+// otherwise falls back to the package-level IsExpression.
+func (m *Model) isExpression(expr string) bool {
+	if m.ExprProvider != nil {
+		return m.ExprProvider.IsExpression(expr)
+	}
+	return IsExpression(expr)
+}
+
 func (m *Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{textinput.Blink}
 	if cv := m.activeCustomView(); cv != nil {
@@ -4543,7 +4565,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				// Use expression exactly as typed - no modifications
 				// Use the configured expression provider to respect custom CEL environments
-				if _, err := EvaluateExpression(evalExpr, m.Root); err != nil {
+				if _, err := m.evaluateExpression(evalExpr, m.Root); err != nil {
 					m.ErrMsg = fmt.Sprintf("explore expression error: %v", err)
 					return m, nil
 				}
@@ -4583,13 +4605,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					node, err := navigator.Navigate(m.Root, pathValue)
 					if err == nil {
 						// For free-form CEL, avoid NavigateTo to preserve input exactly
-						if (strings.Contains(pathValue, "(") && strings.Contains(pathValue, ")")) || IsExpression(pathValue) {
+						if (strings.Contains(pathValue, "(") && strings.Contains(pathValue, ")")) || m.isExpression(pathValue) {
 							newModel := InitialModel(node)
 							newModel.Root = m.Root
 							newModel.DebugMode = m.DebugMode
 							newModel.NoColor = m.NoColor
 							newModel.WinWidth = m.WinWidth
 							newModel.WinHeight = m.WinHeight
+							newModel.ExprProvider = m.ExprProvider
 							newModel.Path = pathValue
 							newModel.PathKeys = parsePathKeys(pathValue)
 							newModel.ApplyColorScheme()
@@ -4610,6 +4633,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						newModel.NoColor = m.NoColor
 						newModel.WinWidth = m.WinWidth
 						newModel.WinHeight = m.WinHeight
+						newModel.ExprProvider = m.ExprProvider
 						newModel.Path = normalizePathForModel(pathValue)
 						newModel.PathKeys = parsePathKeys(newModel.Path)
 						newModel.ApplyColorScheme()
@@ -6646,7 +6670,7 @@ func menuActionQuit(m *Model) tea.Cmd {
 		evalExpr = "_"
 	}
 	// Expressions are already properly formatted - don't modify them
-	if _, err := EvaluateExpression(evalExpr, m.Root); err != nil {
+	if _, err := m.evaluateExpression(evalExpr, m.Root); err != nil {
 		m.ErrMsg = fmt.Sprintf("explore expression error: %v", err)
 		m.StatusType = "error"
 		return nil

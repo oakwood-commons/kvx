@@ -163,6 +163,9 @@ func Run(root interface{}, cfg Config, opts ...tea.ProgramOption) error {
 		if cfg.Done != nil {
 			m.DoneChan = cfg.Done
 		}
+		if cfg.ExpressionProvider != nil {
+			m.ExprProvider = cfg.ExpressionProvider
+		}
 		if cfg.KeyMode != "" && ui.IsValidKeyMode(cfg.KeyMode) {
 			m.KeyMode = ui.KeyMode(cfg.KeyMode)
 		}
@@ -235,6 +238,9 @@ func RenderSnapshot(root interface{}, cfg Config) string {
 		}
 		if cfg.DisplaySchema != nil {
 			m.DisplaySchema = cfg.DisplaySchema
+		}
+		if cfg.ExpressionProvider != nil {
+			m.ExprProvider = cfg.ExpressionProvider
 		}
 		if cfg.KeyMode != "" && ui.IsValidKeyMode(cfg.KeyMode) {
 			m.KeyMode = ui.KeyMode(cfg.KeyMode)

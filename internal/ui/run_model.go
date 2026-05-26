@@ -115,7 +115,7 @@ func applyInitialExpr(m *Model, expr string) {
 		m.StatusType = "error"
 		return
 	}
-	isExpr := (strings.Contains(trimmed, "(") && strings.Contains(trimmed, ")")) || IsExpression(trimmed)
+	isExpr := (strings.Contains(trimmed, "(") && strings.Contains(trimmed, ")")) || m.isExpression(trimmed)
 	if isExpr {
 		normalizedPath := normalizePathForModel(trimmed)
 		if navigatedNode, err := navigator.Resolve(m.Root, normalizedPath); err == nil {
@@ -151,7 +151,7 @@ func printPendingCLIExpr(m *Model) {
 	if expr == "" {
 		return
 	}
-	node, err := EvaluateExpression(expr, m.Root)
+	node, err := m.evaluateExpression(expr, m.Root)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "explore expression error: %v\n", err)
 		return
