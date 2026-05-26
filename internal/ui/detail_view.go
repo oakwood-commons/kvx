@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -26,6 +27,12 @@ type renderedSection struct {
 	Title  string   // Section heading (may be empty)
 	Lines  []string // Rendered lines
 	Layout string   // Layout type for reference
+}
+
+// BuildDetailView creates a DetailViewModel from an object using the display schema.
+// This is the public entry point for library consumers (pkg/tui).
+func BuildDetailView(node interface{}, schema *DisplaySchema, width, height int) *DetailViewModel {
+	return buildDetailViewModel(node, schema, width, height)
 }
 
 // buildDetailViewModel creates a DetailViewModel from an object using the display schema.
@@ -119,7 +126,7 @@ func renderDetailSection(obj map[string]interface{}, section DetailSection, widt
 	case DisplayLayoutTags:
 		rs.Lines = renderTagsSection(obj, section.Fields, width, hidden)
 	default: // table
-		rs.Lines = renderTableSection(obj, section.Fields, width, hidden)
+		rs.Lines = renderTableSection(obj, section.Fields, width, hidden, section.ColumnOrder)
 	}
 
 	return rs
@@ -235,7 +242,9 @@ func renderTagsSection(obj map[string]interface{}, fields []string, width int, h
 }
 
 // renderTableSection renders fields as KEY/VALUE rows.
-func renderTableSection(obj map[string]interface{}, fields []string, width int, hidden map[string]bool) []string {
+// When a field contains []map[string]any, it renders an inline columnar table
+// instead of the placeholder "[N items]" text.
+func renderTableSection(obj map[string]interface{}, fields []string, width int, hidden map[string]bool, columnOrder []string) []string {
 	th := CurrentTheme()
 	keyStyle := lipgloss.NewStyle().Foreground(th.KeyColor)
 	valStyle := lipgloss.NewStyle().Foreground(th.ValueColor)
@@ -263,9 +272,17 @@ func renderTableSection(obj map[string]interface{}, fields []string, width int, 
 		if v == nil {
 			continue
 		}
+
+		// Check if this field is a homogeneous array of maps -> render as inline table.
+		if rows, cols := extractNestedTable(v, columnOrder); rows != nil {
+			tbl := renderInlineColumnarTable(cols, rows, width, &th)
+			lines = append(lines, tbl...)
+			continue
+		}
+
 		key := f
 		if len(key) > maxKeyLen {
-			key = runewidth.Truncate(key, maxKeyLen, "…")
+			key = runewidth.Truncate(key, maxKeyLen, "...")
 		}
 		// Pad key to alignment width
 		key += strings.Repeat(" ", maxKeyLen-runewidth.StringWidth(key))
@@ -388,4 +405,139 @@ func (dv *DetailViewModel) RowCount() (count int, selected int, label string) {
 
 func (dv *DetailViewModel) Update(_ tea.Msg) (CustomView, tea.Cmd) {
 	return dv, nil // detail view has no async messages
+}
+
+// ---------------------------------------------------------------------------
+// Nested table helpers (#62)
+// ---------------------------------------------------------------------------
+
+// extractNestedTable checks whether v is a []map[string]any (homogeneous).
+// If so it returns the rows and an ordered list of column names, applying
+// columnOrder to put preferred columns first.  Returns (nil, nil) otherwise.
+func extractNestedTable(v interface{}, columnOrder []string) ([]map[string]interface{}, []string) {
+	// Accept both []interface{} and []map[string]any (typed slices from Go callers).
+	var arr []interface{}
+	switch typed := v.(type) {
+	case []interface{}:
+		arr = typed
+	case []map[string]any:
+		arr = make([]interface{}, len(typed))
+		for i, m := range typed {
+			arr[i] = m
+		}
+	default:
+		return nil, nil
+	}
+	if len(arr) == 0 {
+		return nil, nil
+	}
+
+	rows := make([]map[string]interface{}, 0, len(arr))
+	colSet := map[string]bool{}
+
+	for _, elem := range arr {
+		m, mOK := elem.(map[string]interface{})
+		if !mOK {
+			return nil, nil // not homogeneous maps
+		}
+		rows = append(rows, m)
+		for k := range m {
+			colSet[k] = true
+		}
+	}
+
+	// Build ordered column list: preferred first, then remaining sorted.
+	var cols []string
+	used := map[string]bool{}
+	for _, c := range columnOrder {
+		if colSet[c] {
+			cols = append(cols, c)
+			used[c] = true
+		}
+	}
+	remaining := make([]string, 0, len(colSet))
+	for c := range colSet {
+		if !used[c] {
+			remaining = append(remaining, c)
+		}
+	}
+	sort.Strings(remaining)
+	cols = append(cols, remaining...)
+	return rows, cols
+}
+
+// renderInlineColumnarTable renders a list of maps as a compact columnar table.
+func renderInlineColumnarTable(cols []string, rows []map[string]interface{}, width int, th *Theme) []string {
+	if len(cols) == 0 || len(rows) == 0 {
+		return nil
+	}
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(th.HeaderFG)
+	cellStyle := lipgloss.NewStyle().Foreground(th.ValueColor)
+
+	// Compute column widths from header + data.
+	colWidths := make([]int, len(cols))
+	for i, c := range cols {
+		colWidths[i] = runewidth.StringWidth(c)
+	}
+	cellValues := make([][]string, len(rows))
+	for r, row := range rows {
+		cellValues[r] = make([]string, len(cols))
+		for c, col := range cols {
+			var s string
+			if row[col] != nil {
+				s = fmt.Sprintf("%v", row[col])
+			}
+			cellValues[r][c] = s
+			if w := runewidth.StringWidth(s); w > colWidths[c] {
+				colWidths[c] = w
+			}
+		}
+	}
+
+	// Clamp total width.
+	gap := 2
+	totalWidth := 0
+	for _, w := range colWidths {
+		totalWidth += w
+	}
+	totalWidth += gap * (len(colWidths) - 1) // gaps between columns only
+	if totalWidth > width {
+		// Shrink widest columns proportionally.
+		excess := totalWidth - width
+		for excess > 0 {
+			maxIdx, maxW := 0, 0
+			for i, w := range colWidths {
+				if w > maxW {
+					maxIdx, maxW = i, w
+				}
+			}
+			if maxW <= 3 {
+				break
+			}
+			colWidths[maxIdx]--
+			excess--
+		}
+	}
+
+	// Render header.
+	var headerParts []string
+	for i, col := range cols {
+		cell := runewidth.Truncate(col, colWidths[i], "...")
+		cell += strings.Repeat(" ", colWidths[i]-runewidth.StringWidth(cell))
+		headerParts = append(headerParts, headerStyle.Render(cell))
+	}
+	sep := strings.Repeat(" ", gap)
+	lines := []string{strings.Join(headerParts, sep)}
+
+	// Render rows.
+	for _, cells := range cellValues {
+		var parts []string
+		for i, val := range cells {
+			cell := runewidth.Truncate(val, colWidths[i], "...")
+			cell += strings.Repeat(" ", colWidths[i]-runewidth.StringWidth(cell))
+			parts = append(parts, cellStyle.Render(cell))
+		}
+		lines = append(lines, strings.Join(parts, sep))
+	}
+	return lines
 }

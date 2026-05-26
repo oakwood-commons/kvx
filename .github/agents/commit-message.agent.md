@@ -12,9 +12,11 @@ You are a commit message generator for the **kvx** project. You analyze changes 
 1. Run `git diff --cached --stat` to see staged changes (or `git diff --stat` if nothing staged)
 2. Run `git diff --cached` (or `git diff`) to read the actual changes
 3. **Only reference files that are actually staged or committed** -- do not mention files that are gitignored or untracked, even if they exist on disk
-4. Generate a commit message following the format below
-5. Output the message in a code block for the user to copy
-6. **DO NOT** run `git commit` -- the user will commit manually
+4. Run `gh issue list --state open --limit 50 --json number,title` to find open issues
+5. Match issues to changes in the diff -- include `Closes #NNN` for each resolved issue
+6. Generate a commit message following the format below
+7. Output the message in a code block for the user to copy
+8. **DO NOT** run `git commit` -- the user will commit manually
 
 **IMPORTANT**: Base the commit message solely on what `git diff --cached --stat` reports. If a file doesn't appear in the diff, it is not part of the commit and must not be mentioned in the message.
 
@@ -24,22 +26,28 @@ You are a commit message generator for the **kvx** project. You analyze changes 
 <type>(<scope>): <description>
 
 <body>
+
+<issue references>
 ```
 
 The **description** (first line) appears in the changelog and release notes. Keep it focused and meaningful.
 
 The **body** summarizes what was actually done -- list the key changes as bullet points. Include a body for any commit that touches multiple files or areas. Only skip the body for truly trivial single-file changes.
 
+The **issue references** section lists one `Closes #NNN` per line for each GitHub issue resolved by the changes. Only include issues whose requirements are fully met by the diff.
+
 ### Example
 
 ```
-chore: add AI agents, prompts, skills, and copilot instructions
+feat(tui): add theme selection menu
 
-Add Copilot customization files adapted from abaker9-ai:
-- 5 agents: commit-message, go-build-resolver, go-reviewer, issue-creator, planner
-- 6 prompts: /commit, /go-build, /go-review, /go-test, /issue, /plan
-- 2 skills: golang-patterns, golang-testing
-- Updated copilot-instructions.md with golang-testing skill reference
+Add interactive theme picker accessible via the TUI menu:
+- New theme selection view in internal/ui/
+- Support for all built-in themes (midnight, dark, warm, cool)
+- Preview panel showing theme colors before applying
+- Persist selection to config file
+
+Closes #42
 ```
 
 ### Types (from cliff.toml changelog groups)
@@ -126,7 +134,18 @@ Add `!` after scope and a `BREAKING CHANGE:` footer:
 feat(resolver)!: change resolver output format
 
 BREAKING CHANGE: resolver outputs are now wrapped in a metadata envelope
+
+Closes #123
 ```
+
+## Issue Matching
+
+When matching issues to changes:
+
+1. Read the issue title and compare against the diff
+2. Only claim `Closes` if the diff **fully** implements the issue
+3. If an issue is partially addressed, use `Relates to #NNN` instead
+4. If no issues match, omit the references section
 
 ## Amending Commits
 
@@ -175,6 +194,8 @@ Add interactive theme picker accessible via the TUI menu:
 - Support for all built-in themes (midnight, dark, warm, cool)
 - Preview panel showing theme colors before applying
 - Persist selection to config file
+
+Closes #42
 ```
 
 For amends, also provide the full command:
@@ -186,5 +207,7 @@ Add interactive theme picker accessible via the TUI menu:
 - New theme selection view in internal/ui/
 - Support for all built-in themes (midnight, dark, warm, cool)
 - Preview panel showing theme colors before applying
-- Persist selection to config file"
+- Persist selection to config file
+
+Closes #42"
 ```

@@ -9,6 +9,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/oakwood-commons/kvx/internal/completion"
 	"github.com/oakwood-commons/kvx/internal/navigator"
@@ -2220,4 +2221,56 @@ func TestParseArrayIndex(t *testing.T) {
 	assert.Equal(t, -1, parseArrayIndex("abc"))
 	assert.Equal(t, -1, parseArrayIndex(""))
 	assert.Equal(t, -1, parseArrayIndex("[]"))
+}
+
+// mockExprProvider is a test helper for per-instance expression provider tests.
+type mockExprProvider struct {
+	evaluateCalled bool
+	isExprCalled   bool
+}
+
+func (p *mockExprProvider) Evaluate(_ string, _ interface{}) (interface{}, error) {
+	p.evaluateCalled = true
+	return "mock-result", nil
+}
+
+func (p *mockExprProvider) DiscoverSuggestions() []string { return nil }
+
+func (p *mockExprProvider) IsExpression(_ string) bool {
+	p.isExprCalled = true
+	return true
+}
+
+func TestModel_EvaluateExpression_PerInstance(t *testing.T) {
+	t.Run("uses ExprProvider when set", func(t *testing.T) {
+		mock := &mockExprProvider{}
+		m := &Model{ExprProvider: mock}
+		result, err := m.evaluateExpression("_.x", map[string]any{"x": 1})
+		require.NoError(t, err)
+		assert.Equal(t, "mock-result", result)
+		assert.True(t, mock.evaluateCalled)
+	})
+
+	t.Run("falls back to package-level when nil", func(t *testing.T) {
+		m := &Model{}
+		// Package-level provider (CEL) will evaluate this
+		result, err := m.evaluateExpression("1 + 2", nil)
+		require.NoError(t, err)
+		assert.Equal(t, int64(3), result)
+	})
+}
+
+func TestModel_IsExpression_PerInstance(t *testing.T) {
+	t.Run("uses ExprProvider when set", func(t *testing.T) {
+		mock := &mockExprProvider{}
+		m := &Model{ExprProvider: mock}
+		assert.True(t, m.isExpression("anything"))
+		assert.True(t, mock.isExprCalled)
+	})
+
+	t.Run("falls back to package-level when nil", func(t *testing.T) {
+		m := &Model{}
+		assert.True(t, m.isExpression("_.items.filter(x, x > 0)"))
+		assert.False(t, m.isExpression("simple.path"))
+	})
 }

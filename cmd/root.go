@@ -1173,9 +1173,16 @@ func applySnapshotConfigToModel(m *ui.Model, cfg ui.ThemeConfigFile) {
 	}
 }
 
-func printEvalResult(node interface{}, output string, noColor bool, keyColWidth, valueColWidth int, _ int, width int, appName string, path string, yamlOpts formatter.YAMLFormatOptions, tableOpts formatter.TableFormatOptions, treeOpts formatter.TreeOptions, mermaidOpts formatter.MermaidOptions) {
+func printEvalResult(node interface{}, output string, noColor bool, keyColWidth, valueColWidth int, _ int, width int, appName string, path string, yamlOpts formatter.YAMLFormatOptions, tableOpts formatter.TableFormatOptions, treeOpts formatter.TreeOptions, mermaidOpts formatter.MermaidOptions, displaySchema *tui.DisplaySchema) {
 	switch output {
 	case "table":
+		// Schema-aware rendering for single objects with a detail schema.
+		if displaySchema != nil && displaySchema.Detail != nil {
+			if _, ok := node.(map[string]interface{}); ok {
+				fmt.Print(tui.RenderSchemaView(node, displaySchema, width, noColor)) //nolint:forbidigo
+				return
+			}
+		}
 		// For scalar values, print the raw value instead of a table
 		isCollection, isSimpleArray := classifyNode(node)
 
@@ -1220,6 +1227,13 @@ func printEvalResult(node interface{}, output string, noColor bool, keyColWidth,
 			os.Exit(1)
 		}
 	case "auto":
+		// Schema-aware rendering for single objects with a detail schema.
+		if displaySchema != nil && displaySchema.Detail != nil {
+			if _, ok := node.(map[string]interface{}); ok {
+				fmt.Print(tui.RenderSchemaView(node, displaySchema, width, noColor)) //nolint:forbidigo
+				return
+			}
+		}
 		// Auto mode: use table when readable, fall back to list when columns are too narrow
 		isCollection, isSimpleArray := classifyNode(node)
 
@@ -1425,49 +1439,26 @@ func tableFormatOptionsFromConfig(cfg ui.ThemeConfigFile) formatter.TableFormatO
 		}
 	}
 
-	// When a display schema with list config is present and the user has not
-	// set an explicit column order, derive one from the listed fields so that
-	// non-interactive columnar output shows the same prominent columns as the
-	// TUI list view.
-	if parsedDisplaySchema != nil && parsedDisplaySchema.List != nil && len(opts.ColumnOrder) == 0 {
-		lc := parsedDisplaySchema.List
-		seen := map[string]bool{}
-		var order []string
-		addUnique := func(field string) {
-			if field != "" && !seen[field] {
-				seen[field] = true
-				order = append(order, field)
-			}
-		}
-		addUnique(lc.TitleField)
-		for _, f := range lc.BadgeFields {
-			addUnique(f)
-		}
-		for _, f := range lc.SecondaryFields {
-			addUnique(f)
-		}
-		if lc.SubtitleField != "" {
-			addUnique(lc.SubtitleField)
-		}
-		if len(order) > 0 {
+	// Derive column order and hidden columns from the display schema.
+	// This uses the same logic as tui.DeriveTableOptionsFromSchema but
+	// applies to the formatter-level TableFormatOptions used by the CLI.
+	if parsedDisplaySchema != nil {
+		order, hidden := tui.DeriveTableOptionsFromSchema(parsedDisplaySchema)
+		if len(order) > 0 && len(opts.ColumnOrder) == 0 && len(opts.SelectColumns) == 0 {
 			opts.SelectColumns = order
 		}
-	}
-	// When a display schema with detail config lists hidden fields, merge them
-	// into HiddenColumns (user-specified hidden columns take precedence and
-	// are never removed).
-	if parsedDisplaySchema != nil && parsedDisplaySchema.Detail != nil {
-		existingHidden := make(map[string]bool, len(opts.HiddenColumns))
-		for _, c := range opts.HiddenColumns {
-			existingHidden[c] = true
-		}
-		for _, f := range parsedDisplaySchema.Detail.HiddenFields {
-			if !existingHidden[f] {
-				opts.HiddenColumns = append(opts.HiddenColumns, f)
+		if len(hidden) > 0 {
+			existingHidden := make(map[string]bool, len(opts.HiddenColumns))
+			for _, c := range opts.HiddenColumns {
+				existingHidden[c] = true
+			}
+			for _, f := range hidden {
+				if !existingHidden[f] {
+					opts.HiddenColumns = append(opts.HiddenColumns, f)
+				}
 			}
 		}
 	}
-
 	return opts
 }
 
@@ -2758,7 +2749,7 @@ var rootCmd = &cobra.Command{
 				}
 				treeOpts := treeFormatOptionsFromConfig(cfg, outputWidth, stdoutIsPiped())
 				mermaidOpts := mermaidFormatOptionsFromConfig(cfg)
-				printEvalResult(node, output, noColor, keyW, valueW, outputHeight, outputWidth, appName, "_", yamlOpts, tableOpts, treeOpts, mermaidOpts)
+				printEvalResult(node, output, noColor, keyW, valueW, outputHeight, outputWidth, appName, "_", yamlOpts, tableOpts, treeOpts, mermaidOpts, parsedDisplaySchema)
 				if debugLog && len(dc.events) > 0 {
 					printDebugEvents(dc.events)
 				}
@@ -3124,7 +3115,7 @@ var rootCmd = &cobra.Command{
 		}
 		treeOpts := treeFormatOptionsFromConfig(cfg, outputWidth, stdoutIsPiped())
 		mermaidOpts := mermaidFormatOptionsFromConfig(cfg)
-		printEvalResult(node, output, noColor, keyW, valueW, outputHeight, outputWidth, appNameVal, "_", yamlOpts, tableOpts, treeOpts, mermaidOpts)
+		printEvalResult(node, output, noColor, keyW, valueW, outputHeight, outputWidth, appNameVal, "_", yamlOpts, tableOpts, treeOpts, mermaidOpts, parsedDisplaySchema)
 		if debugLog && len(dc.events) > 0 {
 			printDebugEvents(dc.events)
 		}

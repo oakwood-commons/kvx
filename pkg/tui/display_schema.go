@@ -189,6 +189,9 @@ func extractDisplaySchemaFromJSONSchema(raw map[string]any) *DisplaySchema {
 				if v, ok := sMap["layout"].(string); ok {
 					section.Layout = v
 				}
+				if v, ok := sMap["columnOrder"]; ok {
+					section.ColumnOrder = extractStringArray(v)
+				}
 				detail.Sections = append(detail.Sections, section)
 			}
 		}
