@@ -191,7 +191,7 @@ func TestGetTerminalWidthDefault(t *testing.T) {
 
 func TestRenderTableEmpty(t *testing.T) {
 	node := map[string]any{}
-	result := RenderTable(node, true, 0, 0)
+	result := RenderTable(node, true, 0, 0, nil)
 	if !strings.Contains(result, "KEY") || !strings.Contains(result, "VALUE") {
 		t.Fatalf("expected header, got %q", result)
 	}
@@ -202,7 +202,7 @@ func TestRenderTableSimpleMap(t *testing.T) {
 		"name": "alice",
 		"age":  30,
 	}
-	result := RenderTable(node, true, 0, 0)
+	result := RenderTable(node, true, 0, 0, nil)
 	if !strings.Contains(result, "name") || !strings.Contains(result, "age") {
 		t.Fatalf("expected keys in output, got %q", result)
 	}
@@ -213,7 +213,7 @@ func TestRenderTableSimpleMap(t *testing.T) {
 
 func TestRenderTableArray(t *testing.T) {
 	node := []any{"item1", "item2"}
-	result := RenderTable(node, true, 0, 0)
+	result := RenderTable(node, true, 0, 0, nil)
 	if !strings.Contains(result, "[0]") || !strings.Contains(result, "[1]") {
 		t.Fatalf("expected array indices, got %q", result)
 	}
@@ -224,7 +224,7 @@ func TestRenderTableArray(t *testing.T) {
 
 func TestRenderTableScalar(t *testing.T) {
 	node := "simple value"
-	result := RenderTable(node, true, 0, 0)
+	result := RenderTable(node, true, 0, 0, nil)
 	// Check for "(value)" label - matches navigator.ScalarValueKey
 	if !strings.Contains(result, "(value)") {
 		t.Fatalf("expected '(value)' label, got %q", result)
@@ -236,7 +236,7 @@ func TestRenderTableScalar(t *testing.T) {
 
 func TestRenderTableWithColor(t *testing.T) {
 	node := map[string]any{"key": "value"}
-	result := RenderTable(node, false, 0, 0)
+	result := RenderTable(node, false, 0, 0, nil)
 	// With color enabled, lipgloss adds ANSI codes
 	if !strings.Contains(result, "key") {
 		t.Fatalf("expected 'key' in colored output, got %q", result)
@@ -245,7 +245,7 @@ func TestRenderTableWithColor(t *testing.T) {
 
 func TestRenderTableNoColor(t *testing.T) {
 	node := map[string]any{"key": "value"}
-	result := RenderTable(node, true, 0, 0)
+	result := RenderTable(node, true, 0, 0, nil)
 	// Without color, output should be plain text
 	if !strings.Contains(result, "key") {
 		t.Fatalf("expected 'key' in no-color output, got %q", result)
@@ -260,7 +260,7 @@ func TestRenderTableTruncation(t *testing.T) {
 	node := map[string]any{
 		"very_long_key_name_that_exceeds_normal_width": "value",
 	}
-	result := RenderTable(node, true, 0, 0)
+	result := RenderTable(node, true, 0, 0, nil)
 	// Key should be truncated or wrapped
 	lines := strings.Split(result, "\n")
 	if len(lines) < 2 {
@@ -274,7 +274,7 @@ func TestRenderTableMultipleRows(t *testing.T) {
 		"b": "value_b",
 		"c": "value_c",
 	}
-	result := RenderTable(node, true, 0, 0)
+	result := RenderTable(node, true, 0, 0, nil)
 	lines := strings.Split(result, "\n")
 	// Header + separator + 3 rows + empty line
 	if len(lines) < 5 {
@@ -391,7 +391,7 @@ func TestRenderTableFitContent_Basic(t *testing.T) {
 		{"name", "Alice"},
 		{"city", "NYC"},
 	}
-	result := RenderTableFitContent(rows, true, 0)
+	result := RenderTableFitContent(rows, true, 0, nil)
 	if result == "" {
 		t.Fatal("expected non-empty output")
 	}
@@ -410,10 +410,62 @@ func TestRenderTableFitContent_WithMaxWidth(t *testing.T) {
 	rows := [][]string{
 		{"name", "A very long value that should be truncated somehow"},
 	}
-	result := RenderTableFitContent(rows, true, 30)
+	result := RenderTableFitContent(rows, true, 30, nil)
 	if result == "" {
 		t.Fatal("expected non-empty output")
 	}
+}
+
+func TestReorderRows(t *testing.T) {
+	rows := [][]string{
+		{"age", "30"},
+		{"city", "NYC"},
+		{"name", "Alice"},
+	}
+
+	t.Run("nil order returns unchanged", func(t *testing.T) {
+		got := reorderRows(rows, nil)
+		assert.Equal(t, rows, got)
+	})
+
+	t.Run("empty order returns unchanged", func(t *testing.T) {
+		got := reorderRows(rows, []string{})
+		assert.Equal(t, rows, got)
+	})
+
+	t.Run("reorders specified keys first", func(t *testing.T) {
+		got := reorderRows(rows, []string{"name", "city"})
+		assert.Equal(t, "name", got[0][0])
+		assert.Equal(t, "city", got[1][0])
+		assert.Equal(t, "age", got[2][0])
+	})
+
+	t.Run("unmatched order keys are skipped", func(t *testing.T) {
+		got := reorderRows(rows, []string{"missing", "name"})
+		assert.Equal(t, "name", got[0][0])
+		assert.Equal(t, "age", got[1][0])
+		assert.Equal(t, "city", got[2][0])
+	})
+
+	t.Run("empty rows returns empty", func(t *testing.T) {
+		got := reorderRows(nil, []string{"name"})
+		assert.Nil(t, got)
+	})
+}
+
+func TestRenderTableFitContent_WithColumnOrder(t *testing.T) {
+	rows := [][]string{
+		{"age", "30"},
+		{"city", "NYC"},
+		{"name", "Alice"},
+	}
+	result := RenderTableFitContent(rows, true, 0, []string{"name", "city"})
+	lines := strings.Split(strings.TrimRight(result, "\n"), "\n")
+	// Skip header (line 0) and separator (line 1)
+	assert.GreaterOrEqual(t, len(lines), 5)
+	assert.Contains(t, lines[2], "name")
+	assert.Contains(t, lines[3], "city")
+	assert.Contains(t, lines[4], "age")
 }
 
 func TestRenderRows_Basic(t *testing.T) {
@@ -443,7 +495,7 @@ func TestRenderRows_DefaultWidths(t *testing.T) {
 
 func TestRenderTable_Map(t *testing.T) {
 	data := map[string]interface{}{"name": "test", "count": 42}
-	result := RenderTable(data, true, 20, 40)
+	result := RenderTable(data, true, 20, 40, nil)
 	if result == "" {
 		t.Fatal("expected non-empty output")
 	}
@@ -457,7 +509,7 @@ func TestRenderTable_Array(t *testing.T) {
 		map[string]interface{}{"name": "alice"},
 		map[string]interface{}{"name": "bob"},
 	}
-	result := RenderTable(data, true, 20, 40)
+	result := RenderTable(data, true, 20, 40, nil)
 	if result == "" {
 		t.Fatal("expected non-empty output")
 	}
@@ -469,7 +521,7 @@ func TestRenderMultilineRow_SplitsLines(t *testing.T) {
 	t.Cleanup(func() { SetMaxValueLines(orig) })
 
 	node := map[string]any{"msg": "line1\nline2\nline3"}
-	out := RenderTable(node, true, 10, 30)
+	out := RenderTable(node, true, 10, 30, nil)
 
 	assert.Contains(t, out, "line1")
 	assert.Contains(t, out, "line2")
@@ -492,7 +544,7 @@ func TestRenderMultilineRow_DisabledEscapesNewlines(t *testing.T) {
 	t.Cleanup(func() { SetMaxValueLines(orig) })
 
 	node := map[string]any{"msg": "line1\nline2"}
-	out := RenderTable(node, true, 10, 40)
+	out := RenderTable(node, true, 10, 40, nil)
 
 	// With multi-line disabled, value should be flattened with escaped newlines
 	assert.Contains(t, out, `line1\nline2`)
@@ -510,7 +562,7 @@ func TestRenderMultilineRow_TruncatesWithIndicator(t *testing.T) {
 	t.Cleanup(func() { SetMaxValueLines(orig) })
 
 	node := map[string]any{"data": "a\nb\nc\nd\ne"}
-	out := RenderTable(node, true, 10, 20)
+	out := RenderTable(node, true, 10, 20, nil)
 
 	// First 3 lines should appear
 	assert.Contains(t, out, "a")
@@ -534,7 +586,7 @@ func TestRenderMultilineRow_UnlimitedShowsAll(t *testing.T) {
 	t.Cleanup(func() { SetMaxValueLines(orig) })
 
 	node := map[string]any{"data": "a\nb\nc\nd\ne"}
-	out := RenderTable(node, true, 10, 20)
+	out := RenderTable(node, true, 10, 20, nil)
 
 	for _, ch := range []string{"a", "b", "c", "d", "e"} {
 		assert.Contains(t, out, ch)
@@ -578,19 +630,19 @@ func TestRenderMultilineRow_ColorBranches(t *testing.T) {
 	// Enabled mode with color
 	SetMaxValueLines(10)
 	node := map[string]any{"key": "a\nb"}
-	out := RenderTable(node, false, 10, 20)
+	out := RenderTable(node, false, 10, 20, nil)
 	assert.Contains(t, out, "a")
 	assert.Contains(t, out, "b")
 
 	// Disabled mode with color
 	SetMaxValueLines(0)
-	out = RenderTable(node, false, 10, 30)
+	out = RenderTable(node, false, 10, 30, nil)
 	assert.Contains(t, out, `a\nb`)
 
 	// Truncation with color
 	SetMaxValueLines(2)
 	node2 := map[string]any{"k": "x\ny\nz\nw"}
-	out = RenderTable(node2, false, 10, 20)
+	out = RenderTable(node2, false, 10, 20, nil)
 	assert.Contains(t, out, "...")
 }
 
@@ -601,7 +653,7 @@ func TestRenderMultilineRow_TrailingEmptyLineTrimmed(t *testing.T) {
 
 	// YAML block scalars often have a trailing newline -> trailing empty line
 	node := map[string]any{"note": "line1\nline2\n"}
-	out := RenderTable(node, true, 10, 20)
+	out := RenderTable(node, true, 10, 20, nil)
 	// Should show 2 lines, not 3 (trailing empty trimmed)
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	var valueLines int
@@ -630,7 +682,71 @@ func TestRenderTableFitContent_ColorBranches(t *testing.T) {
 	t.Cleanup(func() { SetMaxValueLines(orig) })
 
 	rows := [][]string{{"key", "a\nb"}}
-	out := RenderTableFitContent(rows, false, 0)
+	out := RenderTableFitContent(rows, false, 0, nil)
 	assert.Contains(t, out, "a")
 	assert.Contains(t, out, "b")
+}
+
+func TestOrderedMapKeys(t *testing.T) {
+	m := map[string]any{"delta": 4, "alpha": 1, "charlie": 3, "bravo": 2}
+
+	tests := []struct {
+		name        string
+		columnOrder []string
+		want        []string
+	}{
+		{
+			name:        "nil order returns alphabetical",
+			columnOrder: nil,
+			want:        []string{"alpha", "bravo", "charlie", "delta"},
+		},
+		{
+			name:        "empty order returns alphabetical",
+			columnOrder: []string{},
+			want:        []string{"alpha", "bravo", "charlie", "delta"},
+		},
+		{
+			name:        "partial order places specified first",
+			columnOrder: []string{"charlie", "alpha"},
+			want:        []string{"charlie", "alpha", "bravo", "delta"},
+		},
+		{
+			name:        "full order preserves exact order",
+			columnOrder: []string{"delta", "bravo", "charlie", "alpha"},
+			want:        []string{"delta", "bravo", "charlie", "alpha"},
+		},
+		{
+			name:        "non-existent keys are skipped",
+			columnOrder: []string{"missing", "alpha", "gone"},
+			want:        []string{"alpha", "bravo", "charlie", "delta"},
+		},
+		{
+			name:        "duplicate keys in columnOrder are deduplicated",
+			columnOrder: []string{"alpha", "alpha", "bravo", "alpha"},
+			want:        []string{"alpha", "bravo", "charlie", "delta"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := orderedMapKeys(m, tt.columnOrder)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestRenderTable_MapWithColumnOrder(t *testing.T) {
+	data := map[string]any{"zebra": "z", "apple": "a", "mango": "m", "banana": "b"}
+	result := RenderTable(data, true, 20, 40, []string{"mango", "apple"})
+
+	lines := strings.Split(strings.TrimRight(result, "\n"), "\n")
+	// lines[0] = header, lines[1] = separator, lines[2..] = data rows
+	assert.GreaterOrEqual(t, len(lines), 6, "expected header + separator + 4 data rows")
+
+	// First two data rows should be mango and apple (in ColumnOrder)
+	assert.Contains(t, lines[2], "mango")
+	assert.Contains(t, lines[3], "apple")
+	// Remaining rows should be alphabetical: banana, zebra
+	assert.Contains(t, lines[4], "banana")
+	assert.Contains(t, lines[5], "zebra")
 }

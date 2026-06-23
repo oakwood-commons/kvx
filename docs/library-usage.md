@@ -186,7 +186,7 @@ tui.RenderTable(root, tui.TableOptions{
     Bordered:     true,
     ColumnarMode: tui.ColumnarModeAuto,       // "auto" (default), "always", or "never"
     ArrayStyle:   tui.ArrayStyleNumbered,      // "numbered" (default), "index", "bullet", "none"
-    ColumnOrder:  []string{"name", "version"}, // preferred column order
+    ColumnOrder:  []string{"name", "version"}, // preferred column order (arrays and single maps)
     HiddenColumns: []string{"sha"},            // columns to omit
 })
 ```
@@ -436,7 +436,7 @@ tui.Run(root, cfg)
 | `engine.Evaluate(expr, root)` | Run a CEL expression |
 | `engine.NodeAtPath(root, path)` | Navigate to a nested node |
 | `engine.Rows(node)` | Convert a node to `[][]string` rows |
-| `engine.RenderTable(node, noColor, keyW, valW)` | Render a plain KEY/VALUE table (no columnar detection — use `tui.RenderTable` for arrays) |
+| `engine.RenderTable(node, noColor, keyW, valW, columnOrder)` | Render a plain KEY/VALUE table (no columnar detection -- use `tui.RenderTable` for arrays) |
 | `engine.Stringify(node)` | Render a scalar as a display string |
 
 ### `pkg/tui`
@@ -446,7 +446,7 @@ tui.Run(root, cfg)
 | `tui.Run(root, cfg, opts...)` | Launch the interactive TUI |
 | `tui.Render(node, format, opts)` | Render using an `OutputFormat` (`FormatTable`, `FormatList`, `FormatTree`, `FormatMermaid`, `FormatYAML`, `FormatJSON`) |
 | `tui.RenderTable(node, opts)` | Render a static table (bordered or plain; auto-detects columnar mode for arrays) |
-| `tui.RenderList(node, noColor)` | Render a vertical list (properties stacked per object, like `-o list`) |
+| `tui.RenderList(node, opts)` | Render a vertical list (properties stacked per object, like `-o list`) |
 | `tui.RenderTree(node, opts)` | Render an ASCII tree structure (like `-o tree`) |
 | `tui.RenderMermaid(node, opts)` | Render a Mermaid flowchart diagram (like `-o mermaid`) |
 | `tui.RenderSnapshot(root, cfg)` | Render a full TUI frame as a string |

@@ -195,6 +195,7 @@ var (
 	debug           bool
 	noColor         bool
 	arrayStyle      string // index, numbered, bullet, none
+	columnOrder     []string
 	renderSnapshot  bool
 	helpInteractive bool //nolint:unused // preserved for tests
 	startKeys       []string
@@ -576,7 +577,7 @@ func renderBorderedTableWithOptions(node interface{}, noColor bool, keyColWidth,
 			ValueColor:     th.ValueColor,
 			SeparatorColor: th.SeparatorColor,
 		})
-		tableView = formatter.RenderTableFitContent(rows, noColor, tableWidth-2)
+		tableView = formatter.RenderTableFitContent(rows, noColor, tableWidth-2, tableOpts.ColumnOrder)
 	} else {
 		// Use standard layout-based rendering for wide data
 		tableView = renderTableFromNode(node, noColor, keyColWidth, valueColWidth, tableWidth, tableOpts)
@@ -1097,6 +1098,7 @@ func renderTableFromNode(node interface{}, noColor bool, keyColWidth, valueColWi
 		Bordered:      false,
 		ArrayStyle:    tableOpts.ArrayStyle,
 		ColumnarMode:  tableOpts.ColumnarMode,
+		ColumnOrder:   tableOpts.ColumnOrder,
 	})
 	if !strings.HasSuffix(output, "\n") {
 		output += "\n"
@@ -1277,8 +1279,10 @@ func printEvalResult(node interface{}, output string, noColor bool, keyColWidth,
 						} else {
 							// Table would be unreadable even after dropping columns — fall back to list view
 							listOpts := formatter.ListOptions{
-								NoColor:    noColor,
-								ArrayStyle: arrayStyle,
+								NoColor:       noColor,
+								ArrayStyle:    arrayStyle,
+								ColumnOrder:   tableOpts.ColumnOrder,
+								HiddenColumns: tableOpts.HiddenColumns,
 							}
 							fmt.Print(formatter.FormatAsList(node, listOpts)) //nolint:forbidigo
 						}
@@ -1292,8 +1296,10 @@ func printEvalResult(node interface{}, output string, noColor bool, keyColWidth,
 		}
 	case "list":
 		listOpts := formatter.ListOptions{
-			NoColor:    noColor,
-			ArrayStyle: arrayStyle,
+			NoColor:       noColor,
+			ArrayStyle:    arrayStyle,
+			ColumnOrder:   tableOpts.ColumnOrder,
+			HiddenColumns: tableOpts.HiddenColumns,
 		}
 		fmt.Print(formatter.FormatAsList(node, listOpts)) //nolint:forbidigo
 	case "tree":
@@ -1360,6 +1366,10 @@ func tableFormatOptionsFromConfig(cfg ui.ThemeConfigFile) formatter.TableFormatO
 	}
 	if len(cfg.Formatting.Table.ColumnOrder) > 0 {
 		opts.ColumnOrder = cfg.Formatting.Table.ColumnOrder
+	}
+	// CLI --column-order flag overrides config
+	if len(columnOrder) > 0 {
+		opts.ColumnOrder = columnOrder
 	}
 	if len(cfg.Formatting.Table.HiddenColumns) > 0 {
 		opts.HiddenColumns = cfg.Formatting.Table.HiddenColumns
@@ -3138,6 +3148,7 @@ func init() { //nolint:gochecknoinits
 	rootCmd.Flags().IntVar(&debugMaxEvents, "debug-max-events", 200, "maximum number of debug events to keep (default: 200)")
 	rootCmd.Flags().BoolVar(&noColor, "no-color", false, "disable color output")
 	rootCmd.Flags().StringVar(&arrayStyle, "array-style", "none", "Array index style: none, index, numbered, bullet")
+	rootCmd.Flags().StringSliceVar(&columnOrder, "column-order", nil, "Preferred key display order (comma-separated). Keys not listed are appended alphabetically")
 	rootCmd.Flags().BoolVar(&renderSnapshot, "snapshot", false, "render a single TUI snapshot and exit (dev/test); honors --width/--height")
 	rootCmd.Flags().StringVar(&keyMode, "keymap", "", "keybinding mode: vim (default), emacs, or function")
 	rootCmd.Flags().StringArrayVar(&startKeys, "press", nil, "Simulate keys on startup. Use <Key> for special keys (e.g. <F3>, <F6>, <Enter>, <Esc>, <Tab>). Literal text types normally. Examples: --press \"<F3>search\" or --press \"<F6>_.items[0]\"")

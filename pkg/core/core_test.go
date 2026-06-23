@@ -130,7 +130,7 @@ func TestEngineRenderTable(t *testing.T) {
 		t.Fatalf("New() error: %v", err)
 	}
 	node := map[string]interface{}{"key": "value"}
-	result := engine.RenderTable(node, true, 20, 40)
+	result := engine.RenderTable(node, true, 20, 40, nil)
 	if result == "" {
 		t.Fatal("RenderTable returned empty string")
 	}
@@ -198,7 +198,7 @@ func TestEngineRowsNilNavigator(t *testing.T) {
 
 func TestEngineRenderTableNil(t *testing.T) {
 	engine := &Engine{}
-	result := engine.RenderTable(map[string]interface{}{"a": 1}, true, 20, 40)
+	result := engine.RenderTable(map[string]interface{}{"a": 1}, true, 20, 40, nil)
 	// ensureFormatter fills it in
 	if result == "" {
 		t.Fatal("expected non-empty after ensureFormatter")

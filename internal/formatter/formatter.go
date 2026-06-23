@@ -6,7 +6,6 @@ import (
 	"image/color"
 	"os"
 	"reflect"
-	"sort"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -269,10 +268,42 @@ func CalculateNaturalTableWidth(rows [][]string) int {
 	return maxKeyWidth + sepWidth + maxValWidth
 }
 
+// reorderRows reorders key-value row pairs according to columnOrder.
+// Rows whose key (first element) appears in columnOrder come first in that order;
+// remaining rows keep their original relative order.
+func reorderRows(rows [][]string, columnOrder []string) [][]string {
+	if len(columnOrder) == 0 || len(rows) == 0 {
+		return rows
+	}
+
+	ordered := make([][]string, 0, len(rows))
+	used := make(map[int]bool, len(columnOrder))
+
+	for _, col := range columnOrder {
+		for i, row := range rows {
+			if len(row) > 0 && row[0] == col && !used[i] {
+				ordered = append(ordered, row)
+				used[i] = true
+				break
+			}
+		}
+	}
+
+	for i, row := range rows {
+		if !used[i] {
+			ordered = append(ordered, row)
+		}
+	}
+
+	return ordered
+}
+
 // RenderTableFitContent renders a KEY/VALUE table sized to fit its content.
 // maxWidth limits the table width (truncation occurs if content exceeds it).
 // If maxWidth is 0, no truncation is applied.
-func RenderTableFitContent(rows [][]string, noColor bool, maxWidth int) string {
+// columnOrder specifies the preferred key ordering for rows; nil means no reordering.
+func RenderTableFitContent(rows [][]string, noColor bool, maxWidth int, columnOrder []string) string {
+	rows = reorderRows(rows, columnOrder)
 	sepWidth := 2
 	sep := strings.Repeat(" ", sepWidth)
 
@@ -360,7 +391,7 @@ func RenderTableFitContent(rows [][]string, noColor bool, maxWidth int) string {
 // with terminal width awareness, value truncation, and color styling
 // keyColWidth: width for KEY column (0 = use default 30)
 // valueColWidth: width for VALUE column (0 = auto-calculate from remaining space)
-func RenderTable(node any, noColor bool, keyColWidth, valueColWidth int) string {
+func RenderTable(node any, noColor bool, keyColWidth, valueColWidth int, columnOrder []string) string {
 	// Caller supplies column widths based on their layout (panel width). Do not
 	// recompute from terminal width here or the rendered rows will overflow the
 	// caller's panel (causing wrapping in interactive mode).
@@ -403,12 +434,7 @@ func RenderTable(node any, noColor bool, keyColWidth, valueColWidth int) string 
 
 	switch t := node.(type) {
 	case map[string]any:
-		// sort keys for deterministic output
-		keys := make([]string, 0, len(t))
-		for k := range t {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
+		keys := orderedMapKeys(t, columnOrder)
 		for _, k := range keys {
 			v := t[k]
 			keyStr := padRight(truncate(k, keyWidth), keyWidth)

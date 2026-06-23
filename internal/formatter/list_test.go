@@ -215,3 +215,65 @@ func TestFormatAsListMapSortedKeys(t *testing.T) {
 		}
 	}
 }
+
+func TestFormatAsListMapWithColumnOrder(t *testing.T) {
+	m := map[string]interface{}{
+		"zebra": "z",
+		"apple": "a",
+		"mango": "m",
+	}
+	result := FormatAsList(m, ListOptions{NoColor: true, ColumnOrder: []string{"mango", "apple"}})
+
+	lines := strings.Split(strings.TrimSpace(result), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 lines, got %d: %q", len(lines), result)
+	}
+
+	// mango first, then apple, then zebra (remaining alphabetical)
+	expected := []string{"mango: m", "apple: a", "zebra: z"}
+	for i, line := range lines {
+		if line != expected[i] {
+			t.Fatalf("expected line %d to be %q, got %q", i, expected[i], line)
+		}
+	}
+}
+
+func TestFormatAsListArrayOfObjectsWithColumnOrder(t *testing.T) {
+	arr := []interface{}{
+		map[string]interface{}{"name": "Alice", "age": 30, "city": "NYC"},
+		map[string]interface{}{"name": "Bob", "age": 25, "city": "LA"},
+	}
+	result := FormatAsList(arr, ListOptions{
+		NoColor:     true,
+		ArrayStyle:  "index",
+		ColumnOrder: []string{"city", "name"},
+	})
+
+	// Each object's keys should be ordered: city, name, age
+	lines := strings.Split(strings.TrimSpace(result), "\n")
+
+	// Find the first object's property lines (after [0] header)
+	var firstObjLines []string
+	for _, line := range lines[1:] {
+		if strings.HasPrefix(line, "[") {
+			break
+		}
+		if strings.TrimSpace(line) != "" {
+			firstObjLines = append(firstObjLines, strings.TrimSpace(line))
+		}
+	}
+
+	if len(firstObjLines) != 3 {
+		t.Fatalf("expected 3 property lines for first object, got %d: %v", len(firstObjLines), firstObjLines)
+	}
+
+	if !strings.HasPrefix(firstObjLines[0], "city:") {
+		t.Fatalf("expected first property to be 'city', got %q", firstObjLines[0])
+	}
+	if !strings.HasPrefix(firstObjLines[1], "name:") {
+		t.Fatalf("expected second property to be 'name', got %q", firstObjLines[1])
+	}
+	if !strings.HasPrefix(firstObjLines[2], "age:") {
+		t.Fatalf("expected third property to be 'age' (remaining alphabetical), got %q", firstObjLines[2])
+	}
+}
