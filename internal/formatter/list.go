@@ -1,6 +1,7 @@
 package formatter
 
 import (
+	"slices"
 	"strings"
 )
 
@@ -9,6 +10,7 @@ type ListOptions struct {
 	NoColor       bool     // disable color output
 	ArrayStyle    string   // array index style: index, numbered, bullet, none
 	HiddenColumns []string // columns to exclude from output
+	ColumnOrder   []string // preferred key display order; unlisted keys appended alphabetically
 }
 
 // FormatAsList renders data in a vertical list format.
@@ -22,7 +24,7 @@ func FormatAsList(node interface{}, opts ListOptions) string {
 	case []interface{}:
 		b.WriteString(formatArrayAsList(v, opts))
 	case map[string]interface{}:
-		b.WriteString(formatMapAsList(v, "", opts.NoColor, opts.HiddenColumns))
+		b.WriteString(formatMapAsList(v, "", opts.NoColor, opts.ColumnOrder, opts.HiddenColumns))
 	default:
 		// Scalar values: display with "value:" label
 		labelStr := "value"
@@ -87,7 +89,7 @@ func formatArrayAsList(arr []interface{}, opts ListOptions) string {
 				indent = ""
 			}
 			if m, ok := elem.(map[string]interface{}); ok {
-				b.WriteString(formatMapAsList(m, indent, opts.NoColor, opts.HiddenColumns))
+				b.WriteString(formatMapAsList(m, indent, opts.NoColor, opts.ColumnOrder, opts.HiddenColumns))
 			}
 		}
 	} else {
@@ -101,15 +103,15 @@ func formatArrayAsList(arr []interface{}, opts ListOptions) string {
 	return b.String()
 }
 
-func formatMapAsList(m map[string]interface{}, indent string, noColor bool, hiddenColumns ...[]string) string {
+func formatMapAsList(m map[string]interface{}, indent string, noColor bool, columnOrder []string, hiddenColumns ...[]string) string {
 	if len(m) == 0 {
 		return ""
 	}
 
 	var b strings.Builder
 
-	// Get sorted keys for consistent output
-	keys := getSortedKeys(m)
+	// Get keys ordered by columnOrder (falls back to alphabetical when empty)
+	keys := orderedMapKeys(m, columnOrder)
 
 	// Filter out hidden columns when provided
 	if len(hiddenColumns) > 0 && len(hiddenColumns[0]) > 0 {
@@ -164,18 +166,38 @@ func getSortedKeys(m map[string]interface{}) []string {
 		keys = append(keys, k)
 	}
 
-	// Sort for consistent output
-	sortStringSlice(keys)
+	slices.Sort(keys)
 	return keys
 }
 
-// sortStringSlice sorts a slice of strings in place
-func sortStringSlice(s []string) {
-	for i := 0; i < len(s); i++ {
-		for j := i + 1; j < len(s); j++ {
-			if s[j] < s[i] {
-				s[i], s[j] = s[j], s[i]
-			}
+// orderedMapKeys returns map keys ordered by columnOrder first, then remaining
+// keys in alphabetical order. Keys in columnOrder that do not exist in the map
+// are skipped. When columnOrder is nil or empty, all keys are returned sorted.
+func orderedMapKeys(m map[string]any, columnOrder []string) []string {
+	if len(columnOrder) == 0 {
+		return getSortedKeys(m)
+	}
+
+	result := make([]string, 0, len(m))
+	used := make(map[string]bool, len(columnOrder))
+
+	for _, key := range columnOrder {
+		if used[key] {
+			continue
+		}
+		if _, exists := m[key]; exists {
+			result = append(result, key)
+			used[key] = true
 		}
 	}
+
+	remaining := make([]string, 0, len(m))
+	for k := range m {
+		if !used[k] {
+			remaining = append(remaining, k)
+		}
+	}
+	slices.Sort(remaining)
+
+	return append(result, remaining...)
 }

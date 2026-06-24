@@ -108,15 +108,24 @@ func captureOutput(t *testing.T, fn func()) string {
 		t.Fatalf("pipe: %v", err)
 	}
 	os.Stdout = w
+	// Drain the pipe in a goroutine to prevent deadlock when output
+	// exceeds the OS pipe buffer (4 KB on Windows).
+	var buf bytes.Buffer
+	var copyErr error
+	done := make(chan struct{})
+	go func() {
+		_, copyErr = io.Copy(&buf, r)
+		close(done)
+	}()
 	// Run function
 	fn()
-	// Restore stdout and close writer
+	// Restore stdout and close writer so the reader goroutine sees EOF.
 	_ = w.Close()
 	os.Stdout = orig
-	// Read captured output
-	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, r); err != nil {
-		t.Fatalf("copy: %v", err)
+	// Wait for the reader to finish.
+	<-done
+	if copyErr != nil {
+		t.Fatalf("copy: %v", copyErr)
 	}
 	_ = r.Close()
 	return buf.String()
@@ -133,6 +142,7 @@ func resetRootCmdState() {
 	renderSnapshot = false
 	helpInteractive = false
 	configMode = false
+	columnOrder = nil
 	startKeys = nil
 	snapshotWidth = 0
 	snapshotHeight = 0
@@ -145,6 +155,10 @@ func resetRootCmdState() {
 	rootCmd.Flags().VisitAll(func(f *pflag.Flag) {
 		_ = f.Value.Set(f.DefValue)
 	})
+	// StringSliceVar flags reset to "[]" which cobra parses as []string{"[]"};
+	// explicitly clear slice vars after VisitAll.
+	columnOrder = nil
+	startKeys = nil
 }
 
 func runCLI(t *testing.T, args []string) string {
@@ -2441,4 +2455,53 @@ func TestCLI_AutoFallsBackToListExtremeNarrow(t *testing.T) {
 	})
 	// Should still produce output
 	assert.NotEmpty(t, out)
+}
+
+func TestCLI_ColumnOrderFlag_Table(t *testing.T) {
+	out := runCLI(t, []string{
+		"kvx", filepath.Join("..", "tests", "sample.yaml"),
+		"--no-color", "-e", "_.items[0]", "-o", "table",
+		"--column-order", "name,price,stock",
+	})
+	// Extract keys from the first column of bordered output (│KEY  VALUE│ format).
+	// Only consider data rows — skip header, separator, and footer lines.
+	knownKeys := map[string]bool{
+		"name": true, "price": true, "stock": true,
+		"available": true, "origin": true, "tags": true, "vendor": true,
+	}
+	lines := strings.Split(out, "\n")
+	var keyOrder []string
+	for _, line := range lines {
+		// Strip border character and leading space to get "KEY  VALUE..." content
+		trimmed := strings.TrimLeft(line, "│ ")
+		if trimmed == "" {
+			continue
+		}
+		// First whitespace-delimited token is the key
+		fields := strings.Fields(trimmed)
+		if len(fields) == 0 {
+			continue
+		}
+		candidate := fields[0]
+		if knownKeys[candidate] {
+			keyOrder = append(keyOrder, candidate)
+		}
+	}
+	assert.GreaterOrEqual(t, len(keyOrder), 3)
+	assert.Equal(t, "name", keyOrder[0])
+	assert.Equal(t, "price", keyOrder[1])
+	assert.Equal(t, "stock", keyOrder[2])
+}
+
+func TestCLI_ColumnOrderFlag_List(t *testing.T) {
+	out := runCLI(t, []string{
+		"kvx", filepath.Join("..", "tests", "sample.yaml"),
+		"--no-color", "-e", "_.items[0]", "-o", "list",
+		"--column-order", "name,price,stock",
+	})
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	assert.GreaterOrEqual(t, len(lines), 3)
+	assert.True(t, strings.HasPrefix(lines[0], "name:"))
+	assert.True(t, strings.HasPrefix(lines[1], "price:"))
+	assert.True(t, strings.HasPrefix(lines[2], "stock:"))
 }

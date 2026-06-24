@@ -379,10 +379,10 @@ func RenderTable(node any, opts TableOptions) string {
 			rowOpts.ArrayStyle = opts.ArrayStyle
 		}
 		rows := navigator.NodeToRowsWithOptions(node, rowOpts)
-		tableView = formatter.RenderTableFitContent(rows, opts.NoColor, tableWidth-2)
+		tableView = formatter.RenderTableFitContent(rows, opts.NoColor, tableWidth-2, opts.ColumnOrder)
 	} else {
 		engine := &core.Engine{}
-		tableView = engine.RenderTable(node, opts.NoColor, keyW, valueW)
+		tableView = engine.RenderTable(node, opts.NoColor, keyW, valueW, opts.ColumnOrder)
 	}
 
 	// If not bordered, return just the table content
@@ -762,7 +762,7 @@ func renderStandardTable(node any, opts TableOptions, termWidth int) string {
 	}
 
 	engine := &core.Engine{}
-	return engine.RenderTable(node, opts.NoColor, keyW, valueW)
+	return engine.RenderTable(node, opts.NoColor, keyW, valueW, opts.ColumnOrder)
 }
 
 // RenderList renders data in a vertical list format.
@@ -772,9 +772,9 @@ func renderStandardTable(node any, opts TableOptions, termWidth int) string {
 // This is the counterpart to RenderTable: use RenderTable for columnar output
 // and RenderList for vertical per-object output.
 //
-//	fmt.Print(tui.RenderList(data, false))
-func RenderList(node any, noColor bool) string {
-	return formatter.FormatAsList(node, formatter.ListOptions{NoColor: noColor})
+//	fmt.Print(tui.RenderList(data, tui.ListOptions{}))
+func RenderList(node any, opts ListOptions) string {
+	return formatter.FormatAsList(node, opts)
 }
 
 // ListOptions controls list output formatting.
@@ -821,7 +821,12 @@ func Render(node any, format OutputFormat, opts TableOptions) string {
 	case FormatTable:
 		return RenderTable(node, opts)
 	case FormatList:
-		return RenderList(node, opts.NoColor)
+		return RenderList(node, ListOptions{
+			NoColor:       opts.NoColor,
+			ArrayStyle:    opts.ArrayStyle,
+			HiddenColumns: opts.HiddenColumns,
+			ColumnOrder:   opts.ColumnOrder,
+		})
 	case FormatYAML:
 		return renderYAML(node)
 	case FormatJSON:

@@ -134,7 +134,7 @@ func TestRenderBorderedTable(t *testing.T) {
 
 func TestRenderList(t *testing.T) {
 	node := map[string]any{"name": "test", "items": []any{1, 2, 3}}
-	out := RenderList(node, true)
+	out := RenderList(node, ListOptions{NoColor: true})
 	if out == "" {
 		t.Fatal("expected non-empty output")
 	}
@@ -885,4 +885,65 @@ func TestRender_SchemaArrayUsesColumnar(t *testing.T) {
 	// Arrays should NOT route to detail view -- should use columnar table
 	assert.Contains(t, out, "a")
 	assert.Contains(t, out, "b")
+}
+
+func TestRenderTable_StandardTableWithColumnOrder(t *testing.T) {
+	node := map[string]any{
+		"zebra": "z",
+		"apple": "a",
+		"mango": "m",
+	}
+	out := RenderTable(node, TableOptions{
+		NoColor:      true,
+		Width:        80,
+		ColumnarMode: ColumnarModeNever,
+		ColumnOrder:  []string{"mango", "apple"},
+	})
+
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	// lines[0] = header, lines[1] = separator, lines[2..] = data rows
+	assert.GreaterOrEqual(t, len(lines), 5, "expected header + separator + 3 data rows")
+
+	// First two data rows should follow ColumnOrder
+	assert.Contains(t, lines[2], "mango")
+	assert.Contains(t, lines[3], "apple")
+	// Remaining row alphabetical
+	assert.Contains(t, lines[4], "zebra")
+}
+
+func TestRenderList_WithColumnOrder(t *testing.T) {
+	node := map[string]any{
+		"zebra": "z",
+		"apple": "a",
+		"mango": "m",
+	}
+	out := RenderList(node, ListOptions{
+		NoColor:     true,
+		ColumnOrder: []string{"mango", "apple"},
+	})
+
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	assert.Equal(t, 3, len(lines), "expected 3 lines for 3 keys")
+
+	assert.Equal(t, "mango: m", lines[0])
+	assert.Equal(t, "apple: a", lines[1])
+	assert.Equal(t, "zebra: z", lines[2])
+}
+
+func TestRender_ListFormatPassesColumnOrder(t *testing.T) {
+	node := map[string]any{
+		"zebra": "z",
+		"apple": "a",
+		"mango": "m",
+	}
+	out := Render(node, FormatList, TableOptions{
+		NoColor:     true,
+		ColumnOrder: []string{"mango", "apple"},
+	})
+
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	assert.Equal(t, 3, len(lines))
+	assert.Equal(t, "mango: m", lines[0])
+	assert.Equal(t, "apple: a", lines[1])
+	assert.Equal(t, "zebra: z", lines[2])
 }

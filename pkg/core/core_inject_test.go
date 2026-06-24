@@ -34,7 +34,7 @@ type fakeFormatter struct {
 	stringifyOut string
 }
 
-func (f *fakeFormatter) RenderTable(node interface{}, noColor bool, keyColWidth, valueColWidth int) string {
+func (f *fakeFormatter) RenderTable(node interface{}, noColor bool, keyColWidth, valueColWidth int, columnOrder []string) string {
 	f.renderInput = node
 	return f.renderOut
 }
@@ -88,7 +88,7 @@ func TestEngineUsesInjectedFormatter(t *testing.T) {
 		t.Fatalf("New error: %v", err)
 	}
 
-	r := engine.RenderTable(123, false, 10, 10)
+	r := engine.RenderTable(123, false, 10, 10, nil)
 	if r != "rendered" {
 		t.Fatalf("RenderTable = %q, want %q", r, "rendered")
 	}

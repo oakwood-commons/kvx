@@ -30,7 +30,7 @@ type Navigator interface {
 
 // Formatter defines rendering and stringify behavior.
 type Formatter interface {
-	RenderTable(node interface{}, noColor bool, keyColWidth, valueColWidth int) string
+	RenderTable(node interface{}, noColor bool, keyColWidth, valueColWidth int, columnOrder []string) string
 	Stringify(node interface{}) string
 }
 
@@ -181,12 +181,12 @@ func (e *Engine) Rows(node interface{}) [][]string {
 }
 
 // RenderTable renders a two-column table for the node.
-func (e *Engine) RenderTable(node interface{}, noColor bool, keyColWidth, valueColWidth int) string {
+func (e *Engine) RenderTable(node interface{}, noColor bool, keyColWidth, valueColWidth int, columnOrder []string) string {
 	e.ensureFormatter()
 	if e == nil || e.Formatter == nil {
 		return ""
 	}
-	return e.Formatter.RenderTable(node, noColor, keyColWidth, valueColWidth)
+	return e.Formatter.RenderTable(node, noColor, keyColWidth, valueColWidth, columnOrder)
 }
 
 // Stringify renders a node into a display string.
@@ -241,8 +241,8 @@ func (defaultNavigator) SetSortOrder(order SortOrder) SortOrder {
 
 type defaultFormatter struct{}
 
-func (defaultFormatter) RenderTable(node interface{}, noColor bool, keyColWidth, valueColWidth int) string {
-	return formatter.RenderTable(node, noColor, keyColWidth, valueColWidth)
+func (defaultFormatter) RenderTable(node interface{}, noColor bool, keyColWidth, valueColWidth int, columnOrder []string) string {
+	return formatter.RenderTable(node, noColor, keyColWidth, valueColWidth, columnOrder)
 }
 
 func (defaultFormatter) Stringify(node interface{}) string {

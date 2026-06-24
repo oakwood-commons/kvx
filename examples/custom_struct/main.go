@@ -46,8 +46,8 @@ func main() {
 	// Before the fix, this would fail with:
 	// "CEL evaluation error: eval error: unsupported conversion to ref.Val"
 	// Now it works because custom structs are converted to maps for CEL compatibility
-	fmt.Println("🔍 Original Artifact:")                //nolint:forbidigo
-	fmt.Println(engine.RenderTable(root, true, 25, 0)) //nolint:forbidigo
+	fmt.Println("🔍 Original Artifact:")                     //nolint:forbidigo
+	fmt.Println(engine.RenderTable(root, true, 25, 0, nil)) //nolint:forbidigo
 
 	// Evaluate CEL expressions
 	tests := []struct {
