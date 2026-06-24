@@ -108,15 +108,24 @@ func captureOutput(t *testing.T, fn func()) string {
 		t.Fatalf("pipe: %v", err)
 	}
 	os.Stdout = w
+	// Drain the pipe in a goroutine to prevent deadlock when output
+	// exceeds the OS pipe buffer (4 KB on Windows).
+	var buf bytes.Buffer
+	var copyErr error
+	done := make(chan struct{})
+	go func() {
+		_, copyErr = io.Copy(&buf, r)
+		close(done)
+	}()
 	// Run function
 	fn()
-	// Restore stdout and close writer
+	// Restore stdout and close writer so the reader goroutine sees EOF.
 	_ = w.Close()
 	os.Stdout = orig
-	// Read captured output
-	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, r); err != nil {
-		t.Fatalf("copy: %v", err)
+	// Wait for the reader to finish.
+	<-done
+	if copyErr != nil {
+		t.Fatalf("copy: %v", copyErr)
 	}
 	_ = r.Close()
 	return buf.String()
