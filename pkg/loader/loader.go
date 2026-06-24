@@ -296,7 +296,7 @@ func LoadObject(value any) (interface{}, error) {
 	}
 
 	rv := reflect.ValueOf(value)
-	if (rv.Kind() == reflect.Ptr || rv.Kind() == reflect.Slice || rv.Kind() == reflect.Map || rv.Kind() == reflect.Interface || rv.Kind() == reflect.Func || rv.Kind() == reflect.Chan) && rv.IsNil() {
+	if (rv.Kind() == reflect.Pointer || rv.Kind() == reflect.Slice || rv.Kind() == reflect.Map || rv.Kind() == reflect.Interface || rv.Kind() == reflect.Func || rv.Kind() == reflect.Chan) && rv.IsNil() {
 		return nil, fmt.Errorf("object input is nil")
 	}
 
@@ -325,7 +325,7 @@ func normalizeCELType(value interface{}) (interface{}, error) {
 	kind := rv.Kind()
 
 	// Handle pointer types - dereference once
-	if kind == reflect.Ptr {
+	if kind == reflect.Pointer {
 		if rv.IsNil() {
 			return nil, nil
 		}

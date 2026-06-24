@@ -128,7 +128,7 @@ func Stringify(v any) string {
 			if b, err := json.Marshal(v); err == nil {
 				return string(b)
 			}
-		case reflect.Ptr:
+		case reflect.Pointer:
 			if !rv.IsNil() {
 				elem := rv.Elem()
 				if elem.Kind() == reflect.Struct || elem.Kind() == reflect.Map || elem.Kind() == reflect.Slice {
