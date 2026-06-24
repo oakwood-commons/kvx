@@ -260,7 +260,7 @@ func navigateStep(cur interface{}, step string) interface{} {
 			return fmt.Errorf("cannot descend into %T at '%s'", cur, step)
 		}
 
-		for rv.Kind() == reflect.Ptr {
+		for rv.Kind() == reflect.Pointer {
 			if rv.IsNil() {
 				return fmt.Errorf("cannot descend into %T at '%s'", cur, step)
 			}

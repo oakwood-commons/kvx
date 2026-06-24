@@ -111,7 +111,7 @@ func recursiveDecodeReflect(node any, depth int) any {
 		}
 		return out
 
-	case reflect.Ptr, reflect.Interface:
+	case reflect.Pointer, reflect.Interface:
 		if rv.IsNil() {
 			return nil
 		}
