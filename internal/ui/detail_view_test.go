@@ -322,6 +322,27 @@ func TestRenderParagraphSection(t *testing.T) {
 	assert.Contains(t, lines[0], "Short paragraph.")
 }
 
+func TestRenderParagraphSection_MultiLineNewlines(t *testing.T) {
+	obj := map[string]interface{}{
+		"desc": "Line one\nLine two\nLine three",
+	}
+	lines := renderParagraphSection(obj, []string{"desc"}, 80, map[string]bool{})
+	require.Len(t, lines, 3)
+	assert.Equal(t, "Line one", lines[0])
+	assert.Equal(t, "Line two", lines[1])
+	assert.Equal(t, "Line three", lines[2])
+}
+
+func TestRenderParagraphSection_EscapedNewlines(t *testing.T) {
+	obj := map[string]interface{}{
+		"desc": "First line\\nSecond line",
+	}
+	lines := renderParagraphSection(obj, []string{"desc"}, 80, map[string]bool{})
+	require.Len(t, lines, 2)
+	assert.Equal(t, "First line", lines[0])
+	assert.Equal(t, "Second line", lines[1])
+}
+
 func TestRenderTagsSection(t *testing.T) {
 	obj := map[string]interface{}{
 		"tags": []interface{}{"alpha", "beta", "gamma"},

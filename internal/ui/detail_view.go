@@ -170,12 +170,16 @@ func renderParagraphSection(obj map[string]interface{}, fields []string, width i
 		if v == nil {
 			continue
 		}
-		text := formatter.Stringify(v)
+		text := formatter.StringifyPreserveNewlines(v)
 		if text == "" {
 			continue
 		}
-		wrapped := wrapAtWidth(text, width)
-		lines = append(lines, strings.Split(wrapped, "\n")...)
+		// Split by newlines first to preserve paragraph structure, then
+		// wrap each line individually so wrapAtWidth does not collapse them.
+		for _, paragraph := range strings.Split(text, "\n") {
+			wrapped := wrapAtWidth(paragraph, width)
+			lines = append(lines, strings.Split(wrapped, "\n")...)
+		}
 	}
 	return lines
 }
