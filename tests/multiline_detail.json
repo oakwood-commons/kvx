@@ -1,0 +1,35 @@
+[
+  {
+    "name": "auth-service",
+    "displayName": "Authentication Service",
+    "version": "2.4.1",
+    "status": "healthy",
+    "description": "Handles user authentication and session management.\nSupports OAuth2, SAML, and LDAP backends.\n\nThis service is the primary entry point for all\nidentity-related operations in the platform.",
+    "changelog": "v2.4.1 - Fixed token refresh race condition\nv2.4.0 - Added SAML support\nv2.3.0 - Introduced rate limiting\nv2.2.0 - LDAP backend integration",
+    "tags": ["security", "identity", "core"],
+    "uptime": "99.97%",
+    "region": "us-east-1"
+  },
+  {
+    "name": "data-pipeline",
+    "displayName": "Data Pipeline",
+    "version": "3.1.0",
+    "status": "degraded",
+    "description": "Ingests, transforms, and routes event data\nto downstream consumers.\n\nSupports batch and streaming modes with\nconfigurable windowing and backpressure.",
+    "changelog": "v3.1.0 - Added Kafka consumer group rebalancing\nv3.0.0 - Breaking: new config format\nv2.9.5 - Hotfix for memory leak in batch mode",
+    "tags": ["data", "streaming", "etl"],
+    "uptime": "98.50%",
+    "region": "eu-west-1"
+  },
+  {
+    "name": "notification-hub",
+    "displayName": "Notification Hub",
+    "version": "1.8.0",
+    "status": "healthy",
+    "description": "Unified notification delivery service.\nRoutes alerts via email, SMS, Slack, and webhooks.\n\nIncludes template engine for rich HTML emails\nand digest/batching for high-volume scenarios.",
+    "changelog": "v1.8.0 - Webhook retry with exponential backoff\nv1.7.0 - Added Slack thread support\nv1.6.0 - Template engine v2 with Handlebars syntax",
+    "tags": ["notifications", "messaging", "alerts"],
+    "uptime": "99.99%",
+    "region": "us-west-2"
+  }
+]

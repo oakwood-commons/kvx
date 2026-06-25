@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Service Catalog",
+  "type": "array",
+
+  "x-kvx-collectionTitle": "Services",
+
+  "x-kvx-list": {
+    "titleField": "displayName",
+    "subtitleField": "description",
+    "subtitleMaxLines": 1,
+    "badgeFields": ["status", "version"]
+  },
+
+  "x-kvx-detail": {
+    "titleField": "displayName",
+    "sections": [
+      {
+        "fields": ["name", "version", "status", "region"],
+        "layout": "inline"
+      },
+      {
+        "title": "Description",
+        "fields": ["description"],
+        "layout": "paragraph"
+      },
+      {
+        "title": "Changelog",
+        "fields": ["changelog"],
+        "layout": "paragraph"
+      },
+      {
+        "title": "Tags",
+        "fields": ["tags"],
+        "layout": "tags"
+      },
+      {
+        "title": "Metrics",
+        "fields": ["uptime"],
+        "layout": "table"
+      }
+    ]
+  },
+
+  "items": {
+    "type": "object",
+    "properties": {
+      "name":        { "type": "string" },
+      "displayName": { "type": "string" },
+      "version":     { "type": "string" },
+      "status":      { "type": "string" },
+      "description": { "type": "string" },
+      "changelog":   { "type": "string" },
+      "region":      { "type": "string" },
+      "uptime":      { "type": "string" },
+      "tags":        { "type": "array", "items": { "type": "string" } }
+    }
+  }
+}

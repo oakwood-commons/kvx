@@ -351,3 +351,71 @@ func TestSnapshotFunctionHelpCompleteFunction(t *testing.T) {
 
 	// Status bar should NOT contain examples (examples are now palette-only)
 }
+
+func TestSnapshotDetailParagraphPreservesNewlines(t *testing.T) {
+	// Navigate into the detail view of a record that has multi-line paragraph fields.
+	// The schema defines "description" with layout:"paragraph", and the data contains
+	// embedded newlines that should render as separate lines (not escaped \n).
+	output := runSnapshotCLI(t, "tests/multiline_detail.json",
+		"--schema", "tests/multiline_detail_schema.json",
+		"--no-color",
+		"--width", "80",
+		"--height", "30",
+		"--press", "l", // vim 'l' opens detail view on selected row
+	)
+
+	if output == "" {
+		t.Fatal("expected non-empty snapshot output")
+	}
+
+	// The description field contains newlines:
+	//   "Handles user authentication and session management.\n
+	//    Supports OAuth2, SAML, and LDAP backends.\n\n
+	//    This service is the primary entry point..."
+	// With the fix, these should appear on separate lines in the paragraph section.
+	// Verify the two sentences land on DIFFERENT lines (not collapsed onto one).
+	lines := strings.Split(output, "\n")
+	handlesLine := -1
+	supportsLine := -1
+	for i, line := range lines {
+		if strings.Contains(line, "Handles user authentication") {
+			handlesLine = i
+		}
+		if strings.Contains(line, "Supports OAuth2") {
+			supportsLine = i
+		}
+	}
+	if handlesLine == -1 {
+		t.Errorf("expected first line of description in output, got:\n%s", output)
+	}
+	if supportsLine == -1 {
+		t.Errorf("expected second line of description in output, got:\n%s", output)
+	}
+	if handlesLine != -1 && supportsLine != -1 && handlesLine == supportsLine {
+		t.Errorf("expected description sentences on separate lines, but both appeared on line %d", handlesLine)
+	}
+
+	// The literal escaped sequence "\\n" should NOT appear — newlines are rendered, not escaped.
+	if strings.Contains(output, `\n`) {
+		t.Errorf("expected newlines to be rendered (not escaped as literal \\n), got:\n%s", output)
+	}
+
+	// Changelog should also preserve newlines between entries.
+	// Verify a real newline separates consecutive changelog entries (not a literal \n).
+	if !strings.Contains(output, "race condition") {
+		t.Errorf("expected changelog content in output, got:\n%s", output)
+	}
+	raceLine := -1
+	v240Line := -1
+	for i, line := range lines {
+		if strings.Contains(line, "race condition") {
+			raceLine = i
+		}
+		if strings.Contains(line, "v2.4.0") {
+			v240Line = i
+		}
+	}
+	if raceLine != -1 && v240Line != -1 && raceLine == v240Line {
+		t.Errorf("expected changelog entries on separate lines, but both appeared on line %d", raceLine)
+	}
+}
