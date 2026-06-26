@@ -1544,6 +1544,33 @@ func TestSnapshotExpressionArrowKeysRequireF6(t *testing.T) {
 	}
 }
 
+// TestSnapshotDetailTagsRendersPerElementBadges verifies that the tags layout
+// in the detail view renders individual badges per array element via --snapshot.
+func TestSnapshotDetailTagsRendersPerElementBadges(t *testing.T) {
+	out := runCLI(t, []string{
+		"kvx",
+		filepath.Join("..", "tests", "multiline_detail.json"),
+		"--schema", filepath.Join("..", "tests", "multiline_detail_schema.json"),
+		"--snapshot",
+		"--no-color",
+		"--width", "80",
+		"--height", "30",
+		"--press", "<Right>",
+	})
+
+	// The first item has tags: ["security", "identity", "core"].
+	// Each should appear as a separate badge, not as a single JSON array string.
+	for _, tag := range []string{"security", "identity", "core"} {
+		if !strings.Contains(out, tag) {
+			t.Errorf("expected tag badge %q in detail view snapshot, got:\n%s", tag, out)
+		}
+	}
+	// Must NOT contain the JSON-stringified form.
+	if strings.Contains(out, `["security"`) {
+		t.Errorf("tags rendered as JSON array instead of individual badges:\n%s", out)
+	}
+}
+
 // List format tests
 func TestCLI_ListOutputScalarValue(t *testing.T) {
 	// kvx tests/sample.yaml --no-color -o list -e '_.name'

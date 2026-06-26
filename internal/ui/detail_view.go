@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -207,7 +208,15 @@ func renderTagsSection(obj map[string]interface{}, fields []string, width int, h
 		case string:
 			badges = append(badges, badgeStyle.Render(v))
 		default:
-			if val != nil {
+			if val == nil {
+				break
+			}
+			rv := reflect.ValueOf(val)
+			if rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array {
+				for i := range rv.Len() {
+					badges = append(badges, badgeStyle.Render(formatter.Stringify(rv.Index(i).Interface())))
+				}
+			} else {
 				badges = append(badges, badgeStyle.Render(formatter.Stringify(val)))
 			}
 		}
