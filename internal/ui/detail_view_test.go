@@ -372,6 +372,89 @@ func TestRenderTagsSection_Hidden(t *testing.T) {
 	assert.Nil(t, lines)
 }
 
+type testFlow string
+
+func TestRenderTagsSection_TypedSlices(t *testing.T) {
+	tests := []struct {
+		name       string
+		val        interface{}
+		wantCount  int
+		wantTexts  []string // each text must appear individually in the stripped output
+		wantAbsent string   // must NOT appear (e.g. JSON-stringified array)
+	}{
+		{
+			name:      "[]interface{} renders per-element badges",
+			val:       []interface{}{"a", "b", "c"},
+			wantCount: 3,
+			wantTexts: []string{"a", "b", "c"},
+		},
+		{
+			name:       "[]string renders per-element badges",
+			val:        []string{"a", "b", "c"},
+			wantCount:  3,
+			wantTexts:  []string{"a", "b", "c"},
+			wantAbsent: `["a","b","c"]`,
+		},
+		{
+			name:       "named string-kind slice renders per-element badges",
+			val:        []testFlow{"alpha", "beta"},
+			wantCount:  2,
+			wantTexts:  []string{"alpha", "beta"},
+			wantAbsent: `["alpha","beta"]`,
+		},
+		{
+			name:      "single string renders one badge",
+			val:       "solo",
+			wantCount: 1,
+			wantTexts: []string{"solo"},
+		},
+		{
+			name:      "scalar int renders one badge",
+			val:       42,
+			wantCount: 1,
+			wantTexts: []string{"42"},
+		},
+		{
+			name:      "scalar bool renders one badge",
+			val:       true,
+			wantCount: 1,
+			wantTexts: []string{"true"},
+		},
+		{
+			name:      "nil renders zero badges",
+			val:       nil,
+			wantCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			obj := map[string]interface{}{"field": tt.val}
+			lines := renderTagsSection(obj, []string{"field"}, 200, map[string]bool{})
+
+			if tt.wantCount == 0 {
+				assert.Nil(t, lines)
+				return
+			}
+
+			require.NotNil(t, lines)
+			plain := stripANSI(strings.Join(lines, " "))
+
+			gotCount := 0
+			for _, text := range tt.wantTexts {
+				c := strings.Count(plain, " "+text+" ")
+				assert.Greater(t, c, 0, "expected badge %q in output", text)
+				gotCount += c
+			}
+			assert.Equal(t, tt.wantCount, gotCount)
+
+			if tt.wantAbsent != "" {
+				assert.NotContains(t, plain, tt.wantAbsent)
+			}
+		})
+	}
+}
+
 func TestRenderTableSection_WithNestedTable(t *testing.T) {
 	obj := map[string]interface{}{
 		"profiles": []interface{}{
