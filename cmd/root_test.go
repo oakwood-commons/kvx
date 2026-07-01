@@ -2074,6 +2074,11 @@ func TestCLI_TOMLOutput(t *testing.T) {
 	assert.NotEmpty(t, out)
 }
 
+func TestCLI_TOMLOutput_Slice(t *testing.T) {
+	out := runCLI(t, []string{"kvx", filepath.Join("..", "tests", "sample.yaml"), "--no-color", "-o", "toml", "-e", "_.items"})
+	assert.Contains(t, out, "[[items]]")
+}
+
 func TestCLI_TableWithLimit(t *testing.T) {
 	out := runCLI(t, []string{"kvx", filepath.Join("..", "tests", "sample.yaml"), "--no-color", "-e", "_.items", "--limit", "1"})
 	assert.Contains(t, out, "name")

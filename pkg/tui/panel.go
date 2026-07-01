@@ -10,7 +10,6 @@ import (
 	"github.com/oakwood-commons/kvx/internal/navigator"
 	"github.com/oakwood-commons/kvx/internal/ui"
 	"github.com/oakwood-commons/kvx/pkg/core"
-	"github.com/pelletier/go-toml/v2"
 	"gopkg.in/yaml.v3"
 )
 
@@ -863,11 +862,18 @@ func renderJSON(node any) string {
 }
 
 func renderTOML(node any) string {
-	b, err := toml.Marshal(node)
+	s, err := formatter.FormatTOML(node)
 	if err != nil {
 		return fmt.Sprintf("toml marshal error: %v\n", err)
 	}
-	return string(b)
+	return s
+}
+
+// MarshalTOML marshals data to TOML, wrapping slices/arrays in an "items" key
+// since TOML does not support bare arrays as document roots. Returns the TOML
+// string or an error.
+func MarshalTOML(node any) (string, error) {
+	return formatter.FormatTOML(node)
 }
 
 // ---------------------------------------------------------------------------
