@@ -22,7 +22,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/go-logr/logr"
-	"github.com/pelletier/go-toml/v2"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
@@ -1222,8 +1221,8 @@ func printEvalResult(node interface{}, output string, noColor bool, keyColWidth,
 			os.Exit(1)
 		}
 	case "toml":
-		if b, err := toml.Marshal(node); err == nil {
-			fmt.Print(string(b)) //nolint:forbidigo
+		if s, err := formatter.FormatTOML(node); err == nil {
+			fmt.Print(s) //nolint:forbidigo
 		} else {
 			fmt.Fprintf(os.Stderr, "failed to marshal toml: %v\n", err)
 			os.Exit(1)
