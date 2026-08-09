@@ -9,7 +9,6 @@ import (
 	"github.com/oakwood-commons/kvx/internal/formatter"
 	"github.com/oakwood-commons/kvx/internal/navigator"
 	"github.com/oakwood-commons/kvx/internal/ui"
-	"github.com/oakwood-commons/kvx/pkg/core"
 	"gopkg.in/yaml.v3"
 )
 
@@ -245,6 +244,11 @@ func RenderTable(node any, opts TableOptions) string {
 	}
 
 	th := ui.CurrentTheme()
+	// Keep the global table theme in sync for renderers (e.g. the columnar
+	// path) that have not yet been converted to take styles explicitly; this
+	// mutation is now mutex-guarded (see internal/formatter) so it no longer
+	// races, though concurrent callers using different themes may still see
+	// a benign color mismatch on that path.
 	formatter.SetTableTheme(formatter.TableColors{
 		HeaderFG:       th.HeaderFG,
 		HeaderBG:       th.HeaderBG,
@@ -253,14 +257,19 @@ func RenderTable(node any, opts TableOptions) string {
 		SeparatorColor: th.SeparatorColor,
 	})
 
-	// Apply per-call MaxValueLines override if provided.
-	// NOTE: This temporarily mutates the package-level formatter global and is
-	// not safe for concurrent use. Callers must serialise RenderTable calls
-	// when using per-call overrides.
+	// Build per-call render styles explicitly instead of mutating the
+	// formatter's global MaxValueLines: the previous set-global/defer-restore
+	// pattern let one goroutine's MaxValueLines leak into another goroutine's
+	// concurrent render mid-flight, silently corrupting output (see issue #83).
+	styles := formatter.StylesFromColors(formatter.TableColors{
+		HeaderFG:       th.HeaderFG,
+		HeaderBG:       th.HeaderBG,
+		KeyColor:       th.KeyColor,
+		ValueColor:     th.ValueColor,
+		SeparatorColor: th.SeparatorColor,
+	})
 	if opts.MaxValueLines != nil {
-		prev := formatter.MaxValueLines()
-		formatter.SetMaxValueLines(*opts.MaxValueLines)
-		defer formatter.SetMaxValueLines(prev)
+		styles.MaxValueLines = *opts.MaxValueLines
 	}
 
 	// Auto-detect terminal width if not specified
@@ -276,7 +285,7 @@ func RenderTable(node any, opts TableOptions) string {
 	}
 
 	if shouldUseColumnarRendering(node, columnarMode) {
-		return renderColumnarTable(node, opts, termWidth)
+		return renderColumnarTable(node, opts, termWidth, styles)
 	}
 
 	// Standard KEY/VALUE table rendering
@@ -292,7 +301,7 @@ func RenderTable(node any, opts TableOptions) string {
 			rowOpts.ArrayStyle = opts.ArrayStyle
 		}
 		rows := navigator.NodeToRowsWithOptions(node, rowOpts)
-		naturalContentWidth := formatter.CalculateNaturalTableWidth(rows)
+		naturalContentWidth := formatter.CalculateNaturalTableWidthWith(rows, styles)
 		naturalTableWidth := naturalContentWidth + 2 // +2 for side borders
 		if naturalTableWidth < termWidth {
 			tableWidth = naturalTableWidth
@@ -378,10 +387,9 @@ func RenderTable(node any, opts TableOptions) string {
 			rowOpts.ArrayStyle = opts.ArrayStyle
 		}
 		rows := navigator.NodeToRowsWithOptions(node, rowOpts)
-		tableView = formatter.RenderTableFitContent(rows, opts.NoColor, tableWidth-2, opts.ColumnOrder)
+		tableView = formatter.RenderTableFitContentWith(rows, opts.NoColor, tableWidth-2, opts.ColumnOrder, styles)
 	} else {
-		engine := &core.Engine{}
-		tableView = engine.RenderTable(node, opts.NoColor, keyW, valueW, opts.ColumnOrder)
+		tableView = formatter.RenderTableWith(node, opts.NoColor, keyW, valueW, opts.ColumnOrder, styles)
 	}
 
 	// If not bordered, return just the table content
@@ -512,11 +520,11 @@ func shouldUseColumnarRendering(node any, mode string) bool {
 }
 
 // renderColumnarTable renders a homogeneous array as a multi-column table.
-func renderColumnarTable(node any, opts TableOptions, termWidth int) string {
+func renderColumnarTable(node any, opts TableOptions, termWidth int, styles formatter.RenderStyles) string {
 	columns, rows := navigator.ExtractColumnarData(node, opts.ColumnOrder)
 	if columns == nil {
 		// Fall back to standard rendering
-		return renderStandardTable(node, opts, termWidth)
+		return renderStandardTable(node, opts, termWidth, styles)
 	}
 
 	th := ui.CurrentTheme()
@@ -722,7 +730,7 @@ func renderColumnarTable(node any, opts TableOptions, termWidth int) string {
 }
 
 // renderStandardTable renders a standard KEY/VALUE table.
-func renderStandardTable(node any, opts TableOptions, termWidth int) string {
+func renderStandardTable(node any, opts TableOptions, termWidth int, styles formatter.RenderStyles) string {
 	m := ui.InitialModel(node)
 	m.NoColor = opts.NoColor
 	m.Root = node
@@ -760,8 +768,7 @@ func renderStandardTable(node any, opts TableOptions, termWidth int) string {
 		valueW--
 	}
 
-	engine := &core.Engine{}
-	return engine.RenderTable(node, opts.NoColor, keyW, valueW, opts.ColumnOrder)
+	return formatter.RenderTableWith(node, opts.NoColor, keyW, valueW, opts.ColumnOrder, styles)
 }
 
 // RenderList renders data in a vertical list format.

@@ -38,6 +38,19 @@ task test
 go test ./internal/ui -v
 ```
 
+Run the race detector locally before relying on concurrent rendering paths
+(`pkg/tui`, `pkg/core`, or anything under `internal/` that guards shared
+state with a mutex):
+
+```bash
+task test-race                       # CGO_ENABLED=1 go test -race ./...
+CGO_ENABLED=1 go test -race ./...    # equivalent, direct invocation
+```
+
+`task test-race` needs CGO and a C toolchain, so it's only wired into the
+Linux CI jobs (`task coverage` also runs with `-race`); the Windows CI jobs
+still use plain `task test`.
+
 ## Project Structure
 
 - `cmd/` - CLI commands (Cobra)

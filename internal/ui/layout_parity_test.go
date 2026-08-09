@@ -11,7 +11,6 @@ import (
 )
 
 func TestPanelLayoutBaseline(t *testing.T) {
-	t.Parallel()
 	node := sampleLayoutNode()
 	width := 60
 	height := 16
@@ -21,7 +20,6 @@ func TestPanelLayoutBaseline(t *testing.T) {
 }
 
 func TestPanelLayoutBaselineSearch(t *testing.T) {
-	t.Parallel()
 	node := sampleLayoutNode()
 	width := 60
 	height := 16
@@ -31,7 +29,6 @@ func TestPanelLayoutBaselineSearch(t *testing.T) {
 }
 
 func TestPanelLayoutBaselineFilter(t *testing.T) {
-	t.Parallel()
 	node := sampleLayoutNode()
 	width := 60
 	height := 16
@@ -41,7 +38,6 @@ func TestPanelLayoutBaselineFilter(t *testing.T) {
 }
 
 func TestPanelLayoutBaselineInput(t *testing.T) {
-	t.Parallel()
 	node := sampleLayoutNode()
 	width := 60
 	height := 16
@@ -51,7 +47,6 @@ func TestPanelLayoutBaselineInput(t *testing.T) {
 }
 
 func TestPanelLayoutBaselineHelp(t *testing.T) {
-	t.Parallel()
 	node := sampleLayoutNode()
 	width := 60
 	height := 16

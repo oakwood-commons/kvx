@@ -74,3 +74,26 @@ _ = out
 ```
 
 This lets you reuse kvx navigation/formatting while embedding the TUI only where you need it.
+
+## Concurrency
+
+`tui.Run` itself is not meant to be called concurrently for the same process
+(it drives an interactive event loop). However, if your embedding renders
+`kvx` output from multiple goroutines (e.g. a server handling concurrent
+requests), be aware of the following:
+
+- `tui.RenderTable`, `tui.RenderList`, and `core.Engine.Rows` /
+  `core.Engine.RenderTable` are safe to call concurrently from multiple
+  goroutines with different options — each call builds its own render styles
+  and sort order rather than mutating shared package state.
+- Package-level setters such as `tui.SetMaxValueLines`, the legacy
+  `formatter.SetTableTheme`/`formatter.SetMaxValueLines`, and
+  `navigator.SetSortOrder` still mutate process-global defaults and are
+  **not** safe to call concurrently with renders that depend on a specific
+  value; prefer passing per-call options (e.g. `TableOptions.MaxValueLines`)
+  instead of these global setters when rendering concurrently.
+- `ui.SetTheme`/`ui.CurrentTheme` and `cel.SetExampleHints`/`GetExampleHints`
+  are internally synchronized (safe from data races), but still represent
+  shared, process-wide configuration — concurrent callers setting different
+  themes/hints will race for "which one wins," even though no corruption or
+  crash occurs.
