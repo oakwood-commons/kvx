@@ -163,6 +163,19 @@ jobs:
       - name: Run govulncheck
         run: task govulncheck
 
+  restricted-terms:
+    name: Restricted Terms Check
+    # Not gated on needs.changes.outputs.code: a restricted term could land in
+    # any tracked file (docs, config), not just Go source.
+    if: |
+      github.event_name == 'push' ||
+      github.event.pull_request.head.repo.fork == false
+    permissions:
+      contents: read
+    uses: ./.github/workflows/restricted-terms-check.yml
+    secrets:
+      terms: ${{ secrets.RESTRICTED_TERMS }}
+
   build:
     name: Build
     runs-on: ubuntu-latest

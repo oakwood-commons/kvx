@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Local safety-net: blocks a commit that would introduce a restricted term
+# into the staged content, mirroring the RESTRICTED_TERMS check that also
+# runs in CI (.github/workflows/restricted-terms-check.yml). This is a fast,
+# local backstop -- it is NOT the enforcement point (CI is, since this hook
+# can be skipped with `git commit --no-verify` and only runs on machines
+# that have it installed). See .githooks/README.md for one-time setup.
+#
+# By design, the actual term list is never committed to this repo. It's
+# supplied locally via one of, checked in this order:
+#   1. the RESTRICTED_TERMS environment variable
+#   2. a restricted-terms.txt file inside the shared .git directory (found
+#      via `git rev-parse --git-common-dir`, so it's shared across all
+#      worktrees of this repo and structurally impossible to accidentally
+#      commit -- it's not a gitignore rule, it's literally not tracked
+#      content)
+# Same format as the CI secret: one case-insensitive extended-regex pattern
+# per line, blank lines and lines starting with # ignored.
+#
+# If neither source is configured, the hook passes trivially -- it's a nice
+# local convenience, not a required install, so a fresh clone isn't blocked
+# from making its first commit before anyone sets this up.
+
+set -u
+
+git_common_dir=$(git rev-parse --git-common-dir)
+local_terms_file="${git_common_dir}/restricted-terms.txt"
+
+if [ -n "${RESTRICTED_TERMS:-}" ]; then
+  terms="${RESTRICTED_TERMS}"
+elif [ -f "${local_terms_file}" ]; then
+  terms=$(cat "${local_terms_file}")
+else
+  exit 0
+fi
+
+fail=0
+while IFS= read -r pattern; do
+  case "$pattern" in
+    ''|'#'*) continue ;;
+  esac
+
+  # Scan staged content only (what's about to be committed), never printing
+  # the matched line itself -- only the file path -- so the restricted term
+  # doesn't end up echoed back into your terminal/scrollback either.
+  matched_files=$(git diff --cached --name-only --diff-filter=ACM -z | \
+    xargs -0 -I{} sh -c 'git show ":{}" 2>/dev/null | grep -qiE "$1" && echo {}' _ "$pattern")
+
+  if [ -n "$matched_files" ]; then
+    echo "error: restricted term pattern matched staged file(s):" >&2
+    echo "$matched_files" | sed 's/^/  /' >&2
+    fail=1
+  fi
+done <<< "$terms"
+
+if [ "$fail" -ne 0 ]; then
+  echo "error: commit blocked -- sanitize the matched file(s) above before committing." >&2
+  echo "(bypass with 'git commit --no-verify' if this is a false positive -- CI will still check)" >&2
+  exit 1
+fi
+
+exit 0
