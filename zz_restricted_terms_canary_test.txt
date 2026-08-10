@@ -1,0 +1,3 @@
+This is a throwaway file to verify the restricted-terms-check workflow.
+It intentionally contains the canary sentinel: restrictedTermTestSentinel9f3a
+Delete this file once the check has been confirmed to fail on it.
