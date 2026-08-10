@@ -624,24 +624,24 @@ func renderColumnarTable(node any, opts TableOptions, termWidth int, styles form
 		HiddenColumns:  hiddenCols,
 		RowNumberStyle: rowNumStyle,
 	}) {
-		return formatter.FormatAsList(node, formatter.ListOptions{
+		return formatter.FormatAsListWith(node, formatter.ListOptions{
 			NoColor:       opts.NoColor,
 			ArrayStyle:    rowNumStyle,
 			HiddenColumns: hiddenCols,
-		})
+		}, styles)
 	}
 
 	// Render columnar content — pass original column names so that
 	// filterColumns matches HiddenColumns correctly and the formatter
 	// applies DisplayName overrides in a single place.
-	tableView := formatter.RenderColumnarTable(columns, rows, formatter.ColumnarOptions{
+	tableView := formatter.RenderColumnarTableWith(columns, rows, formatter.ColumnarOptions{
 		NoColor:        opts.NoColor,
 		TotalWidth:     contentWidth,
 		RowNumberStyle: rowNumStyle,
 		ColumnOrder:    opts.ColumnOrder,
 		HiddenColumns:  hiddenCols,
 		ColumnHints:    fmtHints,
-	})
+	}, styles)
 
 	if !opts.Bordered {
 		return tableView

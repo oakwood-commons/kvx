@@ -171,7 +171,17 @@ type ColumnarOptions struct {
 // RenderColumnarTable renders data as a multi-column table with field names as headers.
 // columns: the field names (column headers)
 // rows: the data rows (each row has values corresponding to columns)
+//
+// NOTE: this reads process-global styles, which is unsafe for concurrent
+// rendering (see issue #83). Prefer RenderColumnarTableWith.
 func RenderColumnarTable(columns []string, rows [][]string, opts ColumnarOptions) string {
+	return RenderColumnarTableWith(columns, rows, opts, CurrentRenderStyles())
+}
+
+// RenderColumnarTableWith is like RenderColumnarTable but takes styles
+// explicitly and reads no global state, making it safe to call concurrently
+// with different styles.
+func RenderColumnarTableWith(columns []string, rows [][]string, opts ColumnarOptions, styles RenderStyles) string {
 	if len(columns) == 0 || len(rows) == 0 {
 		return ""
 	}
@@ -230,11 +240,6 @@ func RenderColumnarTable(columns []string, rows [][]string, opts ColumnarOptions
 	colWidths := calculateColumnWidths(displayCols, visibleRows, availableWidth, resolveHints(visibleCols, opts))
 
 	var b strings.Builder
-
-	// Snapshot styles once per call rather than once per cell: CurrentRenderStyles
-	// takes a lock and copies a struct, which would otherwise happen for every
-	// header cell and every data cell in the loops below.
-	styles := CurrentRenderStyles()
 
 	// Render header
 	headerRow := renderHeader(displayCols, colWidths, sepWidth, rowNumWidth, showRowNum, opts.NoColor, styles)

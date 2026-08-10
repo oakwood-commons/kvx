@@ -17,12 +17,18 @@ type ListOptions struct {
 // Arrays of objects display each element with an index header and indented properties.
 // Maps display as key/value pairs with indentation.
 // Scalar values display as "value: <scalar>".
+//
+// NOTE: this reads process-global styles, which is unsafe for concurrent
+// rendering (see issue #83). Prefer FormatAsListWith.
 func FormatAsList(node interface{}, opts ListOptions) string {
+	return FormatAsListWith(node, opts, CurrentRenderStyles())
+}
+
+// FormatAsListWith is like FormatAsList but takes styles explicitly and
+// reads no global state, making it safe to call concurrently with different
+// styles.
+func FormatAsListWith(node interface{}, opts ListOptions, styles RenderStyles) string {
 	var b strings.Builder
-	// Snapshot styles once per call rather than once per cell: CurrentRenderStyles
-	// takes a lock and copies a struct, which would otherwise happen on every
-	// row/key in the loops below.
-	styles := CurrentRenderStyles()
 
 	switch v := node.(type) {
 	case []interface{}:
