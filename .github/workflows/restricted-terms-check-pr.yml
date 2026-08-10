@@ -1,0 +1,39 @@
+name: Restricted Terms Check (PR)
+
+# Runs the restricted-terms check against EVERY pull request, including ones
+# opened from forks -- unlike ci.yml's "restricted-terms" job (which only
+# fires for non-fork events, since ordinary `pull_request` never grants a
+# fork PR access to secrets), this uses `pull_request_target`, which always
+# has secret access regardless of who opened the PR.
+#
+# `pull_request_target` runs the WORKFLOW FILE from the base branch (main),
+# not whatever version the PR modified -- so a PR cannot alter what this job
+# checks or does. That's what makes it safe to grant it secrets here.
+#
+# The classic risk with `pull_request_target` ("pwn request") is a job that
+# executes CODE or SCRIPTS sourced from the untrusted PR content (e.g.
+# running a Makefile target or npm script the PR controls) while holding
+# elevated permissions/secrets. This job does not do that: it only runs the
+# fixed `git grep` scan defined in restricted-terms-check.yml (itself
+# resolved from main, not the PR), treating the checked-out PR content as
+# inert data to search, never as code to execute. That is one of the
+# textbook safe uses of pull_request_target.
+#
+# IMPORTANT: the PR's exact head SHA is passed explicitly as `head_sha` --
+# pull_request_target's default checkout otherwise resolves to the BASE
+# branch, which would silently scan nothing from the PR at all.
+
+on:
+  pull_request_target:
+
+permissions:
+  contents: read
+
+jobs:
+  restricted-terms:
+    name: Restricted Terms Check
+    uses: ./.github/workflows/restricted-terms-check.yml
+    with:
+      head_sha: ${{ github.event.pull_request.head.sha }}
+    secrets:
+      terms: ${{ secrets.RESTRICTED_TERMS }}

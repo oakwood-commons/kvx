@@ -85,12 +85,29 @@ feat: add tree output format with depth control
 ```
 
 Use conventional commit prefixes when appropriate:
+
 - `feat:` - New features
 - `fix:` - Bug fixes
 - `docs:` - Documentation changes
 - `test:` - Test additions or modifications
 - `refactor:` - Code refactoring without functional changes
 - `chore:` - Maintenance tasks
+
+## Restricted Terms Check
+
+This repo runs an automated CI check ("Restricted Terms Check") that scans
+new content and commit messages for a maintainer-configured list of
+disallowed terms/patterns. The list itself is intentionally never committed
+to this repo or shown in CI logs -- only maintainers hold it.
+
+If your PR fails this check, you don't need the list yourself: a maintainer
+will look at the flagged file(s) (only the path is shown, never the matched
+text) during review and help you sanitize the content. This isn't something
+you can self-diagnose from the CI log alone, and that's by design.
+
+Optionally, if you're a repeat contributor, maintainers can share the local
+git hooks under `.githooks/` (see `.githooks/README.md`) for faster local
+feedback before you push -- ask in your PR or a discussion if you'd like this.
 
 ## Reporting Issues
 

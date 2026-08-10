@@ -1,0 +1,142 @@
+name: Restricted Terms Check
+
+# Reusable safety-net check for confidential/company-internal references
+# accidentally landing in this (public) repository -- e.g. internal domains,
+# tool names, or account identifiers that must never appear here.
+#
+# By design, the actual term list is NEVER committed to this file or any
+# other tracked file: it is supplied entirely via the `terms` secret input
+# below, so this workflow itself reveals nothing about what it checks for.
+# Configure it by setting an organization or repository secret (conventionally
+# named RESTRICTED_TERMS) containing one case-insensitive extended-regex
+# pattern per line, then pass it through from a calling workflow (see the
+# "restricted-terms" job in ci.yml in this repo for the reference call site).
+#
+# Any other repo in the org can reuse this same check without duplicating the
+# logic by calling:
+#
+#   jobs:
+#     restricted-terms:
+#       uses: oakwood-commons/kvx/.github/workflows/restricted-terms-check.yml@main
+#       secrets:
+#         terms: ${{ secrets.RESTRICTED_TERMS }}
+#
+# This scans both the currently checked-out tree (i.e. current file content)
+# AND the commit messages introduced by the push/PR. It is a backstop, not a
+# substitute for not committing the material in the first place.
+#
+# CALL SITES in this repo:
+#   - ci.yml's "restricted-terms" job -- push to main only.
+#   - restricted-terms-check-pr.yml -- all pull requests, including forks
+#     (via pull_request_target, which has secret access even for fork PRs;
+#     see that file's header comment for why this is safe here).
+#
+# CONFIDENTIALITY OF MATCHES: neither the pattern list nor the matched text is
+# ever printed to the (public) Actions log. Only the file path or commit SHA
+# that matched is reported -- never the offending line/content -- so a
+# passerby reading a failed run cannot learn what the restricted term was or
+# see it verbatim in the log.
+
+on:
+  workflow_call:
+    inputs:
+      head_sha:
+        required: false
+        type: string
+        description: >
+          Commit SHA to check out and scan, and to use as the end of the
+          commit-message scan range. Leave unset for ordinary push/pull_request
+          callers (falls back to github.sha, which already resolves
+          correctly there). Required for pull_request_target callers, where
+          github.sha instead resolves to the base branch, not the PR head --
+          pass github.event.pull_request.head.sha explicitly in that case
+          (see restricted-terms-check-pr.yml for the reference call site).
+    secrets:
+      terms:
+        required: false
+        description: >
+          Newline-separated list of case-insensitive extended-regex patterns
+          to reject. If unset or empty, the check passes trivially (so repos
+          that haven't configured the secret yet aren't blocked).
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Scan for restricted terms
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.head_sha }}
+          # Need real history (not just the merge commit) to walk the
+          # push/PR's commit range for the message scan below.
+          fetch-depth: 0
+
+      - name: Scan tracked files and commit messages against the configured term list
+        env:
+          RESTRICTED_TERMS: ${{ secrets.terms }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ inputs.head_sha || github.sha }}
+        run: |
+          set -u
+
+          if [ -z "${RESTRICTED_TERMS}" ]; then
+            echo "No restricted-terms secret configured for this repo; skipping."
+            exit 0
+          fi
+
+          fail=0
+
+          # Commit-message scan range: PR base..head on a pull_request(_target)
+          # event, or the pushed commit(s) on a push event (github.event.before
+          # is the SHA immediately preceding the push). A push event's `before`
+          # is all-zeros for a brand-new branch/first push, where there's no
+          # usable base -- fall back to scanning just the head commit alone in
+          # that case, rather than walking full history (which would make one
+          # pre-existing, unrelated match fail every future push forever).
+          zero_sha="0000000000000000000000000000000000000000"
+          if [ -n "${BASE_SHA:-}" ] && [ "${BASE_SHA}" != "$zero_sha" ]; then
+            log_range_args=("${BASE_SHA}..${HEAD_SHA}")
+          else
+            log_range_args=(-1 "${HEAD_SHA}")
+          fi
+
+          while IFS= read -r pattern; do
+            # Skip blank lines and comments (lines starting with #) so the
+            # secret value can be formatted readably.
+            case "$pattern" in
+              ''|'#'*) continue ;;
+            esac
+
+            # File content: report only the file path, never the matching
+            # line, so the restricted term itself never reaches the log.
+            # Also redirect stderr: git grep prints an "invalid regex" error
+            # containing the literal offending pattern if the secret ever
+            # contains a malformed pattern -- swallowing only the exit code
+            # (via `|| true`) isn't enough, since stderr would still leak the
+            # pattern text into the public Actions log.
+            matched_files=$(git grep -liE -e "$pattern" -- . 2>/dev/null || true)
+            if [ -n "$matched_files" ]; then
+              echo "::error::Restricted term matched in tracked file(s):"
+              echo "$matched_files" | sed 's/^/::error::  /'
+              fail=1
+            fi
+
+            # Commit messages: report only the commit SHA, never the subject
+            # or body content that matched.
+            matched_commits=$(git log --format='%H' -iE --grep="$pattern" "${log_range_args[@]}" -- 2>/dev/null || true)
+            if [ -n "$matched_commits" ]; then
+              echo "::error::Restricted term matched in commit message(s):"
+              echo "$matched_commits" | sed 's/^/::error::  /'
+              fail=1
+            fi
+          done <<< "$RESTRICTED_TERMS"
+
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::One or more restricted terms were found (file content and/or commit messages). This is expected to be opaque: see CONTRIBUTING.md's 'Restricted Terms Check' section -- a maintainer will help identify and sanitize the flagged file(s) shown above during review. If a commit message is at fault, that history will need to be rewritten before merging."
+            exit 1
+          fi
+
+          echo "No restricted terms found."

@@ -163,6 +163,18 @@ jobs:
       - name: Run govulncheck
         run: task govulncheck
 
+  restricted-terms:
+    name: Restricted Terms Check
+    # Direct pushes to main only. PR coverage (including fork PRs, which
+    # can't use this pull_request-triggered workflow's secrets) is handled by
+    # restricted-terms-check-pr.yml instead -- see that file's header comment.
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/restricted-terms-check.yml
+    secrets:
+      terms: ${{ secrets.RESTRICTED_TERMS }}
+
   build:
     name: Build
     runs-on: ubuntu-latest

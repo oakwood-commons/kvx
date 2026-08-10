@@ -18,9 +18,9 @@ func TestBaseForGlobal(t *testing.T) {
 		desc     string
 	}{
 		// Trailing dot: removes dot, keeps rest → full parent path
-		{"_.pd1001.platform.", "_.pd1001.platform", "trailing dot removed, path preserved"},
+		{"_.cluster1001.platform.", "_.cluster1001.platform", "trailing dot removed, path preserved"},
 		// Trailing partial token: drops last token after dot → parent path
-		{"_.pd1001.platform.h", "_.pd1001.platform", "partial token after dot dropped"},
+		{"_.cluster1001.platform.h", "_.cluster1001.platform", "partial token after dot dropped"},
 		// At root with trailing dot: removes dot → returns _
 		{"_.", "_", "root with dot returns underscore"},
 		// Single word with dot prefix: dot already removed in prior step, returns parent
@@ -51,7 +51,7 @@ func TestWrapGlobal(t *testing.T) {
 		expected string
 	}{
 		// Basic global function
-		{"has()", "_.pd1001.platform", "has(_.pd1001.platform)"},
+		{"has()", "_.cluster1001.platform", "has(_.cluster1001.platform)"},
 		// Function with trailing parens stripped
 		{"filter()", "_.items", "filter(_.items)"},
 		// Namespace-qualified

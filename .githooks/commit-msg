@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Local safety-net: blocks a commit whose MESSAGE contains a restricted term.
+# Companion to .githooks/pre-commit (which checks staged file content) --
+# see that file's header comment for the full explanation of how the term
+# list is supplied and why it's never committed to this repo.
+
+set -u
+
+git_common_dir=$(git rev-parse --git-common-dir)
+local_terms_file="${git_common_dir}/restricted-terms.txt"
+commit_msg_file="$1"
+
+if [ -n "${RESTRICTED_TERMS:-}" ]; then
+  terms="${RESTRICTED_TERMS}"
+elif [ -f "${local_terms_file}" ]; then
+  terms=$(cat "${local_terms_file}")
+else
+  exit 0
+fi
+
+fail=0
+while IFS= read -r pattern; do
+  case "$pattern" in
+    ''|'#'*) continue ;;
+  esac
+
+  if grep -qiE -e "$pattern" "$commit_msg_file"; then
+    echo "error: restricted term pattern matched the commit message." >&2
+    fail=1
+  fi
+done <<< "$terms"
+
+if [ "$fail" -ne 0 ]; then
+  echo "error: commit blocked -- rewrite the commit message to remove the matched term." >&2
+  echo "(bypass with 'git commit --no-verify' if this is a false positive -- CI will still check)" >&2
+  exit 1
+fi
+
+exit 0

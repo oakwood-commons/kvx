@@ -57,7 +57,7 @@ Prefer **emacs** or **function-key** style bindings? Use `--keymap emacs` or `--
   - Special keys use angle brackets: `<Enter>`, `<Esc>`, `<Tab>`, `<Space>`, etc.
   - Literal text is typed normally without brackets
   - Examples:
-    - Search for "pd1030": `--press "/pd1030"`
+    - Search for "cluster1030": `--press "/cluster1030"`
     - Navigate with expression: `--press ":_.items[0]"`
     - Open help then close: `--press "?<Esc>"`
     - Multiple operations: `--press "/test<Esc>me"`
@@ -83,7 +83,7 @@ Use `--schema <path>` to provide a JSON Schema file that controls how table colu
 kvx reads standard JSON Schema properties and derives display hints:
 
 | JSON Schema Field | Effect |
-|-------------------|--------|
+| ------------------- | -------- |
 | `title` | Override column header text |
 | `maxLength` | Cap column width (characters) |
 | `enum` | Cap width to longest enum value |
@@ -152,6 +152,7 @@ For data that is an array of objects, wrap the properties inside `items`:
 ```
 
 kvx automatically detects both formats through the `items` wrapper.
+
 ```
 
 ### Usage
