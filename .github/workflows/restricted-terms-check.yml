@@ -25,6 +25,12 @@ name: Restricted Terms Check
 # AND the commit messages introduced by the push/PR. It is a backstop, not a
 # substitute for not committing the material in the first place.
 #
+# CALL SITES in this repo:
+#   - ci.yml's "restricted-terms" job -- push to main only.
+#   - restricted-terms-check-pr.yml -- all pull requests, including forks
+#     (via pull_request_target, which has secret access even for fork PRs;
+#     see that file's header comment for why this is safe here).
+#
 # CONFIDENTIALITY OF MATCHES: neither the pattern list nor the matched text is
 # ever printed to the (public) Actions log. Only the file path or commit SHA
 # that matched is reported -- never the offending line/content -- so a
@@ -33,6 +39,18 @@ name: Restricted Terms Check
 
 on:
   workflow_call:
+    inputs:
+      head_sha:
+        required: false
+        type: string
+        description: >
+          Commit SHA to check out and scan, and to use as the end of the
+          commit-message scan range. Leave unset for ordinary push/pull_request
+          callers (falls back to github.sha, which already resolves
+          correctly there). Required for pull_request_target callers, where
+          github.sha instead resolves to the base branch, not the PR head --
+          pass github.event.pull_request.head.sha explicitly in that case
+          (see restricted-terms-check-pr.yml for the reference call site).
     secrets:
       terms:
         required: false
@@ -51,6 +69,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ inputs.head_sha }}
           # Need real history (not just the merge commit) to walk the
           # push/PR's commit range for the message scan below.
           fetch-depth: 0
@@ -59,7 +78,7 @@ jobs:
         env:
           RESTRICTED_TERMS: ${{ secrets.terms }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.sha }}
+          HEAD_SHA: ${{ inputs.head_sha || github.sha }}
         run: |
           set -u
 
@@ -106,7 +125,7 @@ jobs:
           done <<< "$RESTRICTED_TERMS"
 
           if [ "$fail" -ne 0 ]; then
-            echo "::error::One or more restricted terms were found (file content and/or commit messages). Remove or sanitize the matched content -- and if a commit message is at fault, rewrite history before merging -- then re-run."
+            echo "::error::One or more restricted terms were found (file content and/or commit messages). This is expected to be opaque: see CONTRIBUTING.md's 'Restricted Terms Check' section -- a maintainer will help identify and sanitize the flagged file(s) shown above during review. If a commit message is at fault, that history will need to be rewritten before merging."
             exit 1
           fi
 

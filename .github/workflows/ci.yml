@@ -165,11 +165,10 @@ jobs:
 
   restricted-terms:
     name: Restricted Terms Check
-    # Not gated on needs.changes.outputs.code: a restricted term could land in
-    # any tracked file (docs, config), not just Go source.
-    if: |
-      github.event_name == 'push' ||
-      github.event.pull_request.head.repo.fork == false
+    # Direct pushes to main only. PR coverage (including fork PRs, which
+    # can't use this pull_request-triggered workflow's secrets) is handled by
+    # restricted-terms-check-pr.yml instead -- see that file's header comment.
+    if: github.event_name == 'push'
     permissions:
       contents: read
     uses: ./.github/workflows/restricted-terms-check.yml

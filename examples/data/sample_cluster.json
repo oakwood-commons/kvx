@@ -1,6 +1,6 @@
 {
-  "pd1001": {
-    "clusterName": "pd1001",
+  "cluster1001": {
+    "clusterName": "cluster1001",
     "clusterDescription": "Production cluster - Primary US East",
     "clusterDecommissionDate": null,
     "alert": false,
@@ -38,19 +38,19 @@
       "rwo": ["gce-balanced-csi", "gce-ssd-csi"],
       "rwx": ["ocs-storagecluster-cephfs"]
     },
-    "apiServerURL": "https://api.pd1001.example.net:6443",
-    "consoleServerURL": "https://console.pd1001.example.net",
+    "apiServerURL": "https://api.cluster1001.example.net:6443",
+    "consoleServerURL": "https://console.cluster1001.example.net",
     "argo": {
-      "platformURL": "https://argo-platform.pd1001.example.net",
-      "tenantURL": "https://argo-tenant.pd1001.example.net"
+      "platformURL": "https://argo-platform.cluster1001.example.net",
+      "tenantURL": "https://argo-tenant.cluster1001.example.net"
     },
     "dns": {
-      "internal": "router.pd1001.example.net",
-      "external": "router-ext.pd1001.example.net",
+      "internal": "router.cluster1001.example.net",
+      "external": "router-ext.cluster1001.example.net",
       "supplier": "cloudflare",
       "vpc": "prod-vpc-east"
     },
-    "infrastructureName": "infra-pd1001",
+    "infrastructureName": "infra-cluster1001",
     "location": {
       "platformStatusKey": "gcp",
       "name": "gcp-us-east1",
@@ -61,17 +61,17 @@
       "bulkmail": [
         {
           "name": "prod_notifications@example.com",
-          "subscriptionURL": "https://notifications.example.net/pd1001"
+          "subscriptionURL": "https://notifications.example.net/cluster1001"
         }
       ],
       "changeGroup": 1,
       "changeWindow": ["Saturday(2am-6am:EST)"],
-      "siblingCluster": "pd1002",
+      "siblingCluster": "cluster1002",
       "siblingRegion": "us-west"
     }
   },
-  "pd1002": {
-    "clusterName": "pd1002",
+  "cluster1002": {
+    "clusterName": "cluster1002",
     "clusterDescription": "Production cluster - Primary US West",
     "clusterDecommissionDate": null,
     "alert": false,
@@ -109,19 +109,19 @@
       "rwo": ["gce-balanced-csi", "gce-ssd-csi"],
       "rwx": ["ocs-storagecluster-cephfs"]
     },
-    "apiServerURL": "https://api.pd1002.example.net:6443",
-    "consoleServerURL": "https://console.pd1002.example.net",
+    "apiServerURL": "https://api.cluster1002.example.net:6443",
+    "consoleServerURL": "https://console.cluster1002.example.net",
     "argo": {
-      "platformURL": "https://argo-platform.pd1002.example.net",
-      "tenantURL": "https://argo-tenant.pd1002.example.net"
+      "platformURL": "https://argo-platform.cluster1002.example.net",
+      "tenantURL": "https://argo-tenant.cluster1002.example.net"
     },
     "dns": {
-      "internal": "router.pd1002.example.net",
-      "external": "router-ext.pd1002.example.net",
+      "internal": "router.cluster1002.example.net",
+      "external": "router-ext.cluster1002.example.net",
       "supplier": "cloudflare",
       "vpc": "prod-vpc-west"
     },
-    "infrastructureName": "infra-pd1002",
+    "infrastructureName": "infra-cluster1002",
     "location": {
       "platformStatusKey": "gcp",
       "name": "gcp-us-west1",
@@ -132,17 +132,17 @@
       "bulkmail": [
         {
           "name": "prod_notifications@example.com",
-          "subscriptionURL": "https://notifications.example.net/pd1002"
+          "subscriptionURL": "https://notifications.example.net/cluster1002"
         }
       ],
       "changeGroup": 1,
       "changeWindow": ["Saturday(2am-6am:PST)"],
-      "siblingCluster": "pd1001",
+      "siblingCluster": "cluster1001",
       "siblingRegion": "us-east"
     }
   },
-  "pd2001": {
-    "clusterName": "pd2001",
+  "cluster2001": {
+    "clusterName": "cluster2001",
     "clusterDescription": "Production cluster - EU Central",
     "clusterDecommissionDate": null,
     "alert": true,
@@ -180,19 +180,19 @@
       "rwo": ["gce-balanced-csi", "gce-ssd-csi"],
       "rwx": ["ocs-storagecluster-cephfs"]
     },
-    "apiServerURL": "https://api.pd2001.example.net:6443",
-    "consoleServerURL": "https://console.pd2001.example.net",
+    "apiServerURL": "https://api.cluster2001.example.net:6443",
+    "consoleServerURL": "https://console.cluster2001.example.net",
     "argo": {
-      "platformURL": "https://argo-platform.pd2001.example.net",
-      "tenantURL": "https://argo-tenant.pd2001.example.net"
+      "platformURL": "https://argo-platform.cluster2001.example.net",
+      "tenantURL": "https://argo-tenant.cluster2001.example.net"
     },
     "dns": {
-      "internal": "router.pd2001.example.net",
-      "external": "router-ext.pd2001.example.net",
+      "internal": "router.cluster2001.example.net",
+      "external": "router-ext.cluster2001.example.net",
       "supplier": "cloudflare",
       "vpc": "prod-vpc-eu"
     },
-    "infrastructureName": "infra-pd2001",
+    "infrastructureName": "infra-cluster2001",
     "location": {
       "platformStatusKey": "gcp",
       "name": "gcp-europe-west3",
@@ -203,7 +203,7 @@
       "bulkmail": [
         {
           "name": "prod_eu_notifications@example.com",
-          "subscriptionURL": "https://notifications.example.net/pd2001"
+          "subscriptionURL": "https://notifications.example.net/cluster2001"
         }
       ],
       "changeGroup": 2,
@@ -212,8 +212,8 @@
       "siblingRegion": null
     }
   },
-  "pd3001": {
-    "clusterName": "pd3001",
+  "cluster3001": {
+    "clusterName": "cluster3001",
     "clusterDescription": "Production cluster - Asia Pacific",
     "clusterDecommissionDate": null,
     "alert": false,
@@ -251,19 +251,19 @@
       "rwo": ["ocs-storagecluster-ceph-rbd"],
       "rwx": ["ocs-storagecluster-cephfs"]
     },
-    "apiServerURL": "https://api.pd3001.example.net:6443",
-    "consoleServerURL": "https://console.pd3001.example.net",
+    "apiServerURL": "https://api.cluster3001.example.net:6443",
+    "consoleServerURL": "https://console.cluster3001.example.net",
     "argo": {
-      "platformURL": "https://argo-platform.pd3001.example.net",
-      "tenantURL": "https://argo-tenant.pd3001.example.net"
+      "platformURL": "https://argo-platform.cluster3001.example.net",
+      "tenantURL": "https://argo-tenant.cluster3001.example.net"
     },
     "dns": {
-      "internal": "router.pd3001.example.net",
+      "internal": "router.cluster3001.example.net",
       "external": null,
       "supplier": null,
       "vpc": null
     },
-    "infrastructureName": "infra-pd3001",
+    "infrastructureName": "infra-cluster3001",
     "location": {
       "platformStatusKey": "plant",
       "name": "plant-apac-001",
@@ -274,7 +274,7 @@
       "bulkmail": [
         {
           "name": "prod_apac_notifications@example.com",
-          "subscriptionURL": "https://notifications.example.net/pd3001"
+          "subscriptionURL": "https://notifications.example.net/cluster3001"
         }
       ],
       "changeGroup": 3,
@@ -283,8 +283,8 @@
       "siblingRegion": null
     }
   },
-  "pd4001": {
-    "clusterName": "pd4001",
+  "cluster4001": {
+    "clusterName": "cluster4001",
     "clusterDescription": "Production cluster - Legacy US Central",
     "clusterDecommissionDate": "2026-06-30",
     "alert": true,
@@ -322,19 +322,19 @@
       "rwo": ["ocs-storagecluster-ceph-rbd"],
       "rwx": ["ocs-storagecluster-cephfs"]
     },
-    "apiServerURL": "https://api.pd4001.example.net:6443",
-    "consoleServerURL": "https://console.pd4001.example.net",
+    "apiServerURL": "https://api.cluster4001.example.net:6443",
+    "consoleServerURL": "https://console.cluster4001.example.net",
     "argo": {
-      "platformURL": "https://argo-platform.pd4001.example.net",
-      "tenantURL": "https://argo-tenant.pd4001.example.net"
+      "platformURL": "https://argo-platform.cluster4001.example.net",
+      "tenantURL": "https://argo-tenant.cluster4001.example.net"
     },
     "dns": {
-      "internal": "router.pd4001.example.net",
+      "internal": "router.cluster4001.example.net",
       "external": null,
       "supplier": null,
       "vpc": null
     },
-    "infrastructureName": "infra-pd4001",
+    "infrastructureName": "infra-cluster4001",
     "location": {
       "platformStatusKey": "plant",
       "name": "plant-us-central-001",
@@ -345,7 +345,7 @@
       "bulkmail": [
         {
           "name": "prod_legacy_notifications@example.com",
-          "subscriptionURL": "https://notifications.example.net/pd4001"
+          "subscriptionURL": "https://notifications.example.net/cluster4001"
         }
       ],
       "changeGroup": 4,

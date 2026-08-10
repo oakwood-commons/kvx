@@ -109,7 +109,7 @@ func TestFixture_CaasExactKeyEnterNavigates(t *testing.T) {
 	// Type exact key
 	m.PathInput.SetValue("cluster_001")
 	m.filterSuggestions()
-	// Enter should navigate exactly to pd1010
+	// Enter should navigate exactly to cluster_001
 	newModel, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m2 := newModel.(*Model)
 	if m2.Path != "_.cluster_001" {
