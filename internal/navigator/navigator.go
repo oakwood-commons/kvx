@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/oakwood-commons/kvx/internal/cel"
 	"github.com/oakwood-commons/kvx/internal/formatter"
@@ -27,18 +28,41 @@ const (
 // a scalar value that might contain decodable serialized data.
 const ScalarValueKey = "(value)"
 
-var currentSortOrder = SortAscending
+var (
+	sortOrderMu      sync.RWMutex
+	currentSortOrder = SortAscending
+)
 
 // SetSortOrder updates the global sort order for map key rendering and returns the previous value.
+//
+// NOTE: this mutates process-global state and is unsafe for concurrent
+// rendering (see issue #83). Prefer NodeToRowsWith, which takes the sort
+// order explicitly and touches no globals.
 func SetSortOrder(order SortOrder) SortOrder {
+	normalized := normalizeSortOrder(order)
+
+	sortOrderMu.Lock()
 	prev := currentSortOrder
+	currentSortOrder = normalized
+	sortOrderMu.Unlock()
+
+	return prev
+}
+
+// getSortOrder returns the current global sort order.
+func getSortOrder() SortOrder {
+	sortOrderMu.RLock()
+	defer sortOrderMu.RUnlock()
+	return currentSortOrder
+}
+
+func normalizeSortOrder(order SortOrder) SortOrder {
 	switch order {
 	case SortAscending, SortDescending, SortNone:
-		currentSortOrder = order
+		return order
 	default:
-		currentSortOrder = SortNone
+		return SortNone
 	}
-	return prev
 }
 
 // Debug controls whether navigator prints troubleshooting logs.
@@ -317,8 +341,20 @@ func structFieldValue(rv reflect.Value, key string) (interface{}, bool) {
 	return nil, false
 }
 
-// NodeToRows converts a node into rows of [key, value] pairs for table display
+// NodeToRows converts a node into rows of [key, value] pairs for table display.
+//
+// NOTE: this reads the process-global sort order set via SetSortOrder,
+// which is unsafe for concurrent rendering (see issue #83). Prefer
+// NodeToRowsWith, which takes the sort order explicitly.
 func NodeToRows(node interface{}) [][]string {
+	return NodeToRowsWith(node, getSortOrder())
+}
+
+// NodeToRowsWith converts a node into rows of [key, value] pairs for table
+// display using the given sort order. Unlike NodeToRows, it reads no global
+// state and is safe to call concurrently with different orders.
+func NodeToRowsWith(node interface{}, order SortOrder) [][]string {
+	order = normalizeSortOrder(order)
 	var rows [][]string
 	switch t := node.(type) {
 	case map[string]interface{}:
@@ -331,15 +367,7 @@ func NodeToRows(node interface{}) [][]string {
 		for k := range t {
 			keys = append(keys, k)
 		}
-		switch currentSortOrder {
-		case SortAscending:
-			sort.Strings(keys)
-		case SortDescending:
-			sort.Strings(keys)
-			reverseStrings(keys)
-		case SortNone:
-			// Preserve natural/insertion order where possible (maps may be random)
-		}
+		sortKeys(keys, order)
 		for _, k := range keys {
 			v := t[k]
 			rows = append(rows, []string{k, formatter.Stringify(v)})
@@ -365,14 +393,7 @@ func NodeToRows(node interface{}) [][]string {
 			for _, k := range rv.MapKeys() {
 				keys = append(keys, k.String())
 			}
-			switch currentSortOrder {
-			case SortAscending:
-				sort.Strings(keys)
-			case SortDescending:
-				sort.Strings(keys)
-				reverseStrings(keys)
-			case SortNone:
-			}
+			sortKeys(keys, order)
 			for _, k := range keys {
 				value := rv.MapIndex(reflect.ValueOf(k)).Interface()
 				rows = append(rows, []string{k, formatter.Stringify(value)})
@@ -390,6 +411,19 @@ func NodeToRows(node interface{}) [][]string {
 		}
 	}
 	return rows
+}
+
+// sortKeys sorts keys in place according to order.
+func sortKeys(keys []string, order SortOrder) {
+	switch order {
+	case SortAscending:
+		sort.Strings(keys)
+	case SortDescending:
+		sort.Strings(keys)
+		reverseStrings(keys)
+	case SortNone:
+		// Preserve natural/insertion order where possible (maps may be random)
+	}
 }
 
 // ArrayStyle constants control how array indices are displayed.
@@ -416,7 +450,20 @@ func DefaultRowOptions() RowOptions {
 
 // NodeToRowsWithOptions converts a node into rows of [key, value] pairs for table display.
 // Uses the provided options to customize output format.
+//
+// NOTE: this reads the process-global sort order set via SetSortOrder,
+// which is unsafe for concurrent rendering (see issue #83). Prefer
+// NodeToRowsWithOptionsAndOrder, which takes the sort order explicitly.
 func NodeToRowsWithOptions(node interface{}, opts RowOptions) [][]string {
+	return NodeToRowsWithOptionsAndOrder(node, opts, getSortOrder())
+}
+
+// NodeToRowsWithOptionsAndOrder converts a node into rows of [key, value] pairs
+// for table display using the given options and sort order. Unlike
+// NodeToRowsWithOptions, it reads no global state and is safe to call
+// concurrently with different orders.
+func NodeToRowsWithOptionsAndOrder(node interface{}, opts RowOptions, order SortOrder) [][]string {
+	order = normalizeSortOrder(order)
 	var rows [][]string
 	switch t := node.(type) {
 	case map[string]interface{}:
@@ -429,14 +476,7 @@ func NodeToRowsWithOptions(node interface{}, opts RowOptions) [][]string {
 		for k := range t {
 			keys = append(keys, k)
 		}
-		switch currentSortOrder {
-		case SortAscending:
-			sort.Strings(keys)
-		case SortDescending:
-			sort.Strings(keys)
-			reverseStrings(keys)
-		case SortNone:
-		}
+		sortKeys(keys, order)
 		for _, k := range keys {
 			v := t[k]
 			rows = append(rows, []string{k, formatter.StringifyPreserveNewlines(v)})
@@ -462,14 +502,7 @@ func NodeToRowsWithOptions(node interface{}, opts RowOptions) [][]string {
 			for _, k := range rv.MapKeys() {
 				keys = append(keys, k.String())
 			}
-			switch currentSortOrder {
-			case SortAscending:
-				sort.Strings(keys)
-			case SortDescending:
-				sort.Strings(keys)
-				reverseStrings(keys)
-			case SortNone:
-			}
+			sortKeys(keys, order)
 			for _, k := range keys {
 				value := rv.MapIndex(reflect.ValueOf(k)).Interface()
 				rows = append(rows, []string{k, formatter.StringifyPreserveNewlines(value)})

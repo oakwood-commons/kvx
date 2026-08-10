@@ -140,6 +140,11 @@ tasks:
     cmds:
       - go test ./...
 
+  test-race:
+    desc: Run Go unit tests with the race detector (Linux/macOS only; needs CGO + a C toolchain)
+    cmds:
+      - CGO_ENABLED=1 go test -race ./...
+
   lint:
     desc: Run linters using golangci-lint
     vars:
@@ -274,12 +279,12 @@ tasks:
         fi
 
   coverage:
-    desc: Run tests with code coverage report (shows total + individual coverage)
+    desc: Run tests with code coverage report (shows total + individual coverage). Includes the race detector; Linux/macOS only.
     cmds:
       - |
         rm -f coverage.out
         echo "Running tests with coverage..."
-        go test ./... -coverprofile=coverage.out -covermode=atomic -timeout=120s
+        CGO_ENABLED=1 go test -race ./... -coverprofile=coverage.out -covermode=atomic -timeout=120s
         echo
         echo "=== Code Coverage Report ==="
         echo

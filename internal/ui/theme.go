@@ -42,6 +42,11 @@ var (
 	defaultThemeOnce sync.Once
 	defaultTheme     Theme
 	currentTheme     Theme
+
+	// themeMu guards currentTheme, loadedThemes, and ThemePresets, all of which
+	// are mutated at runtime (e.g. via SetThemeByName/InitializeThemes) and read
+	// concurrently from render paths. See issue #83.
+	themeMu sync.RWMutex
 )
 
 // DefaultTheme returns the palette defined in the embedded default configuration.
@@ -53,6 +58,9 @@ func DefaultTheme() Theme {
 			defaultTheme = fallbackDefaultTheme()
 			return
 		}
+
+		themeMu.Lock()
+		defer themeMu.Unlock()
 
 		// Populate ThemePresets from embedded config so downstream callers see consistent themes.
 		// Only populate if presets are empty to avoid clobbering preloaded themes (e.g., tests calling InitializeThemes).
@@ -116,7 +124,11 @@ var ThemePresets = map[string]Theme{}
 // SetTheme overrides the global theme.
 func SetTheme(t Theme) {
 	t.BorderStyle = normalizeBorderStyle(t.BorderStyle)
+
+	themeMu.Lock()
 	currentTheme = t
+	themeMu.Unlock()
+
 	// v2: colors are color.Color interface - formatter expects color.Color directly
 	formatter.SetTableTheme(formatter.TableColors{
 		HeaderFG:       t.HeaderFG, // Now color.Color instead of string
@@ -131,19 +143,28 @@ func SetTheme(t Theme) {
 // Returns an error if the theme name is not found in loaded themes.
 // Themes must be initialized first via InitializeThemes() before this can be used.
 func SetThemeByName(name string) error {
-	if theme, ok := loadedThemes[name]; ok {
+	themeMu.RLock()
+	theme, ok := loadedThemes[name]
+	loadedCount := len(loadedThemes)
+	themeMu.RUnlock()
+
+	if ok {
 		SetTheme(theme)
 		return nil
 	}
 	// If no themes loaded yet, return helpful error
-	if len(loadedThemes) == 0 {
+	if loadedCount == 0 {
 		return fmt.Errorf("no themes loaded; call InitializeThemes() before SetThemeByName()")
 	}
 	return fmt.Errorf("unknown theme %q (available: %s)", name, getAvailableThemeNames())
 }
 
 // getAvailableThemeNames returns a comma-separated list of available theme names.
+// Must not be called while already holding themeMu.
 func getAvailableThemeNames() string {
+	themeMu.RLock()
+	defer themeMu.RUnlock()
+
 	if len(loadedThemes) == 0 {
 		return "(none)"
 	}
@@ -159,6 +180,9 @@ func getAvailableThemeNames() string {
 // Returns the theme and true if found, or a zero Theme and false if not found.
 // Use this instead of accessing ThemePresets directly.
 func GetTheme(name string) (Theme, bool) {
+	themeMu.RLock()
+	defer themeMu.RUnlock()
+
 	if theme, ok := loadedThemes[name]; ok {
 		return theme, true
 	}
@@ -172,6 +196,9 @@ func GetTheme(name string) (Theme, bool) {
 // GetAvailableThemes returns a map of all available theme names to their Theme values.
 // This includes both themes from loaded configuration and built-in presets.
 func GetAvailableThemes() map[string]Theme {
+	themeMu.RLock()
+	defer themeMu.RUnlock()
+
 	result := make(map[string]Theme)
 	// Add built-in presets first (lower priority)
 	for name, theme := range ThemePresets {
@@ -186,10 +213,14 @@ func GetAvailableThemes() map[string]Theme {
 
 // Theme returns the currently configured theme.
 func CurrentTheme() Theme {
-	if currentTheme == (Theme{}) {
-		currentTheme = DefaultTheme()
+	themeMu.RLock()
+	t := currentTheme
+	themeMu.RUnlock()
+
+	if t == (Theme{}) {
+		return DefaultTheme()
 	}
-	return currentTheme
+	return t
 }
 
 // ColorValue stores a color token (number or name) and marshals numerics as YAML ints.
@@ -780,22 +811,34 @@ func InitializeThemes(cfg *ThemeConfigFile) error {
 		return fmt.Errorf("cannot initialize themes with nil configuration")
 	}
 
-	// Ensure loadedThemes is a fresh map
-	loadedThemes = make(map[string]Theme)
-
 	// Load all themes from the configuration
 	if len(cfg.Themes) == 0 {
 		return fmt.Errorf("no themes found in configuration")
 	}
 
 	// Convert ThemeConfig to Theme using ThemeFromConfig
+	newThemes := make(map[string]Theme, len(cfg.Themes))
 	for name, themeCfg := range cfg.Themes {
-		loadedThemes[name] = ThemeFromConfig(themeCfg)
+		newThemes[name] = ThemeFromConfig(themeCfg)
 	}
+
+	// Compute the fallback default *before* taking the write lock: DefaultTheme()
+	// takes its own lock (via themeMu) on first call, and calling it while already
+	// holding the write lock below would self-deadlock.
+	var fallbackDark Theme
+	if _, ok := newThemes["dark"]; !ok {
+		fallbackDark = DefaultTheme()
+	}
+
+	themeMu.Lock()
+	defer themeMu.Unlock()
+
+	// Ensure loadedThemes is a fresh map
+	loadedThemes = newThemes
 
 	// Ensure at least a "dark" theme exists as fallback
 	if _, ok := loadedThemes["dark"]; !ok {
-		loadedThemes["dark"] = DefaultTheme()
+		loadedThemes["dark"] = fallbackDark
 	}
 
 	// Also sync ThemePresets for backward compatibility

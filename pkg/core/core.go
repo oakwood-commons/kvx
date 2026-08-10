@@ -175,6 +175,13 @@ func (e *Engine) Rows(node interface{}) [][]string {
 	if e == nil || e.Navigator == nil {
 		return nil
 	}
+	if wn, ok := e.Navigator.(interface {
+		NodeToRowsWith(node interface{}, order SortOrder) [][]string
+	}); ok {
+		return wn.NodeToRowsWith(node, e.SortOrder)
+	}
+	// Fallback for custom Navigator implementations that predate NodeToRowsWith:
+	// this save/restore pattern is not safe for concurrent renders.
 	prev := e.Navigator.SetSortOrder(e.SortOrder)
 	defer e.Navigator.SetSortOrder(prev)
 	return e.Navigator.NodeToRows(node)
@@ -232,6 +239,13 @@ func (defaultNavigator) NodeAtPath(root interface{}, path string) (interface{}, 
 
 func (defaultNavigator) NodeToRows(node interface{}) [][]string {
 	return navigator.NodeToRows(node)
+}
+
+// NodeToRowsWith converts a node into rows using the given sort order,
+// without touching any global/package-level state. Preferred over the
+// SetSortOrder/NodeToRows save-restore pattern for concurrent rendering.
+func (defaultNavigator) NodeToRowsWith(node interface{}, order SortOrder) [][]string {
+	return navigator.NodeToRowsWith(node, toNavigatorSort(order))
 }
 
 func (defaultNavigator) SetSortOrder(order SortOrder) SortOrder {

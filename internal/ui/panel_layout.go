@@ -233,20 +233,24 @@ func RenderPanelLayout(state PanelLayoutState) string {
 	default:
 		// Keep formatter table colors in sync with the current theme for the main view.
 		th := CurrentTheme()
-		formatter.SetTableTheme(formatter.TableColors{
+		colors := formatter.TableColors{
 			HeaderFG:       th.HeaderFG,
 			HeaderBG:       th.HeaderBG,
 			KeyColor:       th.KeyColor,
 			ValueColor:     th.ValueColor,
 			SeparatorColor: th.SeparatorColor,
-		})
+		}
+		formatter.SetTableTheme(colors)
 		// Disable multi-line value rendering for the interactive table.
 		// The TUI cursor tracks logical rows (one per key), so multi-line
 		// expansion would break selection highlighting and navigation.
-		prevLines := formatter.MaxValueLines()
-		formatter.SetMaxValueLines(0)
-		defer formatter.SetMaxValueLines(prevLines)
-		tableText = formatter.RenderTable(displayNode, state.NoColor, keyColWidth, availableForValues, nil)
+		//
+		// Built explicitly (rather than via the set-global/defer-restore
+		// pattern this replaced) so concurrent renders can never observe
+		// each other's MaxValueLines setting. See issue #83.
+		styles := formatter.StylesFromColors(colors)
+		styles.MaxValueLines = 0
+		tableText = formatter.RenderTableWith(displayNode, state.NoColor, keyColWidth, availableForValues, nil, styles)
 		// Clamp to the inner content width (panel width minus borders) to prevent wrapping.
 		// Clamp with +2 to preserve all three ellipsis dots that truncate() adds.
 		tableText = clampANSITextWidth(tableText, innerPanelWidth+2)

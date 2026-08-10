@@ -670,6 +670,27 @@ func TestGetExampleHints(t *testing.T) {
 	}
 }
 
+// TestSetExampleHints_NilSentinelPreserved locks in that SetExampleHints(nil)
+// leaves GetExampleHints() == nil (the "unset" sentinel relied on by
+// internal/ui/model.go), rather than promoting it to a non-nil empty map --
+// a regression introduced and fixed during the render-path concurrency work
+// (issue #83 follow-up review).
+func TestSetExampleHints_NilSentinelPreserved(t *testing.T) {
+	// Ensure a prior test's non-nil hints don't mask the nil case.
+	SetExampleHints(map[string]string{"filter": "e.g. _.items.filter(x, x > 0)"})
+
+	SetExampleHints(nil)
+	if got := GetExampleHints(); got != nil {
+		t.Fatalf("expected GetExampleHints() == nil after SetExampleHints(nil), got %#v (len=%d)", got, len(got))
+	}
+
+	// An explicitly empty (non-nil) map must stay distinguishable from unset.
+	SetExampleHints(map[string]string{})
+	if got := GetExampleHints(); got == nil {
+		t.Fatalf("expected GetExampleHints() != nil after SetExampleHints(map[string]string{}), got nil")
+	}
+}
+
 func TestTypeLabel(t *testing.T) {
 	// nil type
 	label := typeLabel(nil)

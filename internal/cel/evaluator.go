@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/decls"
@@ -36,7 +37,8 @@ func (e *Evaluator) GetEnvironment() *cel.Env {
 // Additional options can be provided to extend the environment (e.g., custom functions).
 func newStandardCELEnv(opts ...cel.EnvOption) (*cel.Env, error) {
 	allOpts := make([]cel.EnvOption, 0, 5+len(opts))
-	allOpts = append(allOpts,
+	allOpts = append(
+		allOpts,
 		cel.Variable("_", cel.DynType),
 		// Enable common extension libraries so discovery surfaces richer functions
 		celext.Strings(),
@@ -374,17 +376,43 @@ func GetAvailableFunctions() []string {
 
 // exampleHints holds example usage hints set from config at startup.
 // These hints are used in suggestions to help users understand how to use functions.
-var exampleHints map[string]string
+var (
+	exampleHintsMu sync.RWMutex
+	exampleHints   map[string]string
+)
 
 // SetExampleHints sets the example hints used by DiscoverCELFunctionDocs.
 // These should be derived from the config file's function_examples section.
+// A nil argument is preserved as nil (not promoted to an empty map): callers
+// use GetExampleHints() == nil as an "unset" sentinel (see internal/ui/model.go),
+// so collapsing nil and empty here would silently break that check.
 func SetExampleHints(hints map[string]string) {
-	exampleHints = hints
+	var cp map[string]string
+	if hints != nil {
+		cp = make(map[string]string, len(hints))
+		for k, v := range hints {
+			cp[k] = v
+		}
+	}
+
+	exampleHintsMu.Lock()
+	exampleHints = cp
+	exampleHintsMu.Unlock()
 }
 
-// GetExampleHints returns the current example hints, or nil if none have been set.
+// GetExampleHints returns a defensive copy of the current example hints, or nil if none have been set.
 func GetExampleHints() map[string]string {
-	return exampleHints
+	exampleHintsMu.RLock()
+	defer exampleHintsMu.RUnlock()
+
+	if exampleHints == nil {
+		return nil
+	}
+	cp := make(map[string]string, len(exampleHints))
+	for k, v := range exampleHints {
+		cp[k] = v
+	}
+	return cp
 }
 
 // DiscoverCELFunctions builds a CEL environment and returns discovered function names.
@@ -470,8 +498,9 @@ func DiscoverCELFunctionDocs() ([]string, error) {
 		return nil, fmt.Errorf("failed to create CEL environment: %w", err)
 	}
 
-	return DiscoverFunctionsFromEnv(env, exampleHints), nil
+	return DiscoverFunctionsFromEnv(env, GetExampleHints()), nil
 }
+
 func typeLabel(t *types.Type) string {
 	if t == nil {
 		return "any"

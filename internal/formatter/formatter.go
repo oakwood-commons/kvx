@@ -7,6 +7,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 
 	"charm.land/lipgloss/v2"
 	"golang.org/x/term"
@@ -19,6 +20,13 @@ var (
 	defaultValueColor = lipgloss.Color("248")
 	defaultSeparator  = lipgloss.Color("240")
 
+	// styleMu guards headerStyle/keyStyle/valueStyle/separatorStyle/maxValueLines,
+	// which are process-global defaults mutated at runtime via SetTableTheme and
+	// SetMaxValueLines. Concurrent renders should prefer the *With functions
+	// below, which take an explicit RenderStyles snapshot and touch no globals.
+	// See issue #83.
+	styleMu sync.RWMutex
+
 	headerStyle    lipgloss.Style
 	keyStyle       lipgloss.Style
 	valueStyle     lipgloss.Style
@@ -30,21 +38,48 @@ var (
 	maxValueLines = 10
 
 	// defaultMaxValueLines is the initial value of maxValueLines, used to
-	// reset the global when config omits the setting.
+	// reset the global when config omits the setting. Set once at package
+	// init and never mutated afterward.
 	defaultMaxValueLines = 10
 )
 
-// TableColors controls the rendered colors for the formatter table.
-// Empty fields fall back to legacy defaults (ANSI 256 codes).
-type TableColors struct {
-	HeaderFG       color.Color
-	HeaderBG       color.Color
-	KeyColor       color.Color
-	ValueColor     color.Color
-	SeparatorColor color.Color
+// RenderStyles carries per-call render state (styles and the multi-line value
+// cap) so concurrent renders never observe each other's settings. The zero
+// value is not directly usable; construct one via CurrentRenderStyles() (a
+// snapshot of the package defaults) or StylesFromColors, and override fields
+// as needed (e.g. MaxValueLines) before passing to a *With render function.
+type RenderStyles struct {
+	Header, Key, Value, Separator lipgloss.Style
+	MaxValueLines                 int
 }
 
-func applyTableTheme(tc TableColors) {
+// CurrentRenderStyles returns a snapshot of the current package-level default
+// render styles. Safe for concurrent use; the returned value is independent
+// of subsequent SetTableTheme/SetMaxValueLines calls.
+func CurrentRenderStyles() RenderStyles {
+	styleMu.RLock()
+	defer styleMu.RUnlock()
+	return RenderStyles{
+		Header:        headerStyle,
+		Key:           keyStyle,
+		Value:         valueStyle,
+		Separator:     separatorStyle,
+		MaxValueLines: maxValueLines,
+	}
+}
+
+// StylesFromColors builds a RenderStyles from TableColors without mutating
+// any package-level state. MaxValueLines is populated from the current
+// package default; override it on the returned value if needed.
+func StylesFromColors(tc TableColors) RenderStyles {
+	s := stylesFromColors(tc)
+	styleMu.RLock()
+	s.MaxValueLines = maxValueLines
+	styleMu.RUnlock()
+	return s
+}
+
+func stylesFromColors(tc TableColors) RenderStyles {
 	hfg := tc.HeaderFG
 	hbg := tc.HeaderBG
 	kc := tc.KeyColor
@@ -65,15 +100,41 @@ func applyTableTheme(tc TableColors) {
 	if sep == nil {
 		sep = defaultSeparator
 	}
+	return RenderStyles{
+		Header:    lipgloss.NewStyle().Bold(true).Foreground(hfg).Background(hbg),
+		Key:       lipgloss.NewStyle().Foreground(kc),
+		Value:     lipgloss.NewStyle().Foreground(vc),
+		Separator: lipgloss.NewStyle().Foreground(sep),
+	}
+}
 
-	headerStyle = lipgloss.NewStyle().Bold(true).Foreground(hfg).Background(hbg)
-	keyStyle = lipgloss.NewStyle().Foreground(kc)
-	valueStyle = lipgloss.NewStyle().Foreground(vc)
-	separatorStyle = lipgloss.NewStyle().Foreground(sep)
+// TableColors controls the rendered colors for the formatter table.
+// Empty fields fall back to legacy defaults (ANSI 256 codes).
+type TableColors struct {
+	HeaderFG       color.Color
+	HeaderBG       color.Color
+	KeyColor       color.Color
+	ValueColor     color.Color
+	SeparatorColor color.Color
+}
+
+func applyTableTheme(tc TableColors) {
+	s := stylesFromColors(tc)
+
+	styleMu.Lock()
+	headerStyle = s.Header
+	keyStyle = s.Key
+	valueStyle = s.Value
+	separatorStyle = s.Separator
+	styleMu.Unlock()
 }
 
 // SetTableTheme overrides the global table styles. Callers can pass zero-valued
 // fields to fall back to formatter defaults.
+//
+// NOTE: this mutates process-global state and is unsafe for concurrent
+// rendering (see issue #83). Prefer StylesFromColors plus a *With render
+// function, which take styles explicitly and touch no globals.
 func SetTableTheme(tc TableColors) {
 	applyTableTheme(tc)
 }
@@ -81,12 +142,20 @@ func SetTableTheme(tc TableColors) {
 // SetMaxValueLines sets the maximum number of lines rendered for multi-line
 // values in the key-value table view. 0 disables multi-line rendering
 // (newlines are escaped). Negative values mean unlimited.
+//
+// NOTE: this mutates process-global state and is unsafe for concurrent
+// rendering (see issue #83). Prefer setting RenderStyles.MaxValueLines and
+// using a *With render function.
 func SetMaxValueLines(n int) {
+	styleMu.Lock()
 	maxValueLines = n
+	styleMu.Unlock()
 }
 
 // MaxValueLines returns the current multi-line value cap.
 func MaxValueLines() int {
+	styleMu.RLock()
+	defer styleMu.RUnlock()
 	return maxValueLines
 }
 
@@ -245,7 +314,16 @@ func getTerminalWidth() int {
 
 // CalculateNaturalTableWidth calculates the natural width needed for a KEY/VALUE table
 // without truncation. Returns the width needed for the content (key + sep + value).
+//
+// NOTE: this reads the process-global maxValueLines, which is unsafe for
+// concurrent rendering (see issue #83). Prefer CalculateNaturalTableWidthWith.
 func CalculateNaturalTableWidth(rows [][]string) int {
+	return CalculateNaturalTableWidthWith(rows, CurrentRenderStyles())
+}
+
+// CalculateNaturalTableWidthWith is like CalculateNaturalTableWidth but takes
+// styles explicitly and reads no global state.
+func CalculateNaturalTableWidthWith(rows [][]string, styles RenderStyles) int {
 	sepWidth := 2
 	maxKeyWidth := 3 // "KEY" header
 	maxValWidth := 5 // "VALUE" header
@@ -258,7 +336,7 @@ func CalculateNaturalTableWidth(rows [][]string) int {
 			}
 		}
 		if len(row) > 1 {
-			w := naturalValueWidth(row[1])
+			w := naturalValueWidthWith(row[1], styles)
 			if w > maxValWidth {
 				maxValWidth = w
 			}
@@ -302,7 +380,16 @@ func reorderRows(rows [][]string, columnOrder []string) [][]string {
 // maxWidth limits the table width (truncation occurs if content exceeds it).
 // If maxWidth is 0, no truncation is applied.
 // columnOrder specifies the preferred key ordering for rows; nil means no reordering.
+//
+// NOTE: this reads process-global styles/maxValueLines, which is unsafe
+// for concurrent rendering (see issue #83). Prefer RenderTableFitContentWith.
 func RenderTableFitContent(rows [][]string, noColor bool, maxWidth int, columnOrder []string) string {
+	return RenderTableFitContentWith(rows, noColor, maxWidth, columnOrder, CurrentRenderStyles())
+}
+
+// RenderTableFitContentWith is like RenderTableFitContent but takes styles
+// explicitly and reads no global state.
+func RenderTableFitContentWith(rows [][]string, noColor bool, maxWidth int, columnOrder []string, styles RenderStyles) string {
 	rows = reorderRows(rows, columnOrder)
 	sepWidth := 2
 	sep := strings.Repeat(" ", sepWidth)
@@ -319,7 +406,7 @@ func RenderTableFitContent(rows [][]string, noColor bool, maxWidth int, columnOr
 			}
 		}
 		if len(row) > 1 {
-			w := naturalValueWidth(row[1])
+			w := naturalValueWidthWith(row[1], styles)
 			if w > maxValWidth {
 				maxValWidth = w
 			}
@@ -360,14 +447,14 @@ func RenderTableFitContent(rows [][]string, noColor bool, maxWidth int, columnOr
 	headerKey := padRight("KEY", keyWidth)
 	headerValue := padRight("VALUE", valueWidth)
 	if !noColor {
-		headerKey = headerStyle.Render(headerKey)
-		headerValue = headerStyle.Render(headerValue)
+		headerKey = styles.Header.Render(headerKey)
+		headerValue = styles.Header.Render(headerValue)
 	}
 	b.WriteString(headerKey + sep + headerValue + "\n")
 
 	separator := strings.Repeat("─", headerWidth)
 	if !noColor {
-		separator = separatorStyle.Render(separator)
+		separator = styles.Separator.Render(separator)
 	}
 	b.WriteString(separator + "\n")
 
@@ -381,7 +468,7 @@ func RenderTableFitContent(rows [][]string, noColor bool, maxWidth int, columnOr
 			val = row[1]
 		}
 		keyStr := padRight(truncate(key, keyWidth), keyWidth)
-		renderMultilineRow(&b, keyStr, val, keyWidth, valueWidth, noColor, sep)
+		renderMultilineRowWith(&b, keyStr, val, keyWidth, valueWidth, noColor, sep, styles)
 	}
 
 	return b.String()
@@ -391,7 +478,16 @@ func RenderTableFitContent(rows [][]string, noColor bool, maxWidth int, columnOr
 // with terminal width awareness, value truncation, and color styling
 // keyColWidth: width for KEY column (0 = use default 30)
 // valueColWidth: width for VALUE column (0 = auto-calculate from remaining space)
+//
+// NOTE: this reads process-global styles/maxValueLines, which is unsafe
+// for concurrent rendering (see issue #83). Prefer RenderTableWith.
 func RenderTable(node any, noColor bool, keyColWidth, valueColWidth int, columnOrder []string) string {
+	return RenderTableWith(node, noColor, keyColWidth, valueColWidth, columnOrder, CurrentRenderStyles())
+}
+
+// RenderTableWith is like RenderTable but takes styles explicitly and reads
+// no global state, making it safe to call concurrently with different styles.
+func RenderTableWith(node any, noColor bool, keyColWidth, valueColWidth int, columnOrder []string, styles RenderStyles) string {
 	// Caller supplies column widths based on their layout (panel width). Do not
 	// recompute from terminal width here or the rendered rows will overflow the
 	// caller's panel (causing wrapping in interactive mode).
@@ -420,15 +516,15 @@ func RenderTable(node any, noColor bool, keyColWidth, valueColWidth int, columnO
 	headerKey := padRight("KEY", keyWidth)
 	headerValue := padRight("VALUE", valueWidth)
 	if !noColor {
-		headerKey = headerStyle.Render(headerKey)
-		headerValue = headerStyle.Render(headerValue)
+		headerKey = styles.Header.Render(headerKey)
+		headerValue = styles.Header.Render(headerValue)
 	}
 	b.WriteString(headerKey + sep + headerValue + "\n")
 
 	// Separator line
 	separator := strings.Repeat("─", headerWidth)
 	if !noColor {
-		separator = separatorStyle.Render(separator)
+		separator = styles.Separator.Render(separator)
 	}
 	b.WriteString(separator + "\n")
 
@@ -439,13 +535,13 @@ func RenderTable(node any, noColor bool, keyColWidth, valueColWidth int, columnO
 			v := t[k]
 			keyStr := padRight(truncate(k, keyWidth), keyWidth)
 			valRaw := StringifyPreserveNewlines(v)
-			renderMultilineRow(&b, keyStr, valRaw, keyWidth, valueWidth, noColor, sep)
+			renderMultilineRowWith(&b, keyStr, valRaw, keyWidth, valueWidth, noColor, sep, styles)
 		}
 	case []any:
 		for i, v := range t {
 			keyStr := padRight(fmt.Sprintf("[%d]", i), keyWidth)
 			valRaw := StringifyPreserveNewlines(v)
-			renderMultilineRow(&b, keyStr, valRaw, keyWidth, valueWidth, noColor, sep)
+			renderMultilineRowWith(&b, keyStr, valRaw, keyWidth, valueWidth, noColor, sep, styles)
 		}
 	default:
 		// Check if it's a slice type (could be []map, []string, etc.)
@@ -455,13 +551,13 @@ func RenderTable(node any, noColor bool, keyColWidth, valueColWidth int, columnO
 				v := sliceVal.Index(i).Interface()
 				keyStr := padRight(fmt.Sprintf("[%d]", i), keyWidth)
 				valRaw := StringifyPreserveNewlines(v)
-				renderMultilineRow(&b, keyStr, valRaw, keyWidth, valueWidth, noColor, sep)
+				renderMultilineRowWith(&b, keyStr, valRaw, keyWidth, valueWidth, noColor, sep, styles)
 			}
 		} else {
 			// scalar value - must match navigator.ScalarValueKey (can't import due to cycle)
 			keyStr := padRight("(value)", keyWidth)
 			valRaw := StringifyPreserveNewlines(node)
-			renderMultilineRow(&b, keyStr, valRaw, keyWidth, valueWidth, noColor, sep)
+			renderMultilineRowWith(&b, keyStr, valRaw, keyWidth, valueWidth, noColor, sep, styles)
 		}
 	}
 
@@ -470,7 +566,16 @@ func RenderTable(node any, noColor bool, keyColWidth, valueColWidth int, columnO
 
 // RenderRows prints a two-column table (key, value) for precomputed rows.
 // rows should contain [key, value] pairs in display order.
+//
+// NOTE: this reads process-global styles/maxValueLines, which is unsafe
+// for concurrent rendering (see issue #83). Prefer RenderRowsWith.
 func RenderRows(rows [][]string, noColor bool, keyColWidth, valueColWidth int) string {
+	return RenderRowsWith(rows, noColor, keyColWidth, valueColWidth, CurrentRenderStyles())
+}
+
+// RenderRowsWith is like RenderRows but takes styles explicitly and reads no
+// global state.
+func RenderRowsWith(rows [][]string, noColor bool, keyColWidth, valueColWidth int, styles RenderStyles) string {
 	sepWidth := 2
 	minValueWidth := 20
 	sep := strings.Repeat(" ", sepWidth)
@@ -495,14 +600,14 @@ func RenderRows(rows [][]string, noColor bool, keyColWidth, valueColWidth int) s
 	headerKey := padRight("KEY", keyWidth)
 	headerValue := padRight("VALUE", valueWidth)
 	if !noColor {
-		headerKey = headerStyle.Render(headerKey)
-		headerValue = headerStyle.Render(headerValue)
+		headerKey = styles.Header.Render(headerKey)
+		headerValue = styles.Header.Render(headerValue)
 	}
 	b.WriteString(headerKey + sep + headerValue + "\n")
 
 	separator := strings.Repeat("─", headerWidth)
 	if !noColor {
-		separator = separatorStyle.Render(separator)
+		separator = styles.Separator.Render(separator)
 	}
 	b.WriteString(separator + "\n")
 
@@ -516,7 +621,7 @@ func RenderRows(rows [][]string, noColor bool, keyColWidth, valueColWidth int) s
 			val = row[1]
 		}
 		keyStr := padRight(truncate(key, keyWidth), keyWidth)
-		renderMultilineRow(&b, keyStr, val, keyWidth, valueWidth, noColor, sep)
+		renderMultilineRowWith(&b, keyStr, val, keyWidth, valueWidth, noColor, sep, styles)
 	}
 
 	return b.String()
@@ -526,8 +631,16 @@ func RenderRows(rows [][]string, noColor bool, keyColWidth, valueColWidth int) s
 // rendered. When multiline rendering is disabled (maxValueLines == 0) the value
 // is flattened with escaped newlines, so the width is measured from the flattened
 // form. Otherwise it returns the width of the widest individual line.
+//
+// NOTE: reads the process-global maxValueLines. Prefer naturalValueWidthWith.
 func naturalValueWidth(val string) int {
-	if maxValueLines == 0 {
+	return naturalValueWidthWith(val, CurrentRenderStyles())
+}
+
+// naturalValueWidthWith is like naturalValueWidth but takes styles explicitly
+// and reads no global state.
+func naturalValueWidthWith(val string, styles RenderStyles) int {
+	if styles.MaxValueLines == 0 {
 		return lipgloss.Width(escapeScalarString(val))
 	}
 	best := 0
@@ -547,17 +660,18 @@ func padRight(s string, width int) string {
 	return s + strings.Repeat(" ", width-len(s))
 }
 
-// renderMultilineRow writes a key-value row to b, splitting multi-line values
-// across multiple display rows. The first line appears next to the key; continuation
-// lines are indented to align under the value column with an empty key column.
-func renderMultilineRow(b *strings.Builder, keyStr, valRaw string, keyWidth, valueWidth int, noColor bool, sep string) {
+// renderMultilineRowWith writes a key-value row to b, splitting multi-line
+// values across multiple display rows. The first line appears next to the
+// key; continuation lines are indented to align under the value column with
+// an empty key column. Takes styles explicitly and reads no global state.
+func renderMultilineRowWith(b *strings.Builder, keyStr, valRaw string, keyWidth, valueWidth int, noColor bool, sep string, styles RenderStyles) {
 	// When multi-line rendering is disabled (maxValueLines == 0), flatten to single line.
-	if maxValueLines == 0 {
+	if styles.MaxValueLines == 0 {
 		valFlat := padRight(truncate(escapeScalarString(valRaw), valueWidth), valueWidth)
 		k := keyStr
 		if !noColor {
-			k = keyStyle.Render(k)
-			valFlat = valueStyle.Render(valFlat)
+			k = styles.Key.Render(k)
+			valFlat = styles.Value.Render(valFlat)
 		}
 		b.WriteString(k + sep + valFlat + "\n")
 		return
@@ -571,8 +685,8 @@ func renderMultilineRow(b *strings.Builder, keyStr, valRaw string, keyWidth, val
 
 	// Cap visible lines when a positive limit is set.
 	truncated := false
-	if maxValueLines > 0 && len(lines) > maxValueLines {
-		lines = lines[:maxValueLines]
+	if styles.MaxValueLines > 0 && len(lines) > styles.MaxValueLines {
+		lines = lines[:styles.MaxValueLines]
 		truncated = true
 	}
 
@@ -585,8 +699,8 @@ func renderMultilineRow(b *strings.Builder, keyStr, valRaw string, keyWidth, val
 		}
 		v := padRight(truncate(line, valueWidth), valueWidth)
 		if !noColor {
-			k = keyStyle.Render(k)
-			v = valueStyle.Render(v)
+			k = styles.Key.Render(k)
+			v = styles.Value.Render(v)
 		}
 		b.WriteString(k + sep + v + "\n")
 	}
@@ -596,8 +710,8 @@ func renderMultilineRow(b *strings.Builder, keyStr, valRaw string, keyWidth, val
 		k := padRight("", keyWidth)
 		v := padRight(truncate("...", valueWidth), valueWidth)
 		if !noColor {
-			k = keyStyle.Render(k)
-			v = valueStyle.Render(v)
+			k = styles.Key.Render(k)
+			v = styles.Value.Render(v)
 		}
 		b.WriteString(k + sep + v + "\n")
 	}

@@ -17,23 +17,33 @@ type ListOptions struct {
 // Arrays of objects display each element with an index header and indented properties.
 // Maps display as key/value pairs with indentation.
 // Scalar values display as "value: <scalar>".
+//
+// NOTE: this reads process-global styles, which is unsafe for concurrent
+// rendering (see issue #83). Prefer FormatAsListWith.
 func FormatAsList(node interface{}, opts ListOptions) string {
+	return FormatAsListWith(node, opts, CurrentRenderStyles())
+}
+
+// FormatAsListWith is like FormatAsList but takes styles explicitly and
+// reads no global state, making it safe to call concurrently with different
+// styles.
+func FormatAsListWith(node interface{}, opts ListOptions, styles RenderStyles) string {
 	var b strings.Builder
 
 	switch v := node.(type) {
 	case []interface{}:
-		b.WriteString(formatArrayAsList(v, opts))
+		b.WriteString(formatArrayAsList(v, opts, styles))
 	case map[string]interface{}:
-		b.WriteString(formatMapAsList(v, "", opts.NoColor, opts.ColumnOrder, opts.HiddenColumns))
+		b.WriteString(formatMapAsList(v, "", opts.NoColor, opts.ColumnOrder, styles, opts.HiddenColumns))
 	default:
 		// Scalar values: display with "value:" label
 		labelStr := "value"
 		if !opts.NoColor {
-			labelStr = keyStyle.Render(labelStr)
+			labelStr = styles.Key.Render(labelStr)
 		}
 		valueStr := StringifyPreserveNewlines(v)
 		if !opts.NoColor {
-			valueStr = valueStyle.Render(valueStr)
+			valueStr = styles.Value.Render(valueStr)
 		}
 		b.WriteString(labelStr)
 		b.WriteString(": ")
@@ -44,7 +54,7 @@ func FormatAsList(node interface{}, opts ListOptions) string {
 	return b.String()
 }
 
-func formatArrayAsList(arr []interface{}, opts ListOptions) string {
+func formatArrayAsList(arr []interface{}, opts ListOptions, styles RenderStyles) string {
 	if len(arr) == 0 {
 		return ""
 	}
@@ -77,7 +87,7 @@ func formatArrayAsList(arr []interface{}, opts ListOptions) string {
 			headerStr := FormatArrayIndex(i, opts.ArrayStyle)
 			if headerStr != "" {
 				if !opts.NoColor {
-					headerStr = headerStyle.Render(headerStr)
+					headerStr = styles.Header.Render(headerStr)
 				}
 				b.WriteString(headerStr)
 				b.WriteString("\n")
@@ -89,7 +99,7 @@ func formatArrayAsList(arr []interface{}, opts ListOptions) string {
 				indent = ""
 			}
 			if m, ok := elem.(map[string]interface{}); ok {
-				b.WriteString(formatMapAsList(m, indent, opts.NoColor, opts.ColumnOrder, opts.HiddenColumns))
+				b.WriteString(formatMapAsList(m, indent, opts.NoColor, opts.ColumnOrder, styles, opts.HiddenColumns))
 			}
 		}
 	} else {
@@ -103,7 +113,7 @@ func formatArrayAsList(arr []interface{}, opts ListOptions) string {
 	return b.String()
 }
 
-func formatMapAsList(m map[string]interface{}, indent string, noColor bool, columnOrder []string, hiddenColumns ...[]string) string {
+func formatMapAsList(m map[string]interface{}, indent string, noColor bool, columnOrder []string, styles RenderStyles, hiddenColumns ...[]string) string {
 	if len(m) == 0 {
 		return ""
 	}
@@ -135,13 +145,13 @@ func formatMapAsList(m map[string]interface{}, indent string, noColor bool, colu
 
 		keyStr := indent + key
 		if !noColor {
-			keyStr = keyStyle.Render(keyStr)
+			keyStr = styles.Key.Render(keyStr)
 		}
 
 		val := m[key]
 		valStr := StringifyPreserveNewlines(val)
 		if !noColor {
-			valStr = valueStyle.Render(valStr)
+			valStr = styles.Value.Render(valStr)
 		}
 
 		b.WriteString(keyStr)

@@ -242,7 +242,7 @@ output := tui.RenderTable(root, tui.TableOptions{
 `ParseSchema` derives hints from standard JSON Schema fields:
 
 | JSON Schema Field | ColumnHint Effect |
-|-------------------|-------------------|
+| ------------------- | ------------------- |
 | `title` | `DisplayName` — column header text |
 | `maxLength` | `MaxWidth` — cap column width |
 | `enum` | `MaxWidth` — longest enum value |
@@ -313,7 +313,7 @@ fmt.Print(output)
 Available formats:
 
 | Constant | Output |
-|---|---|
+| --- | --- |
 | `tui.FormatTable` | Columnar table (default) |
 | `tui.FormatList` | Vertical property list |
 | `tui.FormatYAML` | YAML |
@@ -412,10 +412,32 @@ tui.Run(root, cfg)
 
 ---
 
+## Concurrency
+
+`tui.RenderTable`/`tui.RenderList` and `core.Engine.Rows`/`RenderTable` are
+safe to call from multiple goroutines concurrently, including with different
+per-call options (theme, `MaxValueLines`): each call builds its own render
+state instead of mutating shared package globals. Sort order is per-call-safe
+through `core.Engine.Rows` (which threads an explicit `SortOrder` down), but
+`tui.RenderTable`/`RenderList` have no per-call sort-order option yet -- they
+still read the process-global default via `navigator.SetSortOrder`, so
+concurrent callers wanting different orders through `pkg/tui` specifically
+cannot get them (see the global-defaults caveat below).
+
+The package-level configuration setters — `tui.SetMaxValueLines`,
+`ui.SetTheme`/`SetThemeByName`, `navigator.SetSortOrder`, and the legacy
+`formatter.SetTableTheme`/`SetMaxValueLines` — still change process-wide
+defaults. They are internally synchronized (no data races or panics), but
+concurrent callers changing these defaults will race for "whose setting wins"
+for anything that reads the *global* default rather than an explicit per-call
+option. If you render concurrently with different settings per call, pass
+them explicitly (e.g. `TableOptions.MaxValueLines`) rather than relying on
+these global setters.
+
 ## Working Examples
 
 | Example | Description | Run |
-|---------|-------------|-----|
+| --------- | ------------- | ----- |
 | [examples/embed-tui](../examples/embed-tui/) | Load a file, render a bordered table or launch the TUI | `go run ./examples/embed-tui sample.json` |
 | [examples/custom_struct](../examples/custom_struct/) | Load Go structs, evaluate CEL expressions | `go run ./examples/custom_struct` |
 | [examples/core-cli](../examples/core-cli/) | Headless CLI — load, evaluate, render (no TUI) | `go run ./examples/core-cli data.yaml "_.items[0]"` |
@@ -427,7 +449,7 @@ tui.Run(root, cfg)
 ### `pkg/core`
 
 | Function / Method | Description |
-|---|---|
+| --- | --- |
 | `core.LoadFile(path)` | Load JSON/YAML/NDJSON/JWT from disk |
 | `core.LoadRoot(input)` | Parse a string |
 | `core.LoadRootBytes(data)` | Parse bytes |
@@ -442,7 +464,7 @@ tui.Run(root, cfg)
 ### `pkg/tui`
 
 | Function | Description |
-|---|---|
+| --- | --- |
 | `tui.Run(root, cfg, opts...)` | Launch the interactive TUI |
 | `tui.Render(node, format, opts)` | Render using an `OutputFormat` (`FormatTable`, `FormatList`, `FormatTree`, `FormatMermaid`, `FormatYAML`, `FormatJSON`) |
 | `tui.RenderTable(node, opts)` | Render a static table (bordered or plain; auto-detects columnar mode for arrays) |
@@ -459,7 +481,7 @@ tui.Run(root, cfg)
 ### `tui.ColumnHint` fields
 
 | Field | Type | Description |
-|---|---|---|
+| --- | --- | --- |
 | `MaxWidth` | `int` | Cap column width (0 = no cap). For flex columns, acts as a minimum guarantee — the column starts at MaxWidth but can expand beyond it |
 | `Priority` | `int` | Column importance during shrinking (higher = resists more) |
 | `DisplayName` | `string` | Override column header text |
@@ -470,6 +492,6 @@ tui.Run(root, cfg)
 ### `internal/formatter` (advanced)
 
 | Function | Description |
-|---|---|
+| --- | --- |
 | `formatter.ColumnarOverhead(numCols, showRowNum, numRows)` | Calculate fixed overhead (borders + separators + row numbers) |
 | `formatter.HasFlexColumn(hints)` | Check if any hint has `Flex: true` |

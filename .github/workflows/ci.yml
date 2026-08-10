@@ -55,7 +55,7 @@ jobs:
           version: 3.x
 
       - name: Run tests
-        run: task test
+        run: task test-race
 
   fork-test-windows:
     name: Fork Test (Windows)

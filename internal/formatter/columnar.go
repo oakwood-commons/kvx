@@ -171,7 +171,17 @@ type ColumnarOptions struct {
 // RenderColumnarTable renders data as a multi-column table with field names as headers.
 // columns: the field names (column headers)
 // rows: the data rows (each row has values corresponding to columns)
+//
+// NOTE: this reads process-global styles, which is unsafe for concurrent
+// rendering (see issue #83). Prefer RenderColumnarTableWith.
 func RenderColumnarTable(columns []string, rows [][]string, opts ColumnarOptions) string {
+	return RenderColumnarTableWith(columns, rows, opts, CurrentRenderStyles())
+}
+
+// RenderColumnarTableWith is like RenderColumnarTable but takes styles
+// explicitly and reads no global state, making it safe to call concurrently
+// with different styles.
+func RenderColumnarTableWith(columns []string, rows [][]string, opts ColumnarOptions, styles RenderStyles) string {
 	if len(columns) == 0 || len(rows) == 0 {
 		return ""
 	}
@@ -232,7 +242,7 @@ func RenderColumnarTable(columns []string, rows [][]string, opts ColumnarOptions
 	var b strings.Builder
 
 	// Render header
-	headerRow := renderHeader(displayCols, colWidths, sepWidth, rowNumWidth, showRowNum, opts.NoColor)
+	headerRow := renderHeader(displayCols, colWidths, sepWidth, rowNumWidth, showRowNum, opts.NoColor, styles)
 	b.WriteString(headerRow + "\n")
 
 	// Separator line - width needs to match header width including row number separator
@@ -248,13 +258,13 @@ func RenderColumnarTable(columns []string, rows [][]string, opts ColumnarOptions
 	}
 	separator := strings.Repeat("─", totalHeaderWidth)
 	if !opts.NoColor {
-		separator = separatorStyle.Render(separator)
+		separator = styles.Separator.Render(separator)
 	}
 	b.WriteString(separator + "\n")
 
 	// Render data rows
 	for i, row := range visibleRows {
-		rowStr := renderDataRow(i, row, colWidths, sepWidth, rowNumWidth, opts.RowNumberStyle, opts.NoColor, colAligns)
+		rowStr := renderDataRow(i, row, colWidths, sepWidth, rowNumWidth, opts.RowNumberStyle, opts.NoColor, colAligns, styles)
 		b.WriteString(rowStr + "\n")
 	}
 
@@ -442,7 +452,7 @@ func ColumnarOverhead(numCols int, showRowNum bool, numRows int) int {
 	return overhead
 }
 
-func renderHeader(columns []string, widths []int, sepWidth, rowNumWidth int, showRowNum, noColor bool) string {
+func renderHeader(columns []string, widths []int, sepWidth, rowNumWidth int, showRowNum, noColor bool, styles RenderStyles) string {
 	sep := strings.Repeat(" ", sepWidth)
 	sliceCap := len(columns)
 	if showRowNum {
@@ -457,7 +467,7 @@ func renderHeader(columns []string, widths []int, sepWidth, rowNumWidth int, sho
 	if showRowNum {
 		header := padRight("#", rowNumWidth)
 		if !noColor {
-			header = headerStyle.Render(header)
+			header = styles.Header.Render(header)
 		}
 		parts = append(parts, header)
 	}
@@ -467,7 +477,7 @@ func renderHeader(columns []string, widths []int, sepWidth, rowNumWidth int, sho
 		w := widths[i]
 		header := padRight(truncate(col, w), w)
 		if !noColor {
-			header = headerStyle.Render(header)
+			header = styles.Header.Render(header)
 		}
 		parts = append(parts, header)
 	}
@@ -475,7 +485,7 @@ func renderHeader(columns []string, widths []int, sepWidth, rowNumWidth int, sho
 	return strings.Join(parts, sep)
 }
 
-func renderDataRow(rowIndex int, values []string, widths []int, sepWidth, rowNumWidth int, rowNumStyle string, noColor bool, colAligns []string) string {
+func renderDataRow(rowIndex int, values []string, widths []int, sepWidth, rowNumWidth int, rowNumStyle string, noColor bool, colAligns []string, styles RenderStyles) string {
 	sep := strings.Repeat(" ", sepWidth)
 	sliceCap := len(values)
 	if rowNumStyle != "none" {
@@ -499,7 +509,7 @@ func renderDataRow(rowIndex int, values []string, widths []int, sepWidth, rowNum
 		}
 		numStr = padRight(numStr, rowNumWidth)
 		if !noColor {
-			numStr = keyStyle.Render(numStr)
+			numStr = styles.Key.Render(numStr)
 		}
 		parts = append(parts, numStr)
 	}
@@ -517,7 +527,7 @@ func renderDataRow(rowIndex int, values []string, widths []int, sepWidth, rowNum
 			valStr = padRight(truncate(val, w), w)
 		}
 		if !noColor {
-			valStr = valueStyle.Render(valStr)
+			valStr = styles.Value.Render(valStr)
 		}
 		parts = append(parts, valStr)
 	}
