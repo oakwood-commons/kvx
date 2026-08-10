@@ -416,8 +416,13 @@ tui.Run(root, cfg)
 
 `tui.RenderTable`/`tui.RenderList` and `core.Engine.Rows`/`RenderTable` are
 safe to call from multiple goroutines concurrently, including with different
-per-call options (theme, `MaxValueLines`, sort order): each call builds its
-own render state instead of mutating shared package globals.
+per-call options (theme, `MaxValueLines`): each call builds its own render
+state instead of mutating shared package globals. Sort order is per-call-safe
+through `core.Engine.Rows` (which threads an explicit `SortOrder` down), but
+`tui.RenderTable`/`RenderList` have no per-call sort-order option yet -- they
+still read the process-global default via `navigator.SetSortOrder`, so
+concurrent callers wanting different orders through `pkg/tui` specifically
+cannot get them (see the global-defaults caveat below).
 
 The package-level configuration setters — `tui.SetMaxValueLines`,
 `ui.SetTheme`/`SetThemeByName`, `navigator.SetSortOrder`, and the legacy

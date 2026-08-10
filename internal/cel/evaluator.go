@@ -383,10 +383,16 @@ var (
 
 // SetExampleHints sets the example hints used by DiscoverCELFunctionDocs.
 // These should be derived from the config file's function_examples section.
+// A nil argument is preserved as nil (not promoted to an empty map): callers
+// use GetExampleHints() == nil as an "unset" sentinel (see internal/ui/model.go),
+// so collapsing nil and empty here would silently break that check.
 func SetExampleHints(hints map[string]string) {
-	cp := make(map[string]string, len(hints))
-	for k, v := range hints {
-		cp[k] = v
+	var cp map[string]string
+	if hints != nil {
+		cp = make(map[string]string, len(hints))
+		for k, v := range hints {
+			cp[k] = v
+		}
 	}
 
 	exampleHintsMu.Lock()

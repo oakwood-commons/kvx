@@ -244,11 +244,14 @@ func RenderTable(node any, opts TableOptions) string {
 	}
 
 	th := ui.CurrentTheme()
-	// Keep the global table theme in sync for renderers (e.g. the columnar
-	// path) that have not yet been converted to take styles explicitly; this
-	// mutation is now mutex-guarded (see internal/formatter) so it no longer
-	// races, though concurrent callers using different themes may still see
-	// a benign color mismatch on that path.
+	// Keep the global table theme in sync too. As of the columnar/list
+	// styles-threading fix, nothing downstream of this function actually
+	// reads it anymore -- every renderer here takes an explicit RenderStyles
+	// -- but formatter.MaxValueLines()/tui.MaxValueLines() are public API and
+	// cmd/root.go shares these same globals, so an external caller could
+	// still observe them. Keeping this mutation (mutex-guarded, so it no
+	// longer races) preserves that external contract; it's not a
+	// still-needed input to any renderer here.
 	formatter.SetTableTheme(formatter.TableColors{
 		HeaderFG:       th.HeaderFG,
 		HeaderBG:       th.HeaderBG,
