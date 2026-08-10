@@ -43,8 +43,12 @@ while IFS= read -r pattern; do
   # Scan staged content only (what's about to be committed), never printing
   # the matched line itself -- only the file path -- so the restricted term
   # doesn't end up echoed back into your terminal/scrollback either.
+  # NOTE: the filename is passed as a plain trailing argument ($2), never
+  # spliced into the script text itself -- embedding it inside a quoted
+  # string (e.g. via `:{}`) would let a filename containing shell
+  # metacharacters inject code into this script when xargs substitutes it.
   matched_files=$(git diff --cached --name-only --diff-filter=ACM -z | \
-    xargs -0 -I{} sh -c 'git show ":{}" 2>/dev/null | grep -qiE "$1" && echo {}' _ "$pattern")
+    xargs -0 -I{} sh -c 'git show ":$2" 2>/dev/null | grep -qiE -e "$1" && printf "%s\n" "$2"' _ "$pattern" {})
 
   if [ -n "$matched_files" ]; then
     echo "error: restricted term pattern matched staged file(s):" >&2

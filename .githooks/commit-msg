@@ -24,7 +24,7 @@ while IFS= read -r pattern; do
     ''|'#'*) continue ;;
   esac
 
-  if grep -qiE "$pattern" "$commit_msg_file"; then
+  if grep -qiE -e "$pattern" "$commit_msg_file"; then
     echo "error: restricted term pattern matched the commit message." >&2
     fail=1
   fi

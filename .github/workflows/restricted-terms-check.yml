@@ -77,7 +77,7 @@ jobs:
       - name: Scan tracked files and commit messages against the configured term list
         env:
           RESTRICTED_TERMS: ${{ secrets.terms }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD_SHA: ${{ inputs.head_sha || github.sha }}
         run: |
           set -u
@@ -89,13 +89,18 @@ jobs:
 
           fail=0
 
-          # Commit range to check messages for: PR base..head on a pull_request
-          # event, or just the pushed commit(s) otherwise. Falls back to
-          # scanning only HEAD if no base is available (e.g. first push).
-          if [ -n "${BASE_SHA:-}" ]; then
-            range="${BASE_SHA}..${HEAD_SHA}"
+          # Commit-message scan range: PR base..head on a pull_request(_target)
+          # event, or the pushed commit(s) on a push event (github.event.before
+          # is the SHA immediately preceding the push). A push event's `before`
+          # is all-zeros for a brand-new branch/first push, where there's no
+          # usable base -- fall back to scanning just the head commit alone in
+          # that case, rather than walking full history (which would make one
+          # pre-existing, unrelated match fail every future push forever).
+          zero_sha="0000000000000000000000000000000000000000"
+          if [ -n "${BASE_SHA:-}" ] && [ "${BASE_SHA}" != "$zero_sha" ]; then
+            log_range_args=("${BASE_SHA}..${HEAD_SHA}")
           else
-            range="${HEAD_SHA}"
+            log_range_args=(-1 "${HEAD_SHA}")
           fi
 
           while IFS= read -r pattern; do
@@ -107,7 +112,12 @@ jobs:
 
             # File content: report only the file path, never the matching
             # line, so the restricted term itself never reaches the log.
-            matched_files=$(git grep -liE -e "$pattern" -- . || true)
+            # Also redirect stderr: git grep prints an "invalid regex" error
+            # containing the literal offending pattern if the secret ever
+            # contains a malformed pattern -- swallowing only the exit code
+            # (via `|| true`) isn't enough, since stderr would still leak the
+            # pattern text into the public Actions log.
+            matched_files=$(git grep -liE -e "$pattern" -- . 2>/dev/null || true)
             if [ -n "$matched_files" ]; then
               echo "::error::Restricted term matched in tracked file(s):"
               echo "$matched_files" | sed 's/^/::error::  /'
@@ -116,7 +126,7 @@ jobs:
 
             # Commit messages: report only the commit SHA, never the subject
             # or body content that matched.
-            matched_commits=$(git log --format='%H' -iE --grep="$pattern" "$range" -- 2>/dev/null || true)
+            matched_commits=$(git log --format='%H' -iE --grep="$pattern" "${log_range_args[@]}" -- 2>/dev/null || true)
             if [ -n "$matched_commits" ]; then
               echo "::error::Restricted term matched in commit message(s):"
               echo "$matched_commits" | sed 's/^/::error::  /'
