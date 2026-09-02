@@ -55,6 +55,7 @@ func navigationHelpRows(keyMode KeyMode, descs map[string]string) [][]string {
 			{"gg/G", "go to top/bottom"},
 			{":", "expression mode"},
 			{"y", "copy path"},
+			{"Y", "copy value"},
 			{"?", "toggle help"},
 			{"q", descs["quit"]},
 		}
@@ -69,6 +70,7 @@ func navigationHelpRows(keyMode KeyMode, descs map[string]string) [][]string {
 			{"M-</M->", "go to top/bottom"},
 			{"M-x", "expression mode"},
 			{"M-w", "copy path"},
+			{"M-W", "copy value"},
 			{"F1", "toggle help"},
 			{"C-g", "cancel/clear"},
 			{"C-q", descs["quit"]},

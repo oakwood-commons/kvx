@@ -50,7 +50,7 @@ func (m FooterModel) View() string {
 
 	// Render keybindings dynamically from menu config based on mode
 	menu := CurrentMenuConfig()
-	actionOrder := []string{"help", "search", "filter", "copy", "expr", "quit"}
+	actionOrder := []string{"help", "search", "filter", "copy", "copy_value", "expr", "quit"}
 
 	for _, actionName := range actionOrder {
 		item, ok := menu.Items[actionName]

@@ -47,6 +47,7 @@ func TestHandleVimKey_Navigation(t *testing.T) {
 		{"G goes to bottom", "G", VimActionBottom},
 		{"? toggles help", "?", VimActionHelp},
 		{"y copies", "y", VimActionCopy},
+		{"Y copies value", "Y", VimActionCopyValue},
 		{": opens expr", ":", VimActionExpr},
 		{"q quits", "q", VimActionQuit},
 		{"enter goes forward", "enter", VimActionEnter},
@@ -143,6 +144,7 @@ func TestHandleEmacsKey_Navigation(t *testing.T) {
 		{"alt+>", VimActionBottom, "alt+> goes to bottom"},
 		{"f1", VimActionHelp, "f1 toggles help"},
 		{"alt+w", VimActionCopy, "alt+w copies"},
+		{"alt+W", VimActionCopyValue, "alt+W copies value"},
 		{"alt+x", VimActionExpr, "alt+x opens expr"},
 		{"ctrl+g", VimActionClearSearch, "ctrl+g clears search"},
 		{"ctrl+q", VimActionQuit, "ctrl+q quits"},
@@ -529,5 +531,201 @@ func TestKeyReleaseMsg_SwallowedByModel(t *testing.T) {
 	}
 	if m2.LastKey != "" {
 		t.Errorf("KeyReleaseMsg must not set LastKey: got %q", m2.LastKey)
+	}
+}
+
+// --- Tests for vim action delegators ---
+// These functions are thin delegators that route vim/emacs key presses to
+// existing menu actions or navigation helpers. Direct tests here guard against
+// silent breakage of the dispatch wiring.
+
+func TestVimNavigateBack_ReturnsModelWithoutCmd(t *testing.T) {
+	m := testKeyModeModel(KeyModeVim)
+	got, cmd := m.vimNavigateBack()
+	if got != m {
+		t.Error("expected same model instance")
+	}
+	if cmd != nil {
+		t.Error("expected nil cmd (Update handles navigation)")
+	}
+}
+
+func TestVimNavigateForward_ReturnsModelWithoutCmd(t *testing.T) {
+	m := testKeyModeModel(KeyModeVim)
+	got, cmd := m.vimNavigateForward()
+	if got != m {
+		t.Error("expected same model instance")
+	}
+	if cmd != nil {
+		t.Error("expected nil cmd (Update handles navigation)")
+	}
+}
+
+func TestVimEnterExpr_TogglesInputFocus(t *testing.T) {
+	m := testKeyModeModel(KeyModeVim)
+	m.AllowEditInput = true
+	if m.InputFocused {
+		t.Fatal("expected InputFocused=false at start")
+	}
+
+	_, _ = m.vimEnterExpr()
+
+	if !m.InputFocused {
+		t.Error("expected InputFocused=true after vimEnterExpr")
+	}
+}
+
+func TestVimQuit_ReturnsQuitCommand(t *testing.T) {
+	m := testKeyModeModel(KeyModeVim)
+	m.PathInput.SetValue("_")
+
+	_, cmd := m.vimQuit()
+
+	if cmd == nil {
+		t.Error("expected non-nil quit cmd")
+	}
+}
+
+func TestVimEnterMapFilter_ActivatesFilterOnMap(t *testing.T) {
+	m := testKeyModeModel(KeyModeVim)
+
+	_, _ = m.vimEnterMapFilter()
+
+	if !m.MapFilterActive {
+		t.Error("expected MapFilterActive=true after vimEnterMapFilter on a map")
+	}
+}
+
+func TestVimEnterMapFilter_NoOpOnNonMap(t *testing.T) {
+	root := []any{"a", "b", "c"}
+	m := InitialModel(root)
+	m.Root = root
+	m.KeyMode = KeyModeVim
+	m.WinWidth = 80
+	m.WinHeight = 24
+	m.Tbl.Focus()
+	m.applyLayout(true)
+
+	_, cmd := m.vimEnterMapFilter()
+
+	if m.MapFilterActive {
+		t.Error("expected MapFilterActive=false when node is not a map")
+	}
+	if cmd != nil {
+		t.Error("expected nil cmd when filter cannot activate")
+	}
+}
+
+func TestHasCommittedSearch_FalseByDefault(t *testing.T) {
+	m := testKeyModeModel(KeyModeVim)
+	if m.hasCommittedSearch() {
+		t.Error("expected no committed search on fresh model")
+	}
+}
+
+func TestHasCommittedSearch_TrueWhenSearchContextActive(t *testing.T) {
+	m := testKeyModeModel(KeyModeVim)
+	m.SearchContextActive = true
+	if !m.hasCommittedSearch() {
+		t.Error("expected hasCommittedSearch=true when SearchContextActive")
+	}
+}
+
+func TestHasCommittedSearch_TrueWhenAdvancedSearchHasResults(t *testing.T) {
+	m := testKeyModeModel(KeyModeVim)
+	m.AdvancedSearchActive = true
+	m.AdvancedSearchResults = []SearchResult{{FullPath: "_.alpha"}}
+	if !m.hasCommittedSearch() {
+		t.Error("expected hasCommittedSearch=true with advanced search results")
+	}
+}
+
+func TestVimNextMatch_NoOpWithoutCommittedSearch(t *testing.T) {
+	m := testKeyModeModel(KeyModeVim)
+	cursor := m.Tbl.Cursor()
+
+	_, cmd := m.vimNextMatch()
+
+	if m.Tbl.Cursor() != cursor {
+		t.Errorf("expected cursor unchanged, got %d, want %d", m.Tbl.Cursor(), cursor)
+	}
+	if cmd != nil {
+		t.Error("expected nil cmd")
+	}
+}
+
+func TestVimPrevMatch_NoOpWithoutCommittedSearch(t *testing.T) {
+	m := testKeyModeModel(KeyModeVim)
+	cursor := m.Tbl.Cursor()
+
+	_, cmd := m.vimPrevMatch()
+
+	if m.Tbl.Cursor() != cursor {
+		t.Errorf("expected cursor unchanged, got %d, want %d", m.Tbl.Cursor(), cursor)
+	}
+	if cmd != nil {
+		t.Error("expected nil cmd")
+	}
+}
+
+func TestVimNextMatch_MovesCursorWithCommittedSearch(t *testing.T) {
+	m := testKeyModeModel(KeyModeVim)
+	m.SearchContextActive = true
+	m.Tbl.GotoTop()
+	before := m.Tbl.Cursor()
+
+	_, _ = m.vimNextMatch()
+
+	if m.Tbl.Cursor() <= before {
+		t.Errorf("expected cursor to advance from %d, got %d", before, m.Tbl.Cursor())
+	}
+}
+
+func TestVimPrevMatch_MovesCursorWithCommittedSearch(t *testing.T) {
+	m := testKeyModeModel(KeyModeVim)
+	m.SearchContextActive = true
+	m.Tbl.GotoBottom()
+	before := m.Tbl.Cursor()
+
+	_, _ = m.vimPrevMatch()
+
+	if m.Tbl.Cursor() >= before {
+		t.Errorf("expected cursor to retreat from %d, got %d", before, m.Tbl.Cursor())
+	}
+}
+
+func TestVimClearSearch_NoOpWhenNoSearchActive(t *testing.T) {
+	m := testKeyModeModel(KeyModeVim)
+
+	_, cmd := m.vimClearSearch()
+
+	if cmd != nil {
+		t.Error("expected nil cmd when no search is active")
+	}
+	if m.SearchContextActive || m.AdvancedSearchActive {
+		t.Error("search flags should remain false")
+	}
+}
+
+func TestVimClearSearch_ClearsContextState(t *testing.T) {
+	m := testKeyModeModel(KeyModeVim)
+	m.SearchContextActive = true
+	m.SearchContextResults = []SearchResult{{FullPath: "_.alpha"}}
+	m.SearchContextQuery = "alp"
+	m.SearchContextBasePath = "_"
+
+	_, _ = m.vimClearSearch()
+
+	if m.SearchContextActive {
+		t.Error("expected SearchContextActive=false after clear")
+	}
+	if len(m.SearchContextResults) != 0 {
+		t.Error("expected search results cleared")
+	}
+	if m.SearchContextQuery != "" {
+		t.Errorf("expected empty query, got %q", m.SearchContextQuery)
+	}
+	if m.SearchContextBasePath != "" {
+		t.Errorf("expected empty base path, got %q", m.SearchContextBasePath)
 	}
 }
