@@ -8,6 +8,7 @@
 │gg/G [m go to top/bottom[m                             │
 │: [m expression mode[m                                 │
 │y [m copy path[m                                       │
+│Y [m copy value[m                                      │
 │? [m toggle help[m                                     │
 │q [m quit[m                                            │
 │                                                   │
@@ -18,7 +19,6 @@
 │[ [m array indices[m                                   │
 │Ctrl+Space [m function palette[m                       │
 │Ctrl+C [m quit[m                                       │
-│                                                   │
 ╰───────────────────────────────────────────────────╯
 ╭[m────────────────────────────────────[m kvx [m─────────────────────────────────────[m╮[m
-? help / search f filter y copy : expr q quit                                   
+? help / search f filter y copy Y copy value : expr q quit                      

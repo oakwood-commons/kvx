@@ -662,11 +662,19 @@ ui:
     copy:
       label: copy
       enabled: true
-      help_text: Copy current expression/path
+      help_text: Copy current path/expression
       keys:
         function: f5
         vim: "y"
         emacs: alt+w
+
+    copy_value:
+      label: copy value
+      enabled: true
+      help_text: Copy current value (raw scalar or pretty JSON)
+      keys:
+        vim: "Y"
+        emacs: alt+W
 
     expr:
       label: expr

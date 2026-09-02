@@ -12,5 +12,5 @@
 │                                                          │
 │                                                          │
 ╰[m _.name [m────────────────────────────────────────[m map: 1/1 [m╯[m
-? help / search f filter y copy : expr q quit               
+? help / search f filter y copy Y copy value : expr q quit  
  

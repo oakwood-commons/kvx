@@ -50,6 +50,7 @@ const (
 	VimActionBottom      VimAction = "bottom"
 	VimActionHelp        VimAction = "help"
 	VimActionCopy        VimAction = "copy"
+	VimActionCopyValue   VimAction = "copy_value"
 	VimActionExpr        VimAction = "expr"
 	VimActionQuit        VimAction = "quit"
 	VimActionPendingG    VimAction = "pending_g" // Waiting for second key in gg sequence
@@ -73,6 +74,7 @@ var VimKeyBindings = map[string]VimAction{
 	"G":     VimActionBottom,
 	"?":     VimActionHelp,
 	"y":     VimActionCopy,
+	"Y":     VimActionCopyValue,
 	":":     VimActionExpr,
 	"q":     VimActionQuit,
 	"enter": VimActionEnter,
@@ -92,6 +94,7 @@ var EmacsKeyBindings = map[string]VimAction{
 	"alt+>":  VimActionBottom,
 	"f1":     VimActionHelp, // Use F1 for help (ctrl+h is backspace in terminals)
 	"alt+w":  VimActionCopy,
+	"alt+W":  VimActionCopyValue,
 	"alt+x":  VimActionExpr,
 	"ctrl+g": VimActionClearSearch, // Cancel in emacs
 	"ctrl+q": VimActionQuit,        // Quit
@@ -104,6 +107,7 @@ var actionToVimAction = map[string]VimAction{
 	"search":      VimActionSearch,
 	"filter":      VimActionFilter,
 	"copy":        VimActionCopy,
+	"copy_value":  VimActionCopyValue,
 	"expr":        VimActionExpr,
 	"expr_toggle": VimActionExpr,
 	"quit":        VimActionQuit,
@@ -226,6 +230,8 @@ func (m *Model) executeVimAction(action VimAction) (tea.Model, tea.Cmd) {
 		return m.vimToggleHelp()
 	case VimActionCopy:
 		return m.vimCopy()
+	case VimActionCopyValue:
+		return m.vimCopyValue()
 	case VimActionExpr:
 		return m.vimEnterExpr()
 	case VimActionQuit:
@@ -343,6 +349,11 @@ func (m *Model) vimToggleHelp() (tea.Model, tea.Cmd) {
 // vimCopy copies current path/expression (same as F5).
 func (m *Model) vimCopy() (tea.Model, tea.Cmd) {
 	return m, menuActionCopy(m)
+}
+
+// vimCopyValue copies the value at the highlighted position (raw for scalars, JSON for complex).
+func (m *Model) vimCopyValue() (tea.Model, tea.Cmd) {
+	return m, menuActionCopyValue(m)
 }
 
 // vimEnterExpr enters expression mode (same as F6).

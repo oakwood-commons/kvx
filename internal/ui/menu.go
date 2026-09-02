@@ -127,7 +127,8 @@ func fallbackDefaultMenuConfig() MenuConfig {
 	}
 	searchItem := MenuItem{Label: "search", Action: "search", Enabled: true, HelpText: "Start search", Keys: MenuKeyBindings{Function: "f3", Vim: "/", Emacs: "ctrl+s"}}
 	filterItem := MenuItem{Label: "filter", Action: "filter", Enabled: true, HelpText: "Filter map keys", Keys: MenuKeyBindings{Function: "f4", Vim: "f", Emacs: "ctrl+l"}}
-	copyItem := MenuItem{Label: "copy", Action: "copy", Enabled: true, HelpText: "Copy current expression/path", Keys: MenuKeyBindings{Function: "f5", Vim: "y", Emacs: "alt+w"}}
+	copyItem := MenuItem{Label: "copy", Action: "copy", Enabled: true, HelpText: "Copy current path/expression", Keys: MenuKeyBindings{Function: "f5", Vim: "y", Emacs: "alt+w"}}
+	copyValueItem := MenuItem{Label: "copy value", Action: "copy_value", Enabled: true, HelpText: "Copy current value (raw scalar or pretty JSON)", Keys: MenuKeyBindings{Vim: "Y", Emacs: "alt+W"}}
 	exprItem := MenuItem{Label: "expr", Action: "expr_toggle", Enabled: true, HelpText: "Toggle expression input", Keys: MenuKeyBindings{Function: "f6", Vim: ":", Emacs: "alt+x"}}
 	quitItem := MenuItem{Label: "quit", Action: "quit", Enabled: true, HelpText: "Quit", Keys: MenuKeyBindings{Function: "f10", Vim: "q", Emacs: "ctrl+q"}}
 
@@ -145,12 +146,13 @@ func fallbackDefaultMenuConfig() MenuConfig {
 		F11: MenuItem{},
 		F12: MenuItem{},
 		Items: map[string]MenuItem{
-			"help":   helpItem,
-			"search": searchItem,
-			"filter": filterItem,
-			"copy":   copyItem,
-			"expr":   exprItem,
-			"quit":   quitItem,
+			"help":       helpItem,
+			"search":     searchItem,
+			"filter":     filterItem,
+			"copy":       copyItem,
+			"copy_value": copyValueItem,
+			"expr":       exprItem,
+			"quit":       quitItem,
 		},
 	}
 	// Build key-action maps for fallback config
@@ -184,6 +186,7 @@ func defaultMenuActions() map[string]MenuAction {
 		"search":      menuActionSearch,
 		"filter":      menuActionFilter,
 		"copy":        menuActionCopy,
+		"copy_value":  menuActionCopyValue,
 		"quit":        menuActionQuit,
 		"custom":      menuActionCustom,
 		"noop":        func(_ *Model) tea.Cmd { return nil },
@@ -288,6 +291,7 @@ func MenuFromConfig(cfg MenuConfigYAML, allowEditInput *bool) MenuConfig {
 		{"search", cfg.Search},
 		{"filter", cfg.Filter},
 		{"copy", cfg.Copy},
+		{"copy_value", cfg.CopyValue},
 		{"expr", cfg.Expr},
 		{"quit", cfg.Quit},
 		{"custom", cfg.Custom},

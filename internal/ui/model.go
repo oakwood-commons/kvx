@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	rdebug "runtime/debug"
@@ -3000,6 +3001,8 @@ func (m *Model) isExpression(expr string) bool {
 
 func (m *Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{textinput.Blink}
+	// Ensure the expression bar reflects the initial cursor row before any nav event.
+	m.syncPathInputWithCursor()
 	if cv := m.activeCustomView(); cv != nil {
 		cmds = append(cmds, cv.Init())
 	}
@@ -5108,7 +5111,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Simulate right arrow/enter - handled by existing code path
 					return m.handleVimForwardNavigation()
 				case VimActionDown, VimActionUp, VimActionSearch, VimActionFilter, VimActionNextMatch, VimActionPrevMatch,
-					VimActionTop, VimActionBottom, VimActionHelp, VimActionCopy, VimActionExpr,
+					VimActionTop, VimActionBottom, VimActionHelp, VimActionCopy, VimActionCopyValue, VimActionExpr,
 					VimActionQuit, VimActionClearSearch:
 					return m.executeVimAction(action)
 				}
@@ -5125,7 +5128,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case VimActionForward, VimActionEnter:
 					return m.handleVimForwardNavigation()
 				case VimActionDown, VimActionUp, VimActionSearch, VimActionNextMatch, VimActionPrevMatch,
-					VimActionTop, VimActionBottom, VimActionHelp, VimActionCopy, VimActionExpr,
+					VimActionTop, VimActionBottom, VimActionHelp, VimActionCopy, VimActionCopyValue, VimActionExpr,
 					VimActionQuit, VimActionClearSearch, VimActionFilter:
 					return m.executeVimAction(action)
 				}
@@ -5910,7 +5913,7 @@ func renderFooter(noColor, allowEditInput, hideCopy, exprMode bool, maxWidth int
 	}
 
 	var parts []string
-	actionOrder := []string{"help", "search", "filter", "copy", "expr", "quit"}
+	actionOrder := []string{"help", "search", "filter", "copy", "copy_value", "expr", "quit"}
 	menu := CurrentMenuConfig()
 
 	// Build parts from menu config for all key modes
@@ -6647,8 +6650,18 @@ func menuActionFilter(m *Model) tea.Cmd {
 }
 
 func menuActionCopy(m *Model) tea.Cmd {
-	// Always use PathInput value (works for both input mode and search mode)
-	expr := strings.TrimSpace(m.PathInput.Value())
+	// In expr mode, copy the typed expression verbatim.
+	// In table/search mode, compute the path from live model state so we do not
+	// depend on PathInput being synced with the cursor.
+	var expr string
+	if m.InputFocused {
+		expr = strings.TrimSpace(m.PathInput.Value())
+	} else {
+		expr = strings.TrimSpace(m.selectedRowPath())
+		if expr != "" {
+			expr = formatPathForDisplay(expr)
+		}
+	}
 	if expr == "" {
 		expr = "_"
 	}
@@ -6661,6 +6674,84 @@ func menuActionCopy(m *Model) tea.Cmd {
 		m.StatusType = "success"
 	}
 	return nil
+}
+
+func menuActionCopyValue(m *Model) tea.Cmd {
+	value, err := m.resolveCopyValue()
+	if err != nil {
+		m.ErrMsg = fmt.Sprintf("Copy value error: %v", err)
+		m.StatusType = "error"
+		return nil
+	}
+	payload, summary, isJSON := formatCopyValue(value)
+	if err := copyToClipboard(payload); err != nil {
+		m.ErrMsg = fmt.Sprintf("Clipboard unavailable: %v", err)
+		m.StatusType = "error"
+		return nil
+	}
+	if isJSON {
+		m.ErrMsg = fmt.Sprintf("Copied value (JSON, %d bytes)", len(payload))
+	} else {
+		m.ErrMsg = fmt.Sprintf("Copied value: %s", summary)
+	}
+	m.StatusType = "success"
+	return nil
+}
+
+// resolveCopyValue returns the value the "copy value" action should copy.
+// In expr mode it evaluates the typed expression; otherwise it resolves the
+// value at the highlighted row (scalar leaves return the current node directly).
+func (m *Model) resolveCopyValue() (interface{}, error) {
+	if m.InputFocused {
+		expr := strings.TrimSpace(m.PathInput.Value())
+		if expr == "" {
+			expr = "_"
+		}
+		return m.evaluateExpression(expr, m.Root)
+	}
+	selectedKey, ok := m.selectedRowKey()
+	if ok && selectedKey == navigator.ScalarValueKey {
+		return m.Node, nil
+	}
+	path := strings.TrimSpace(m.selectedRowPath())
+	if path == "" {
+		return m.Root, nil
+	}
+	return navigator.Resolve(m.Root, path)
+}
+
+// formatCopyValue renders a value for the clipboard. Returns the payload to copy,
+// a short summary for the status bar, and whether the payload is JSON-formatted.
+func formatCopyValue(v interface{}) (payload, summary string, isJSON bool) {
+	if v == nil {
+		return "null", "null", false
+	}
+	switch t := v.(type) {
+	case string:
+		return t, truncateForStatus(t), false
+	case bool:
+		s := fmt.Sprint(t)
+		return s, s, false
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+		s := fmt.Sprint(t)
+		return s, s, false
+	}
+	if b, err := json.MarshalIndent(v, "", "  "); err == nil {
+		return string(b), "", true
+	}
+	// Last-resort fallback for values that cannot be JSON-encoded.
+	s := formatter.Stringify(v)
+	return s, truncateForStatus(s), false
+}
+
+// truncateForStatus keeps status-bar messages readable when the copied value is long.
+func truncateForStatus(s string) string {
+	const maxLen = 60
+	s = strings.ReplaceAll(s, "\n", " ")
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 func menuActionQuit(m *Model) tea.Cmd {
