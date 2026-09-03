@@ -249,7 +249,7 @@ tasks:
   govulncheck:
     desc: Run govulncheck for known vulnerabilities
     vars:
-      GOVULNCHECK_VERSION: "v1.1.4"
+      GOVULNCHECK_VERSION: "v1.7.0"
     cmds:
       - |
         # Run govulncheck in JSON mode; capture exit code to distinguish scan
