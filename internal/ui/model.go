@@ -252,6 +252,8 @@ type Model struct {
 	StatusViewState  *StatusViewModel // State for status view rendering
 	DetailSourcePath string           // Path from which we drilled into detail view (to navigate back)
 	ListPanelMode    string           // ListPanelModeSearch or ListPanelModeFilter — determines search panel behaviour in list view
+	ShowRawView      bool             // Sticky override: force default table view instead of schema list/detail
+	PreRawViewMode   string           // ViewMode saved when entering raw view, used to restore list/detail on toggle-back
 
 	// Status screen async completion (set by library consumers via Config.Done)
 	DoneChan <-chan StatusResult // Optional channel signaling async operation completion
@@ -5112,7 +5114,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m.handleVimForwardNavigation()
 				case VimActionDown, VimActionUp, VimActionSearch, VimActionFilter, VimActionNextMatch, VimActionPrevMatch,
 					VimActionTop, VimActionBottom, VimActionHelp, VimActionCopy, VimActionCopyValue, VimActionExpr,
-					VimActionQuit, VimActionClearSearch:
+					VimActionQuit, VimActionClearSearch, VimActionToggleView:
 					return m.executeVimAction(action)
 				}
 			}
@@ -5129,7 +5131,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m.handleVimForwardNavigation()
 				case VimActionDown, VimActionUp, VimActionSearch, VimActionNextMatch, VimActionPrevMatch,
 					VimActionTop, VimActionBottom, VimActionHelp, VimActionCopy, VimActionCopyValue, VimActionExpr,
-					VimActionQuit, VimActionClearSearch, VimActionFilter:
+					VimActionQuit, VimActionClearSearch, VimActionFilter, VimActionToggleView:
 					return m.executeVimAction(action)
 				}
 			}
@@ -5795,7 +5797,7 @@ func (m Model) buildViewSnapshot() viewSnapshot {
 	snap.Debug = m.Debug.View()
 
 	// Footer
-	snap.Footer = renderFooter(m.NoColor, m.AllowEditInput && m.DisplaySchema == nil, m.DisplaySchema != nil, m.InputFocused, m.WinWidth, m.KeyMode)
+	snap.Footer = renderFooter(m.NoColor, m.AllowEditInput && (m.DisplaySchema == nil || m.ShowRawView), m.DisplaySchema != nil && !m.ShowRawView, m.DisplaySchema != nil, m.InputFocused, m.WinWidth, m.KeyMode)
 
 	return snap
 }
@@ -5881,7 +5883,7 @@ func stripANSIExceptInverse(s string) string {
 	})
 }
 
-func renderFooter(noColor, allowEditInput, hideCopy, exprMode bool, maxWidth int, keyMode KeyMode) string {
+func renderFooter(noColor, allowEditInput, hideCopy, showViewToggle, exprMode bool, maxWidth int, keyMode KeyMode) string {
 	fkeyStyle := lipgloss.NewStyle()
 	if !noColor {
 		th := CurrentTheme()
@@ -5913,7 +5915,7 @@ func renderFooter(noColor, allowEditInput, hideCopy, exprMode bool, maxWidth int
 	}
 
 	var parts []string
-	actionOrder := []string{"help", "search", "filter", "copy", "copy_value", "expr", "quit"}
+	actionOrder := []string{"help", "search", "filter", "copy", "copy_value", "view_toggle", "expr", "quit"}
 	menu := CurrentMenuConfig()
 
 	// Build parts from menu config for all key modes
@@ -5925,7 +5927,10 @@ func renderFooter(noColor, allowEditInput, hideCopy, exprMode bool, maxWidth int
 		if item.Action == "expr_toggle" && !allowEditInput {
 			continue
 		}
-		if actionName == "copy" && hideCopy {
+		if (actionName == "copy" || actionName == "copy_value") && hideCopy {
+			continue
+		}
+		if actionName == "view_toggle" && !showViewToggle {
 			continue
 		}
 
@@ -5953,6 +5958,12 @@ func renderFooter(noColor, allowEditInput, hideCopy, exprMode bool, maxWidth int
 				continue
 			}
 			if item.Action == "expr_toggle" && !allowEditInput {
+				continue
+			}
+			if (actionName == "copy" || actionName == "copy_value") && hideCopy {
+				continue
+			}
+			if actionName == "view_toggle" && !showViewToggle {
 				continue
 			}
 			var key string
@@ -6379,7 +6390,7 @@ func (m *Model) handleMenuKey(keyStr string) (bool, tea.Cmd) {
 	if item == nil || !item.Enabled {
 		return false, nil
 	}
-	if item.Action == "expr_toggle" && (!m.AllowEditInput || m.DisplaySchema != nil) {
+	if item.Action == "expr_toggle" && (!m.AllowEditInput || (m.DisplaySchema != nil && !m.ShowRawView)) {
 		return true, nil
 	}
 
@@ -6532,14 +6543,42 @@ func menuActionHelp(m *Model) tea.Cmd {
 	return nil
 }
 
+// menuActionToggleView flips between schema-driven list/detail rendering and
+// the default KEY/VALUE table for the current node. No-op without a schema
+// or when no schema view applies to the current node.
+func menuActionToggleView(m *Model) tea.Cmd {
+	if !m.schemaViewApplies() {
+		return nil
+	}
+	if !m.ShowRawView {
+		m.PreRawViewMode = m.ViewMode
+		m.ShowRawView = true
+	} else {
+		m.ShowRawView = false
+		// Seed ViewMode so updateViewMode re-enters the drilled-in detail branch
+		// even though it was cleared while raw view was active.
+		if m.PreRawViewMode != "" {
+			m.ViewMode = m.PreRawViewMode
+		}
+		m.PreRawViewMode = ""
+		if m.InputFocused {
+			m.InputFocused = false
+			m.PathInput.Blur()
+		}
+	}
+	m.updateViewMode(m.Node)
+	m.applyLayout(true)
+	return nil
+}
+
 func menuActionExprToggle(m *Model) tea.Cmd {
 	if !m.AllowEditInput {
 		return nil
 	}
-	// Disable expression mode when a display schema is active; the custom
-	// list/detail views handle their own navigation and expression evaluation
-	// would discard the view state.
-	if m.DisplaySchema != nil {
+	// Disable expression mode when a display schema is driving the view;
+	// once the user has flipped to the raw table with `v`, expression
+	// editing works exactly as it does without a schema.
+	if m.DisplaySchema != nil && !m.ShowRawView {
 		return nil
 	}
 	// Sync expr bar to current selection when entering expression mode from table mode.

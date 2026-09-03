@@ -676,6 +676,15 @@ ui:
         vim: "Y"
         emacs: alt+W
 
+    view_toggle:
+      label: view
+      enabled: true
+      help_text: Toggle between schema view and raw table
+      keys:
+        function: f2
+        vim: "v"
+        emacs: alt+v
+
     expr:
       label: expr
       action: expr_toggle

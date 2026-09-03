@@ -604,14 +604,15 @@ type ThemeConfigFile struct {
 // Uses action-based keys (help, search, filter, etc.) with mode-specific key bindings.
 type MenuConfigYAML struct {
 	// Action-based menu items
-	Help      MenuItemConfig `yaml:"help,omitempty" yamlcomment:"Help action"`
-	Search    MenuItemConfig `yaml:"search,omitempty" yamlcomment:"Search action"`
-	Filter    MenuItemConfig `yaml:"filter,omitempty" yamlcomment:"Filter action"`
-	Copy      MenuItemConfig `yaml:"copy,omitempty" yamlcomment:"Copy action"`
-	CopyValue MenuItemConfig `yaml:"copy_value,omitempty" yamlcomment:"Copy value action"`
-	Expr      MenuItemConfig `yaml:"expr,omitempty" yamlcomment:"Expression toggle action"`
-	Quit      MenuItemConfig `yaml:"quit,omitempty" yamlcomment:"Quit action"`
-	Custom    MenuItemConfig `yaml:"custom,omitempty" yamlcomment:"Custom action"`
+	Help       MenuItemConfig `yaml:"help,omitempty" yamlcomment:"Help action"`
+	Search     MenuItemConfig `yaml:"search,omitempty" yamlcomment:"Search action"`
+	Filter     MenuItemConfig `yaml:"filter,omitempty" yamlcomment:"Filter action"`
+	Copy       MenuItemConfig `yaml:"copy,omitempty" yamlcomment:"Copy action"`
+	CopyValue  MenuItemConfig `yaml:"copy_value,omitempty" yamlcomment:"Copy value action"`
+	ViewToggle MenuItemConfig `yaml:"view_toggle,omitempty" yamlcomment:"Toggle between schema view and raw table"`
+	Expr       MenuItemConfig `yaml:"expr,omitempty" yamlcomment:"Expression toggle action"`
+	Quit       MenuItemConfig `yaml:"quit,omitempty" yamlcomment:"Quit action"`
+	Custom     MenuItemConfig `yaml:"custom,omitempty" yamlcomment:"Custom action"`
 
 	// Legacy F-key based items (for backwards compatibility)
 	F1  MenuItemConfig `yaml:"f1,omitempty" yamlcomment:"F1 menu item (legacy)"`
