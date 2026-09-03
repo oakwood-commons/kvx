@@ -146,14 +146,16 @@ func panelLayoutStateFromModel(m *Model, opts PanelLayoutModelOptions) PanelLayo
 		}
 	}
 
+	schemaActive := m.DisplaySchema != nil && !m.ShowRawView
 	state := PanelLayoutState{
 		WinWidth:        m.WinWidth,
 		WinHeight:       m.WinHeight,
 		NoColor:         m.NoColor,
 		SnapshotHeader:  opts.SnapshotHeader,
 		DebugEnabled:    m.DebugMode,
-		AllowEditInput:  m.AllowEditInput && m.DisplaySchema == nil,
-		HideCopy:        m.DisplaySchema != nil,
+		AllowEditInput:  m.AllowEditInput && !schemaActive,
+		HideCopy:        schemaActive,
+		ShowViewToggle:  m.schemaViewApplies(),
 		HideFooter:      opts.HideFooter,
 		KeyMode:         m.KeyMode,
 		HelpVisible:     m.HelpVisible,

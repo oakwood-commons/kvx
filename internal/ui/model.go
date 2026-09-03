@@ -252,6 +252,15 @@ type Model struct {
 	StatusViewState  *StatusViewModel // State for status view rendering
 	DetailSourcePath string           // Path from which we drilled into detail view (to navigate back)
 	ListPanelMode    string           // ListPanelModeSearch or ListPanelModeFilter — determines search panel behaviour in list view
+	ShowRawView      bool             // Sticky override: force default table view instead of schema list/detail
+	PreRawViewMode   string           // ViewMode saved when entering raw view, used to restore list/detail on toggle-back
+
+	// Snapshot of list/detail state captured when entering raw view, restored on toggle-back.
+	preRawListSelected    int
+	preRawListScrollTop   int
+	preRawListFilter      string
+	preRawListSearchQuery string
+	preRawDetailScrollTop int
 
 	// Status screen async completion (set by library consumers via Config.Done)
 	DoneChan <-chan StatusResult // Optional channel signaling async operation completion
@@ -5112,7 +5121,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m.handleVimForwardNavigation()
 				case VimActionDown, VimActionUp, VimActionSearch, VimActionFilter, VimActionNextMatch, VimActionPrevMatch,
 					VimActionTop, VimActionBottom, VimActionHelp, VimActionCopy, VimActionCopyValue, VimActionExpr,
-					VimActionQuit, VimActionClearSearch:
+					VimActionQuit, VimActionClearSearch, VimActionToggleView:
 					return m.executeVimAction(action)
 				}
 			}
@@ -5129,7 +5138,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m.handleVimForwardNavigation()
 				case VimActionDown, VimActionUp, VimActionSearch, VimActionNextMatch, VimActionPrevMatch,
 					VimActionTop, VimActionBottom, VimActionHelp, VimActionCopy, VimActionCopyValue, VimActionExpr,
-					VimActionQuit, VimActionClearSearch, VimActionFilter:
+					VimActionQuit, VimActionClearSearch, VimActionFilter, VimActionToggleView:
 					return m.executeVimAction(action)
 				}
 			}
@@ -5795,7 +5804,7 @@ func (m Model) buildViewSnapshot() viewSnapshot {
 	snap.Debug = m.Debug.View()
 
 	// Footer
-	snap.Footer = renderFooter(m.NoColor, m.AllowEditInput && m.DisplaySchema == nil, m.DisplaySchema != nil, m.InputFocused, m.WinWidth, m.KeyMode)
+	snap.Footer = renderFooter(m.NoColor, m.AllowEditInput && (m.DisplaySchema == nil || m.ShowRawView), m.DisplaySchema != nil && !m.ShowRawView, m.schemaViewApplies(), m.InputFocused, m.WinWidth, m.KeyMode)
 
 	return snap
 }
@@ -5881,7 +5890,7 @@ func stripANSIExceptInverse(s string) string {
 	})
 }
 
-func renderFooter(noColor, allowEditInput, hideCopy, exprMode bool, maxWidth int, keyMode KeyMode) string {
+func renderFooter(noColor, allowEditInput, hideCopy, showViewToggle, exprMode bool, maxWidth int, keyMode KeyMode) string {
 	fkeyStyle := lipgloss.NewStyle()
 	if !noColor {
 		th := CurrentTheme()
@@ -5913,7 +5922,7 @@ func renderFooter(noColor, allowEditInput, hideCopy, exprMode bool, maxWidth int
 	}
 
 	var parts []string
-	actionOrder := []string{"help", "search", "filter", "copy", "copy_value", "expr", "quit"}
+	actionOrder := []string{"help", "search", "filter", "copy", "copy_value", "view_toggle", "expr", "quit"}
 	menu := CurrentMenuConfig()
 
 	// Build parts from menu config for all key modes
@@ -5925,7 +5934,10 @@ func renderFooter(noColor, allowEditInput, hideCopy, exprMode bool, maxWidth int
 		if item.Action == "expr_toggle" && !allowEditInput {
 			continue
 		}
-		if actionName == "copy" && hideCopy {
+		if (actionName == "copy" || actionName == "copy_value") && hideCopy {
+			continue
+		}
+		if actionName == "view_toggle" && !showViewToggle {
 			continue
 		}
 
@@ -5953,6 +5965,12 @@ func renderFooter(noColor, allowEditInput, hideCopy, exprMode bool, maxWidth int
 				continue
 			}
 			if item.Action == "expr_toggle" && !allowEditInput {
+				continue
+			}
+			if (actionName == "copy" || actionName == "copy_value") && hideCopy {
+				continue
+			}
+			if actionName == "view_toggle" && !showViewToggle {
 				continue
 			}
 			var key string
@@ -6379,7 +6397,15 @@ func (m *Model) handleMenuKey(keyStr string) (bool, tea.Cmd) {
 	if item == nil || !item.Enabled {
 		return false, nil
 	}
-	if item.Action == "expr_toggle" && (!m.AllowEditInput || m.DisplaySchema != nil) {
+	if item.Action == "expr_toggle" && (!m.AllowEditInput || (m.DisplaySchema != nil && !m.ShowRawView)) {
+		return true, nil
+	}
+	if item.Action == "view_toggle" && !m.schemaViewApplies() {
+		// In status views, fall through so handleStatusViewKey can dispatch
+		// to schema-defined status actions bound to the same F-key (e.g. F2).
+		if m.ViewMode == "status" {
+			return false, nil
+		}
 		return true, nil
 	}
 
@@ -6532,14 +6558,83 @@ func menuActionHelp(m *Model) tea.Cmd {
 	return nil
 }
 
+// menuActionToggleView flips between schema-driven list/detail rendering and
+// the default KEY/VALUE table for the current node. No-op without a schema
+// or when no schema view applies to the current node.
+func menuActionToggleView(m *Model) tea.Cmd {
+	if !m.schemaViewApplies() {
+		return nil
+	}
+	if !m.ShowRawView {
+		m.PreRawViewMode = m.ViewMode
+		m.captureSchemaViewState()
+		m.ShowRawView = true
+	} else {
+		m.ShowRawView = false
+		// Seed ViewMode so updateViewMode re-enters the drilled-in detail branch
+		// even though it was cleared while raw view was active.
+		if m.PreRawViewMode != "" {
+			m.ViewMode = m.PreRawViewMode
+		}
+		m.PreRawViewMode = ""
+		if m.InputFocused {
+			m.InputFocused = false
+			m.PathInput.Blur()
+		}
+	}
+	m.updateViewMode(m.Node)
+	if !m.ShowRawView {
+		m.restoreSchemaViewState()
+	}
+	m.applyLayout(true)
+	return nil
+}
+
+// captureSchemaViewState snapshots the parts of ListViewState / DetailViewState
+// that users care about across a raw-view round-trip (selection, scroll,
+// filter). Called just before entering raw view.
+func (m *Model) captureSchemaViewState() {
+	if m.ListViewState != nil {
+		m.preRawListSelected = m.ListViewState.Selected
+		m.preRawListScrollTop = m.ListViewState.ScrollTop
+		m.preRawListFilter = m.ListViewState.Filter
+		m.preRawListSearchQuery = m.ListViewState.SearchQuery
+	}
+	if m.DetailViewState != nil {
+		m.preRawDetailScrollTop = m.DetailViewState.ScrollTop
+	}
+}
+
+// restoreSchemaViewState reapplies the snapshot captured on the raw-view entry.
+// Clears the snapshot after restoring so a subsequent toggle starts fresh.
+func (m *Model) restoreSchemaViewState() {
+	if m.ListViewState != nil {
+		m.ListViewState.Filter = m.preRawListFilter
+		m.ListViewState.SearchQuery = m.preRawListSearchQuery
+		visible := len(filterListItems(m.ListViewState))
+		if visible > 0 && m.preRawListSelected >= 0 && m.preRawListSelected < visible {
+			m.ListViewState.Selected = m.preRawListSelected
+			m.ListViewState.ScrollTop = m.preRawListScrollTop
+		}
+	}
+	if m.DetailViewState != nil {
+		m.DetailViewState.ScrollTop = m.preRawDetailScrollTop
+	}
+	m.preRawListSelected = 0
+	m.preRawListScrollTop = 0
+	m.preRawListFilter = ""
+	m.preRawListSearchQuery = ""
+	m.preRawDetailScrollTop = 0
+}
+
 func menuActionExprToggle(m *Model) tea.Cmd {
 	if !m.AllowEditInput {
 		return nil
 	}
-	// Disable expression mode when a display schema is active; the custom
-	// list/detail views handle their own navigation and expression evaluation
-	// would discard the view state.
-	if m.DisplaySchema != nil {
+	// Disable expression mode when a display schema is driving the view;
+	// once the user has flipped to the raw table with `v`, expression
+	// editing works exactly as it does without a schema.
+	if m.DisplaySchema != nil && !m.ShowRawView {
 		return nil
 	}
 	// Sync expr bar to current selection when entering expression mode from table mode.
