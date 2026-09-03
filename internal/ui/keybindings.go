@@ -56,7 +56,8 @@ const (
 	VimActionPendingG    VimAction = "pending_g" // Waiting for second key in gg sequence
 	VimActionClearSearch VimAction = "clear_search"
 	VimActionEnter       VimAction = "enter"
-	VimActionFilter      VimAction = "filter" // Map filter mode ('f' key)
+	VimActionFilter      VimAction = "filter"      // Map filter mode ('f' key)
+	VimActionToggleView  VimAction = "view_toggle" // Toggle between schema view and raw table
 )
 
 // VimKeyBindings maps keys to actions for vim mode.
@@ -75,6 +76,7 @@ var VimKeyBindings = map[string]VimAction{
 	"?":     VimActionHelp,
 	"y":     VimActionCopy,
 	"Y":     VimActionCopyValue,
+	"v":     VimActionToggleView,
 	":":     VimActionExpr,
 	"q":     VimActionQuit,
 	"enter": VimActionEnter,
@@ -95,6 +97,7 @@ var EmacsKeyBindings = map[string]VimAction{
 	"f1":     VimActionHelp, // Use F1 for help (ctrl+h is backspace in terminals)
 	"alt+w":  VimActionCopy,
 	"alt+W":  VimActionCopyValue,
+	"alt+v":  VimActionToggleView,
 	"alt+x":  VimActionExpr,
 	"ctrl+g": VimActionClearSearch, // Cancel in emacs
 	"ctrl+q": VimActionQuit,        // Quit
@@ -110,6 +113,7 @@ var actionToVimAction = map[string]VimAction{
 	"copy_value":  VimActionCopyValue,
 	"expr":        VimActionExpr,
 	"expr_toggle": VimActionExpr,
+	"view_toggle": VimActionToggleView,
 	"quit":        VimActionQuit,
 }
 
@@ -232,6 +236,8 @@ func (m *Model) executeVimAction(action VimAction) (tea.Model, tea.Cmd) {
 		return m.vimCopy()
 	case VimActionCopyValue:
 		return m.vimCopyValue()
+	case VimActionToggleView:
+		return m.vimToggleView()
 	case VimActionExpr:
 		return m.vimEnterExpr()
 	case VimActionQuit:
@@ -354,6 +360,11 @@ func (m *Model) vimCopy() (tea.Model, tea.Cmd) {
 // vimCopyValue copies the value at the highlighted position (raw for scalars, JSON for complex).
 func (m *Model) vimCopyValue() (tea.Model, tea.Cmd) {
 	return m, menuActionCopyValue(m)
+}
+
+// vimToggleView toggles between schema-driven list/detail view and the default table view.
+func (m *Model) vimToggleView() (tea.Model, tea.Cmd) {
+	return m, menuActionToggleView(m)
 }
 
 // vimEnterExpr enters expression mode (same as F6).

@@ -26,7 +26,7 @@ kvx defaults to **vim** keybinding mode:
 - `j`/`k`: navigate up/down; `h`/`l`: ascend/drill into selection.
 - `/`: search/filter; `n`/`N`: next/prev match; `f`: filter map keys.
 - `gg`/`G`: go to top/bottom.
-- `:`: expression mode; `y`: copy path; `?`: toggle help; `q`: quit.
+- `:`: expression mode; `y`: copy path; `Y`: copy value; `v`: toggle raw table view (only with a display schema); `?`: toggle help; `q`: quit.
 - `Esc`: close open contexts (input/search/popup) but do not exit.
 
 Prefer **emacs** or **function-key** style bindings? Use `--keymap emacs` or `--keymap function`.
