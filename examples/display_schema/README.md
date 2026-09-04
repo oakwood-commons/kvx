@@ -53,3 +53,21 @@ kvx examples/display_schema/providers.json \
 | `main.go` | Entry point — loads data and schema, launches TUI |
 | `providers.json` | Sample data: 15 scafctl workflow providers |
 | `provider_schema.json` | JSON Schema with `x-kvx-*` display extensions |
+
+## Copying while a schema is active
+
+The schema-driven list and detail views intentionally hide the default
+`y`/`Y` copy shortcuts because their keys (title, subtitle, badges,
+sections) are pre-formatted for display rather than reflecting the raw
+JSON path.
+
+To copy paths or values from schema-rendered data, press `v` (vim),
+`Alt+V` (emacs), or `F2` (function-key mode) to flip to the default
+`KEY`/`VALUE` table for the current node. All standard bindings -- `y`
+copy path, `Y` copy value, `/` search, `:` expression mode -- work as if
+no schema were configured. Press the same key again to return to the
+schema view; the previously selected item is preserved.
+
+The toggle is only visible in the footer when a display schema is active
+and does not apply to `x-kvx-status` screens (they expose their own
+schema-defined copy actions).
