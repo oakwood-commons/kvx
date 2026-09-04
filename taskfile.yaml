@@ -148,7 +148,7 @@ tasks:
   lint:
     desc: Run linters using golangci-lint
     vars:
-      GOLANGCI_LINT_VERSION: "v2.8.0"
+      GOLANGCI_LINT_VERSION: "v2.13.2"
     cmds:
       - |
         GOBIN="$(go env GOBIN)"
@@ -249,7 +249,7 @@ tasks:
   govulncheck:
     desc: Run govulncheck for known vulnerabilities
     vars:
-      GOVULNCHECK_VERSION: "v1.1.4"
+      GOVULNCHECK_VERSION: "v1.7.0"
     cmds:
       - |
         # Run govulncheck in JSON mode; capture exit code to distinguish scan

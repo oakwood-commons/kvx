@@ -197,7 +197,7 @@ func TestRun_WithDebugEnabled(t *testing.T) {
 	cfg := Config{
 		AppName:      "test",
 		DebugEnabled: true,
-		DebugSink: func(msg string) {
+		DebugSink: func(_ string) {
 			debugCalled = true
 		},
 	}
