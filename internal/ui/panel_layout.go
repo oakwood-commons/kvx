@@ -28,7 +28,8 @@ type PanelLayoutState struct {
 	SnapshotHeader bool
 	DebugEnabled   bool
 	AllowEditInput bool
-	HideCopy       bool // Hide the copy action from the footer
+	HideCopy       bool // Hide both copy path (y) and copy value (Y) from the footer
+	ShowViewToggle bool // Show the schema<->raw view toggle in the footer
 	HideFooter     bool // Hide the footer bar (for non-interactive display)
 	KeyMode        KeyMode
 
@@ -547,7 +548,7 @@ func RenderPanelLayout(state PanelLayoutState) string {
 		if state.CustomFooter != "" {
 			leftFooter = state.CustomFooter
 		} else {
-			leftFooter = renderFooter(state.NoColor, state.AllowEditInput, state.HideCopy, state.ExprMode, bottomWidth, state.KeyMode)
+			leftFooter = renderFooter(state.NoColor, state.AllowEditInput, state.HideCopy, state.ShowViewToggle, state.ExprMode, bottomWidth, state.KeyMode)
 		}
 		if strings.TrimSpace(leftFooter) == "" {
 			leftFooter = "F1 help"

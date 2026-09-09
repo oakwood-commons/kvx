@@ -29,6 +29,15 @@ func (m *Model) updateViewMode(node interface{}) {
 		return
 	}
 
+	// Sticky user override: fall back to the default table view for list/detail.
+	if m.ShowRawView {
+		m.ViewMode = ""
+		m.ListViewState = nil
+		m.DetailViewState = nil
+		m.StatusViewState = nil
+		return
+	}
+
 	// If we're coming from a list view drill-in, check for detail view
 	if m.ViewMode == "list" || m.ViewMode == "detail" {
 		// If the node is a single object and we have detail config, show detail
@@ -54,6 +63,29 @@ func (m *Model) updateViewMode(node interface{}) {
 	m.ViewMode = ""
 	m.ListViewState = nil
 	m.DetailViewState = nil
+}
+
+// schemaViewApplies reports whether a schema-driven list or detail view can
+// render the current node. The toggle (v / F2) is only offered when true.
+func (m *Model) schemaViewApplies() bool {
+	if m.DisplaySchema == nil {
+		return false
+	}
+	if m.DisplaySchema.Status != nil && m.DisplaySchema.Status.TitleField != "" {
+		return false
+	}
+	if m.DisplaySchema.List != nil && m.DisplaySchema.List.TitleField != "" && isHomogeneousObjectArray(m.Node) {
+		return true
+	}
+	if _, isMap := m.Node.(map[string]interface{}); isMap && m.DisplaySchema.Detail != nil {
+		if m.ViewMode == "list" || m.ViewMode == "detail" {
+			return true
+		}
+		if m.ShowRawView && (m.PreRawViewMode == "list" || m.PreRawViewMode == "detail") {
+			return true
+		}
+	}
+	return false
 }
 
 // activeCustomView returns the active CustomView for the current ViewMode,
@@ -341,9 +373,12 @@ func (m *Model) handleListViewKey(keyStr string) (bool, tea.Model, tea.Cmd) {
 		m.SearchInput.SetCursor(len(lv.Filter))
 		return true, m, m.SearchInput.Focus()
 
-	case VimActionCopy, VimActionNextMatch, VimActionPrevMatch, VimActionClearSearch:
+	case VimActionCopy, VimActionCopyValue, VimActionNextMatch, VimActionPrevMatch, VimActionClearSearch:
 		// No meaningful use in list view; consume to prevent fallthrough.
 		return true, m, nil
+
+	case VimActionToggleView:
+		return true, m, menuActionToggleView(m)
 
 	case VimActionQuit:
 		return true, m, tea.Quit
@@ -430,9 +465,12 @@ func (m *Model) handleDetailViewKey(keyStr string) (bool, tea.Model, tea.Cmd) {
 		// Not applicable in detail view; consume to prevent fallthrough.
 		return true, m, nil
 
-	case VimActionCopy:
+	case VimActionCopy, VimActionCopyValue:
 		// Copy not applicable in display schema detail view; consume.
 		return true, m, nil
+
+	case VimActionToggleView:
+		return true, m, menuActionToggleView(m)
 
 	case VimActionQuit:
 		return true, m, tea.Quit
