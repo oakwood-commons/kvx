@@ -129,12 +129,13 @@ func fallbackDefaultMenuConfig() MenuConfig {
 	filterItem := MenuItem{Label: "filter", Action: "filter", Enabled: true, HelpText: "Filter map keys", Keys: MenuKeyBindings{Function: "f4", Vim: "f", Emacs: "ctrl+l"}}
 	copyItem := MenuItem{Label: "copy", Action: "copy", Enabled: true, HelpText: "Copy current path/expression", Keys: MenuKeyBindings{Function: "f5", Vim: "y", Emacs: "alt+w"}}
 	copyValueItem := MenuItem{Label: "copy value", Action: "copy_value", Enabled: true, HelpText: "Copy current value (raw scalar or pretty JSON)", Keys: MenuKeyBindings{Vim: "Y", Emacs: "alt+W"}}
+	viewToggleItem := MenuItem{Label: "view", Action: "view_toggle", Enabled: true, HelpText: "Toggle between schema view and raw table", Keys: MenuKeyBindings{Function: "f2", Vim: "v", Emacs: "alt+v"}}
 	exprItem := MenuItem{Label: "expr", Action: "expr_toggle", Enabled: true, HelpText: "Toggle expression input", Keys: MenuKeyBindings{Function: "f6", Vim: ":", Emacs: "alt+x"}}
 	quitItem := MenuItem{Label: "quit", Action: "quit", Enabled: true, HelpText: "Quit", Keys: MenuKeyBindings{Function: "f10", Vim: "q", Emacs: "ctrl+q"}}
 
 	menu := MenuConfig{
 		F1:  helpItem,
-		F2:  MenuItem{},
+		F2:  viewToggleItem,
 		F3:  searchItem,
 		F4:  filterItem,
 		F5:  copyItem,
@@ -146,13 +147,14 @@ func fallbackDefaultMenuConfig() MenuConfig {
 		F11: MenuItem{},
 		F12: MenuItem{},
 		Items: map[string]MenuItem{
-			"help":       helpItem,
-			"search":     searchItem,
-			"filter":     filterItem,
-			"copy":       copyItem,
-			"copy_value": copyValueItem,
-			"expr":       exprItem,
-			"quit":       quitItem,
+			"help":        helpItem,
+			"search":      searchItem,
+			"filter":      filterItem,
+			"copy":        copyItem,
+			"copy_value":  copyValueItem,
+			"view_toggle": viewToggleItem,
+			"expr":        exprItem,
+			"quit":        quitItem,
 		},
 	}
 	// Build key-action maps for fallback config
@@ -187,6 +189,7 @@ func defaultMenuActions() map[string]MenuAction {
 		"filter":      menuActionFilter,
 		"copy":        menuActionCopy,
 		"copy_value":  menuActionCopyValue,
+		"view_toggle": menuActionToggleView,
 		"quit":        menuActionQuit,
 		"custom":      menuActionCustom,
 		"noop":        func(_ *Model) tea.Cmd { return nil },
@@ -292,6 +295,7 @@ func MenuFromConfig(cfg MenuConfigYAML, allowEditInput *bool) MenuConfig {
 		{"filter", cfg.Filter},
 		{"copy", cfg.Copy},
 		{"copy_value", cfg.CopyValue},
+		{"view_toggle", cfg.ViewToggle},
 		{"expr", cfg.Expr},
 		{"quit", cfg.Quit},
 		{"custom", cfg.Custom},

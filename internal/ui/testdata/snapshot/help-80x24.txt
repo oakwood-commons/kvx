@@ -7,8 +7,8 @@
 │n/N [m next/prev match[m                               │
 │gg/G [m go to top/bottom[m                             │
 │: [m expression mode[m                                 │
-│y [m copy path[m                                       │
-│Y [m copy value[m                                      │
+│y/Y [m copy path/value[m                               │
+│v [m toggle view (schema)[m                            │
 │? [m toggle help[m                                     │
 │q [m quit[m                                            │
 │                                                   │
