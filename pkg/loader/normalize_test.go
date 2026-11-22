@@ -572,6 +572,73 @@ func TestNormalizeValue_TagsAndEmbedding(t *testing.T) {
 		}
 		_, err = NormalizeValue(NaNStringFloat{F: math.NaN()})
 		require.Error(t, err)
+
+		// String-tagged json.Number values outside float64 range, pointer, nil pointer, and invalid literal.
+		hugeNum := json.Number("1e1000")
+		type NamedJSONNumber json.Number
+		type StringTaggedJSONNumbers struct {
+			Huge     json.Number     `json:"huge,string"`
+			PtrHuge  *json.Number    `json:"ptr_huge,string"`
+			NilPtr   *json.Number    `json:"nil_ptr,string"`
+			Empty    json.Number     `json:"empty,string"`
+			NamedStr NamedJSONNumber `json:"named_str,string"`
+		}
+		numSample := StringTaggedJSONNumbers{
+			Huge:     hugeNum,
+			PtrHuge:  &hugeNum,
+			NilPtr:   nil,
+			Empty:    json.Number(""),
+			NamedStr: NamedJSONNumber("1e1000"),
+		}
+		gotHuge, err := NormalizeValue(numSample)
+		require.NoError(t, err)
+		stdNumJSON, err := json.Marshal(numSample)
+		require.NoError(t, err)
+		var wantHuge map[string]any
+		require.NoError(t, json.Unmarshal(stdNumJSON, &wantHuge))
+		assert.Equal(t, wantHuge, gotHuge)
+		assert.Equal(t, "1e1000", gotHuge.(map[string]any)["huge"])
+		assert.Equal(t, "1e1000", gotHuge.(map[string]any)["ptr_huge"])
+		assert.Nil(t, gotHuge.(map[string]any)["nil_ptr"])
+		assert.Equal(t, "0", gotHuge.(map[string]any)["empty"])
+
+		type BadStringTaggedNumber struct {
+			N json.Number `json:"n,string"`
+		}
+		_, err = NormalizeValue(BadStringTaggedNumber{N: json.Number("abc")})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid number literal")
+
+		badPtrNum := json.Number("1e+")
+		type BadPtrStringTaggedNumber struct {
+			N *json.Number `json:"n,string"`
+		}
+		_, err = NormalizeValue(BadPtrStringTaggedNumber{N: &badPtrNum})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid number literal")
+
+		// Named float32 preserves 32-bit float formatting under ,string and LoadObject parity.
+		type Rate float32
+		rateVal := Rate(1.2)
+		type NamedFloat32Payload struct {
+			StrRate    Rate    `json:"str_rate,string"`
+			PtrStrRate *Rate   `json:"ptr_str_rate,string"`
+			RawRate    Rate    `json:"raw_rate"`
+			PlainF32   float32 `json:"plain_f32"`
+		}
+		gotRate, err := LoadObject(NamedFloat32Payload{
+			StrRate:    1.2,
+			PtrStrRate: &rateVal,
+			RawRate:    1.2,
+			PlainF32:   1.2,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, map[string]any{
+			"str_rate":     "1.2",
+			"ptr_str_rate": "1.2",
+			"raw_rate":     float32(1.2),
+			"plain_f32":    float32(1.2),
+		}, gotRate)
 	})
 }
 

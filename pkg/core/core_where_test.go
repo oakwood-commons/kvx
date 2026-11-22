@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -428,6 +429,55 @@ func TestFilterWhere_NormalizationEdgeCases(t *testing.T) {
 		gotBoxed, err := engine.FilterWhere(`_.sub.name == "alpha" && !has(_.flag)`, itemsBoxed)
 		require.NoError(t, err)
 		assert.Equal(t, gotTyped, gotBoxed)
+	})
+
+	t.Run("depth-35 shared []any and map[string]any DAG completes in under 50ms", func(t *testing.T) {
+		sharedSlice := []any{0}
+		for range 35 {
+			sharedSlice = []any{sharedSlice, sharedSlice}
+		}
+
+		sharedMap := map[string]any{"v": 0}
+		for range 35 {
+			sharedMap = map[string]any{"left": sharedMap, "right": sharedMap}
+		}
+		mapRoot := []any{sharedMap, sharedMap}
+
+		sharedStructDAG := []any{providerSummary{Name: "http"}}
+		for range 35 {
+			sharedStructDAG = []any{sharedStructDAG, sharedStructDAG}
+		}
+
+		start := time.Now()
+		gotSlice, err := engine.FilterWhere("true", sharedSlice)
+		require.NoError(t, err)
+		assert.Len(t, gotSlice, 2)
+
+		gotMap, err := engine.FilterWhere("true", mapRoot)
+		require.NoError(t, err)
+		assert.Len(t, gotMap, 2)
+
+		gotStructDAG, err := engine.FilterWhere("true", sharedStructDAG)
+		require.NoError(t, err)
+		assert.Len(t, gotStructDAG, 2)
+		assert.Less(t, time.Since(start), 50*time.Millisecond, "shared acyclic DAG preflight and normalization must run in O(N), not O(2^N)")
+	})
+
+	t.Run("string-tagged huge json.Number and named float32 filter accurately", func(t *testing.T) {
+		type Rate float32
+		type Metric struct {
+			Count json.Number `json:"count,string"`
+			Rate  Rate        `json:"rate,string"`
+		}
+		items := []Metric{
+			{Count: json.Number("1e1000"), Rate: 1.2},
+			{Count: json.Number("42"), Rate: 0.5},
+		}
+		got, err := engine.FilterWhere(`_.count == "1e1000" && _.rate == "1.2"`, items)
+		require.NoError(t, err)
+		assert.Equal(t, []any{
+			map[string]any{"count": "1e1000", "rate": "1.2"},
+		}, got)
 	})
 }
 

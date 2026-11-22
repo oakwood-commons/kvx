@@ -14,10 +14,32 @@ import (
 	"unicode/utf8"
 )
 
-// cycleCheckStartDepth defers seen-map allocation in ValueNeedsNormalization
-// until recursion exceeds typical acyclic nesting depths (matching the spirit
-// of encoding/json's startDetectingCyclesAfter) while bounding cyclic inputs.
-const cycleCheckStartDepth = 32
+// containerTrackStartDepth and containerTrackStartSteps defer map allocation in
+// ValueNeedsNormalization on tiny flat inputs while memoizing completed acyclic
+// subgraphs and detecting cycles in O(N) container visits.
+const (
+	containerTrackStartDepth = 2
+	containerTrackStartSteps = 32
+)
+
+type visitState uint8
+
+const (
+	visitUnseen visitState = iota
+	visitActive
+	visitDone
+)
+
+type preflightState struct {
+	steps  int
+	states map[visitKey]visitState
+}
+
+type normState struct {
+	steps  int
+	active map[visitKey]struct{}
+	memo   map[visitKey]any
+}
 
 const hexDigits = "0123456789abcdef"
 
@@ -75,10 +97,11 @@ type embedQueueItem struct {
 // slices/maps, nil byte slices, named scalars, or reference cycles that must be
 // processed by NormalizeValue before CEL evaluation.
 func ValueNeedsNormalization(value any) bool {
-	return valueNeedsNormalization(value, 0, nil)
+	var st preflightState
+	return valueNeedsNormalization(value, 0, &st)
 }
 
-func valueNeedsNormalization(value any, depth int, seen map[visitKey]struct{}) bool {
+func valueNeedsNormalization(value any, depth int, st *preflightState) bool {
 	switch v := value.(type) {
 	case nil, string, bool,
 		int, int8, int16, int32, int64,
@@ -88,65 +111,85 @@ func valueNeedsNormalization(value any, depth int, seen map[visitKey]struct{}) b
 	case []byte:
 		return v == nil
 	case map[string]any:
-		return mapNeedsNormalization(v, depth, seen)
+		return mapNeedsNormalization(v, depth, st)
 	case []any:
-		return sliceNeedsNormalization(v, depth, seen)
+		return sliceNeedsNormalization(v, depth, st)
 	default:
 		return true
 	}
 }
 
-func mapNeedsNormalization(v map[string]any, depth int, seen map[visitKey]struct{}) bool {
+func mapNeedsNormalization(v map[string]any, depth int, st *preflightState) bool {
 	if v == nil {
 		return true
 	}
 	if len(v) == 0 {
 		return false
 	}
-	if depth >= cycleCheckStartDepth {
+	st.steps++
+	var vk visitKey
+	tracked := false
+	if depth >= containerTrackStartDepth || st.steps > containerTrackStartSteps {
 		ptr := reflect.ValueOf(v).Pointer()
 		if ptr != 0 {
-			vk := visitKey{ptr: ptr, typ: mapStringAnyType}
-			if _, exists := seen[vk]; exists {
+			vk = visitKey{ptr: ptr, typ: mapStringAnyType}
+			switch st.states[vk] {
+			case visitActive:
 				return true
+			case visitDone:
+				return false
+			case visitUnseen:
 			}
-			if seen == nil {
-				seen = make(map[visitKey]struct{})
+			if st.states == nil {
+				st.states = make(map[visitKey]visitState)
 			}
-			seen[vk] = struct{}{}
-			defer delete(seen, vk)
+			st.states[vk] = visitActive
+			tracked = true
 		}
 	}
 	for _, mv := range v {
-		if valueNeedsNormalization(mv, depth+1, seen) {
+		if valueNeedsNormalization(mv, depth+1, st) {
 			return true
 		}
+	}
+	if tracked {
+		st.states[vk] = visitDone
 	}
 	return false
 }
 
-func sliceNeedsNormalization(v []any, depth int, seen map[visitKey]struct{}) bool {
+func sliceNeedsNormalization(v []any, depth int, st *preflightState) bool {
 	if len(v) == 0 {
 		return false
 	}
-	if depth >= cycleCheckStartDepth {
+	st.steps++
+	var vk visitKey
+	tracked := false
+	if depth >= containerTrackStartDepth || st.steps > containerTrackStartSteps {
 		ptr := reflect.ValueOf(v).Pointer()
 		if ptr != 0 {
-			vk := visitKey{ptr: ptr, typ: sliceAnyType, slen: len(v)}
-			if _, exists := seen[vk]; exists {
+			vk = visitKey{ptr: ptr, typ: sliceAnyType, slen: len(v)}
+			switch st.states[vk] {
+			case visitActive:
 				return true
+			case visitDone:
+				return false
+			case visitUnseen:
 			}
-			if seen == nil {
-				seen = make(map[visitKey]struct{})
+			if st.states == nil {
+				st.states = make(map[visitKey]visitState)
 			}
-			seen[vk] = struct{}{}
-			defer delete(seen, vk)
+			st.states[vk] = visitActive
+			tracked = true
 		}
 	}
 	for _, ev := range v {
-		if valueNeedsNormalization(ev, depth+1, seen) {
+		if valueNeedsNormalization(ev, depth+1, st) {
 			return true
 		}
+	}
+	if tracked {
+		st.states[vk] = visitDone
 	}
 	return false
 }
@@ -162,20 +205,23 @@ func NormalizeValue(value any) (any, error) {
 	if !ValueNeedsNormalization(value) {
 		return value, nil
 	}
-	return normalizeReflectValue(reflect.ValueOf(value), nil)
+	var st normState
+	return normalizeReflectValue(reflect.ValueOf(value), 0, &st)
 }
 
 // NormalizeReflectValue is like NormalizeValue for an already-reflected value,
 // avoiding an extra interface-boxing allocation when iterating typed slices.
 func NormalizeReflectValue(rv reflect.Value) (any, error) {
-	return normalizeReflectValue(rv, nil)
+	var st normState
+	return normalizeReflectValue(rv, 0, &st)
 }
 
-func normalizeReflectValue(rv reflect.Value, seen map[visitKey]struct{}) (any, error) {
+func normalizeReflectValue(rv reflect.Value, depth int, st *normState) (any, error) {
 	if !rv.IsValid() {
 		return nil, nil
 	}
 
+	var ptrKeys []visitKey
 	for rv.Kind() == reflect.Interface || rv.Kind() == reflect.Pointer {
 		if rv.IsNil() {
 			return nil, nil
@@ -186,22 +232,35 @@ func normalizeReflectValue(rv reflect.Value, seen map[visitKey]struct{}) (any, e
 			}
 			ptr := rv.Pointer()
 			if ptr != 0 {
+				st.steps++
 				vk := visitKey{ptr: ptr, typ: rv.Type()}
-				if _, exists := seen[vk]; exists {
+				if _, exists := st.active[vk]; exists {
 					return nil, fmt.Errorf("cannot normalize cyclic pointer of type %s", rv.Type())
 				}
-				if seen == nil {
-					seen = make(map[visitKey]struct{})
+				if st.memo != nil {
+					if cached, ok := st.memo[vk]; ok {
+						return cached, nil
+					}
 				}
-				seen[vk] = struct{}{}
-				defer delete(seen, vk)
+				if st.active == nil {
+					st.active = make(map[visitKey]struct{})
+				}
+				st.active[vk] = struct{}{}
+				defer delete(st.active, vk)
+				if depth >= containerTrackStartDepth || st.steps > containerTrackStartSteps {
+					ptrKeys = append(ptrKeys, vk)
+				}
 			}
 		}
 		rv = rv.Elem()
 	}
 
 	if rv.CanInterface() && implementsCustomMarshaler(rv.Type()) {
-		return marshalViaJSON(rv.Interface())
+		res, err := marshalViaJSON(rv.Interface())
+		if err == nil {
+			storeNormMemo(st, ptrKeys, res)
+		}
+		return res, err
 	}
 	if rv.CanInterface() && implementsCustomMarshaler(reflect.PointerTo(rv.Type())) {
 		addrTarget := rv
@@ -210,13 +269,33 @@ func normalizeReflectValue(rv reflect.Value, seen map[visitKey]struct{}) (any, e
 			boxed.Set(rv)
 			addrTarget = boxed
 		}
-		return marshalViaJSON(addrTarget.Addr().Interface())
+		res, err := marshalViaJSON(addrTarget.Addr().Interface())
+		if err == nil {
+			storeNormMemo(st, ptrKeys, res)
+		}
+		return res, err
 	}
 
-	return normalizeUnwrappedValue(rv, seen)
+	res, err := normalizeUnwrappedValue(rv, depth, st)
+	if err == nil {
+		storeNormMemo(st, ptrKeys, res)
+	}
+	return res, err
 }
 
-func normalizeUnwrappedValue(rv reflect.Value, seen map[visitKey]struct{}) (any, error) {
+func storeNormMemo(st *normState, keys []visitKey, val any) {
+	if len(keys) == 0 {
+		return
+	}
+	if st.memo == nil {
+		st.memo = make(map[visitKey]any)
+	}
+	for _, vk := range keys {
+		st.memo[vk] = val
+	}
+}
+
+func normalizeUnwrappedValue(rv reflect.Value, depth int, st *normState) (any, error) {
 	rt := rv.Type()
 	isPredeclared := rt.PkgPath() == ""
 
@@ -236,10 +315,9 @@ func normalizeUnwrappedValue(rv reflect.Value, seen map[visitKey]struct{}) (any,
 			return rv.Interface(), nil
 		}
 		return rv.Uint(), nil
-	case reflect.Float32, reflect.Float64:
-		if isPredeclared && rv.CanInterface() {
-			return rv.Interface(), nil
-		}
+	case reflect.Float32:
+		return float32(rv.Float()), nil
+	case reflect.Float64:
 		return rv.Float(), nil
 	case reflect.String:
 		if rt == jsonNumberType {
@@ -250,13 +328,13 @@ func normalizeUnwrappedValue(rv reflect.Value, seen map[visitKey]struct{}) (any,
 		}
 		return rv.String(), nil
 	case reflect.Slice, reflect.Array:
-		return normalizeSequence(rv, seen)
+		return normalizeSequence(rv, depth, st)
 	case reflect.Map:
-		return normalizeMap(rv, seen)
+		return normalizeMap(rv, depth, st)
 	case reflect.Struct:
-		return normalizeStruct(rv, seen)
+		return normalizeStruct(rv, depth, st)
 	case reflect.Interface, reflect.Pointer:
-		return normalizeReflectValue(rv, seen)
+		return normalizeReflectValue(rv, depth, st)
 	case reflect.Chan, reflect.Func, reflect.Invalid, reflect.Complex64, reflect.Complex128, reflect.UnsafePointer:
 		return nil, fmt.Errorf("cannot normalize unsupported type %s", rt)
 	default:
@@ -264,7 +342,7 @@ func normalizeUnwrappedValue(rv reflect.Value, seen map[visitKey]struct{}) (any,
 	}
 }
 
-func normalizeSequence(rv reflect.Value, seen map[visitKey]struct{}) (any, error) {
+func normalizeSequence(rv reflect.Value, depth int, st *normState) (any, error) {
 	rt := rv.Type()
 	if rv.Kind() == reflect.Slice && rt.Elem().Kind() == reflect.Uint8 {
 		elemType := rt.Elem()
@@ -273,29 +351,53 @@ func normalizeSequence(rv reflect.Value, seen map[visitKey]struct{}) (any, error
 		}
 	}
 
+	if depth == 0 && rv.Kind() == reflect.Slice && !rv.IsNil() && rv.CanInterface() {
+		if s, ok := rv.Interface().([]any); ok && !ValueNeedsNormalization(s) {
+			return s, nil
+		}
+	}
+
 	length := rv.Len()
+	var memoKey visitKey
+	shouldMemo := false
 	if rv.Kind() == reflect.Slice && length > 0 {
 		ptr := rv.Pointer()
 		if ptr != 0 {
+			st.steps++
 			vk := visitKey{ptr: ptr, typ: rt, slen: length}
-			if _, exists := seen[vk]; exists {
+			if _, exists := st.active[vk]; exists {
 				return nil, fmt.Errorf("cannot normalize cyclic slice of type %s", rt)
 			}
-			if seen == nil {
-				seen = make(map[visitKey]struct{})
+			if st.memo != nil {
+				if cached, ok := st.memo[vk]; ok {
+					return cached, nil
+				}
 			}
-			seen[vk] = struct{}{}
-			defer delete(seen, vk)
+			if st.active == nil {
+				st.active = make(map[visitKey]struct{})
+			}
+			st.active[vk] = struct{}{}
+			defer delete(st.active, vk)
+			if depth >= containerTrackStartDepth || st.steps > containerTrackStartSteps {
+				memoKey = vk
+				shouldMemo = true
+			}
 		}
 	}
 
 	normalized := make([]any, length)
 	for i := range length {
-		val, err := normalizeReflectValue(rv.Index(i), seen)
+		val, err := normalizeReflectValue(rv.Index(i), depth+1, st)
 		if err != nil {
 			return nil, fmt.Errorf("element [%d]: %w", i, err)
 		}
 		normalized[i] = val
+	}
+	if shouldMemo {
+		if st.memo == nil {
+			st.memo = make(map[visitKey]any)
+		}
+		st.memo[memoKey] = normalized
 	}
 	return normalized, nil
 }
@@ -315,27 +417,39 @@ func copyByteLikeSlice(rv reflect.Value, elemType reflect.Type) any {
 	return cp
 }
 
-func normalizeMap(rv reflect.Value, seen map[visitKey]struct{}) (any, error) {
+func normalizeMap(rv reflect.Value, depth int, st *normState) (any, error) {
 	if rv.IsNil() {
 		return nil, nil
 	}
-	if rv.CanInterface() {
+	if depth == 0 && rv.CanInterface() {
 		if m, ok := rv.Interface().(map[string]any); ok && !ValueNeedsNormalization(m) {
 			return m, nil
 		}
 	}
 
+	var memoKey visitKey
+	shouldMemo := false
 	ptr := rv.Pointer()
 	if ptr != 0 {
+		st.steps++
 		vk := visitKey{ptr: ptr, typ: rv.Type()}
-		if _, exists := seen[vk]; exists {
+		if _, exists := st.active[vk]; exists {
 			return nil, fmt.Errorf("cannot normalize cyclic map of type %s", rv.Type())
 		}
-		if seen == nil {
-			seen = make(map[visitKey]struct{})
+		if st.memo != nil {
+			if cached, ok := st.memo[vk]; ok {
+				return cached, nil
+			}
 		}
-		seen[vk] = struct{}{}
-		defer delete(seen, vk)
+		if st.active == nil {
+			st.active = make(map[visitKey]struct{})
+		}
+		st.active[vk] = struct{}{}
+		defer delete(st.active, vk)
+		if depth >= containerTrackStartDepth || st.steps > containerTrackStartSteps {
+			memoKey = vk
+			shouldMemo = true
+		}
 	}
 
 	out := make(map[string]any, rv.Len())
@@ -346,7 +460,7 @@ func normalizeMap(rv reflect.Value, seen map[visitKey]struct{}) (any, error) {
 		if k.Kind() == reflect.String {
 			keyStr = k.String()
 		} else {
-			normKey, err := normalizeReflectValue(k, seen)
+			normKey, err := normalizeReflectValue(k, depth+1, st)
 			if err != nil {
 				return nil, fmt.Errorf("map key: %w", err)
 			}
@@ -355,16 +469,22 @@ func normalizeMap(rv reflect.Value, seen map[visitKey]struct{}) (any, error) {
 		if _, exists := out[keyStr]; exists {
 			return nil, fmt.Errorf("duplicate normalized map key %q", keyStr)
 		}
-		val, err := normalizeReflectValue(iter.Value(), seen)
+		val, err := normalizeReflectValue(iter.Value(), depth+1, st)
 		if err != nil {
 			return nil, fmt.Errorf("map key %q: %w", keyStr, err)
 		}
 		out[keyStr] = val
 	}
+	if shouldMemo {
+		if st.memo == nil {
+			st.memo = make(map[visitKey]any)
+		}
+		st.memo[memoKey] = out
+	}
 	return out, nil
 }
 
-func normalizeStruct(rv reflect.Value, seen map[visitKey]struct{}) (map[string]any, error) {
+func normalizeStruct(rv reflect.Value, depth int, st *normState) (map[string]any, error) {
 	plan := getStructFieldsPlan(rv.Type())
 	out := make(map[string]any, len(plan.fields))
 
@@ -384,12 +504,21 @@ func normalizeStruct(rv reflect.Value, seen map[visitKey]struct{}) (map[string]a
 		if shouldOmitField(fv, f) {
 			continue
 		}
-		val, err := normalizeReflectValue(fv, seen)
+		if f.asString {
+			if strVal, handled, numErr := normalizeStringTaggedJSONNumber(fv); handled {
+				if numErr != nil {
+					return nil, fmt.Errorf("field %s: %w", f.key, numErr)
+				}
+				out[f.key] = strVal
+				continue
+			}
+		}
+		val, err := normalizeReflectValue(fv, depth+1, st)
 		if err != nil {
 			return nil, fmt.Errorf("field %s: %w", f.key, err)
 		}
 		if f.asString {
-			formatted, fmtErr := formatFieldAsJSONString(fv, val)
+			formatted, fmtErr := formatFieldAsJSONString(val)
 			if fmtErr != nil {
 				return nil, fmt.Errorf("field %s: %w", f.key, fmtErr)
 			}
@@ -403,7 +532,7 @@ func normalizeStruct(rv reflect.Value, seen map[visitKey]struct{}) (map[string]a
 		if !ok {
 			continue
 		}
-		val, err := normalizeReflectValue(fv, seen)
+		val, err := normalizeReflectValue(fv, depth+1, st)
 		if err != nil {
 			return nil, fmt.Errorf("embedded field #%v: %w", f.index, err)
 		}
@@ -767,21 +896,75 @@ func normalizeJSONNumber(raw string) (any, error) {
 	return marshalViaJSON(json.Number(raw))
 }
 
-func formatFieldAsJSONString(fv reflect.Value, val any) (any, error) {
-	target := fv
-	if target.Kind() == reflect.Pointer {
-		if target.IsNil() {
-			return val, nil
+func normalizeStringTaggedJSONNumber(fv reflect.Value) (any, bool, error) {
+	ft := fv.Type()
+	if ft.Name() == "" && fv.Kind() == reflect.Pointer {
+		if ft.Elem() != jsonNumberType {
+			return nil, false, nil
 		}
-		target = target.Elem()
-	}
-	if target.Type() == jsonNumberType {
-		raw := target.String()
-		if raw == "" {
-			return "0", nil
+		if fv.IsNil() {
+			return nil, true, nil
 		}
-		return raw, nil
+		fv = fv.Elem()
+	} else if ft != jsonNumberType {
+		return nil, false, nil
 	}
+
+	raw := fv.String()
+	if raw == "" {
+		return "0", true, nil
+	}
+	if !isValidJSONNumber(raw) {
+		return nil, true, fmt.Errorf("json: invalid number literal, trying to unmarshal %q into Number", raw)
+	}
+	return raw, true, nil
+}
+
+// isValidJSONNumber reports whether s is a valid JSON number literal,
+// matching Go stdlib encoding/json's isValidNumber check.
+func isValidJSONNumber(s string) bool {
+	if s == "" {
+		return false
+	}
+	if s[0] == '-' {
+		s = s[1:]
+		if s == "" {
+			return false
+		}
+	}
+	switch {
+	default:
+		return false
+	case s[0] == '0':
+		s = s[1:]
+	case '1' <= s[0] && s[0] <= '9':
+		s = s[1:]
+		for len(s) > 0 && '0' <= s[0] && s[0] <= '9' {
+			s = s[1:]
+		}
+	}
+	if len(s) >= 2 && s[0] == '.' && '0' <= s[1] && s[1] <= '9' {
+		s = s[2:]
+		for len(s) > 0 && '0' <= s[0] && s[0] <= '9' {
+			s = s[1:]
+		}
+	}
+	if len(s) >= 2 && (s[0] == 'e' || s[0] == 'E') {
+		s = s[1:]
+		if s[0] == '+' || s[0] == '-' {
+			s = s[1:]
+			if s == "" {
+				return false
+			}
+		}
+		for len(s) > 0 && '0' <= s[0] && s[0] <= '9' {
+			s = s[1:]
+		}
+	}
+	return s == ""
+}
+
+func formatFieldAsJSONString(val any) (any, error) {
 	formatted, ok, err := formatScalarAsJSONString(val)
 	if err != nil {
 		return nil, err
