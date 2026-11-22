@@ -215,7 +215,7 @@ func toSlice(data any) ([]any, bool, error) {
 		}
 		out := make([]any, len(v))
 		for i, item := range v {
-			if item != nil && loader.ValueNeedsNormalization(item) {
+			if loader.ValueNeedsNormalization(item) {
 				norm, err := loader.NormalizeValue(item)
 				if err != nil {
 					return nil, true, fmt.Errorf("element [%d]: %w", i, err)

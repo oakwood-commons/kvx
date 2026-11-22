@@ -5,6 +5,7 @@ import (
 	"encoding"
 	"encoding/json"
 	"fmt"
+	"math"
 	"reflect"
 	"slices"
 	"strconv"
@@ -26,6 +27,7 @@ type isZeroer interface {
 
 var (
 	byteType          = reflect.TypeFor[byte]()
+	jsonNumberType    = reflect.TypeFor[json.Number]()
 	mapStringAnyType  = reflect.TypeFor[map[string]any]()
 	sliceAnyType      = reflect.TypeFor[[]any]()
 	jsonMarshalerType = reflect.TypeFor[json.Marshaler]()
@@ -201,8 +203,14 @@ func normalizeReflectValue(rv reflect.Value, seen map[visitKey]struct{}) (any, e
 	if rv.CanInterface() && implementsCustomMarshaler(rv.Type()) {
 		return marshalViaJSON(rv.Interface())
 	}
-	if rv.CanAddr() && rv.CanInterface() && implementsCustomMarshaler(reflect.PointerTo(rv.Type())) {
-		return marshalViaJSON(rv.Addr().Interface())
+	if rv.CanInterface() && implementsCustomMarshaler(reflect.PointerTo(rv.Type())) {
+		addrTarget := rv
+		if !addrTarget.CanAddr() {
+			boxed := reflect.New(rv.Type()).Elem()
+			boxed.Set(rv)
+			addrTarget = boxed
+		}
+		return marshalViaJSON(addrTarget.Addr().Interface())
 	}
 
 	return normalizeUnwrappedValue(rv, seen)
@@ -234,6 +242,9 @@ func normalizeUnwrappedValue(rv reflect.Value, seen map[visitKey]struct{}) (any,
 		}
 		return rv.Float(), nil
 	case reflect.String:
+		if rt == jsonNumberType {
+			return normalizeJSONNumber(rv.String())
+		}
 		if isPredeclared && rv.CanInterface() {
 			return rv.Interface(), nil
 		}
@@ -378,9 +389,11 @@ func normalizeStruct(rv reflect.Value, seen map[visitKey]struct{}) (map[string]a
 			return nil, fmt.Errorf("field %s: %w", f.key, err)
 		}
 		if f.asString {
-			if formatted, ok := formatScalarAsJSONString(val); ok {
-				val = formatted
+			formatted, fmtErr := formatFieldAsJSONString(fv, val)
+			if fmtErr != nil {
+				return nil, fmt.Errorf("field %s: %w", f.key, fmtErr)
 			}
+			val = formatted
 		}
 		out[f.key] = val
 	}
@@ -589,7 +602,7 @@ func parseStructField(index []int, sf reflect.StructField, ft reflect.Type) (str
 		}
 		info.omitEmpty = slices.Contains(opts, "omitempty")
 		info.omitZero = slices.Contains(opts, "omitzero")
-		info.asString = slices.Contains(opts, "string")
+		info.asString = slices.Contains(opts, "string") && canQuoteAsJSONString(sf.Type)
 		inlineOpt = slices.Contains(opts, "inline")
 	case hasYAML && yamlTag != "":
 		if yamlTag == "-" {
@@ -646,19 +659,66 @@ func shouldOmitField(fv reflect.Value, f structFieldInfo) bool {
 	return isJSONEmptyValue(fv)
 }
 
+func canQuoteAsJSONString(fieldType reflect.Type) bool {
+	if implementsCustomMarshaler(fieldType) || implementsCustomMarshaler(reflect.PointerTo(fieldType)) {
+		return false
+	}
+	t := fieldType
+	if t.Name() == "" && t.Kind() == reflect.Pointer {
+		t = t.Elem()
+		if implementsCustomMarshaler(t) || implementsCustomMarshaler(reflect.PointerTo(t)) {
+			return false
+		}
+	}
+	switch t.Kind() {
+	case reflect.Bool,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
+		reflect.Float32, reflect.Float64,
+		reflect.String:
+		return true
+	case reflect.Array, reflect.Chan, reflect.Complex64, reflect.Complex128,
+		reflect.Func, reflect.Interface, reflect.Invalid, reflect.Map,
+		reflect.Pointer, reflect.Slice, reflect.Struct, reflect.UnsafePointer:
+		return false
+	default:
+		return false
+	}
+}
+
 func isCustomZero(fv reflect.Value) (bool, bool) {
+	ft := fv.Type()
 	if fv.Kind() == reflect.Interface {
+		if !ft.Implements(isZeroerType) {
+			return false, false
+		}
 		if fv.IsNil() || (fv.Elem().Kind() == reflect.Pointer && fv.Elem().IsNil()) {
 			return true, true
 		}
+		if fv.CanInterface() {
+			if z, ok := fv.Interface().(isZeroer); ok {
+				return z.IsZero(), true
+			}
+		}
+		return false, false
 	}
-	if fv.Kind() == reflect.Pointer && fv.IsNil() {
-		return true, true
+	if fv.Kind() == reflect.Pointer {
+		if !ft.Implements(isZeroerType) {
+			return false, false
+		}
+		if fv.IsNil() {
+			return true, true
+		}
+		if fv.CanInterface() {
+			if z, ok := fv.Interface().(isZeroer); ok {
+				return z.IsZero(), true
+			}
+		}
+		return false, false
 	}
 	if !fv.CanInterface() {
 		return false, false
 	}
-	ft := fv.Type()
 	if ft.Implements(isZeroerType) {
 		if z, ok := fv.Interface().(isZeroer); ok {
 			return z.IsZero(), true
@@ -700,39 +760,102 @@ func isJSONEmptyValue(v reflect.Value) bool {
 	}
 }
 
-func formatScalarAsJSONString(val any) (string, bool) {
+func normalizeJSONNumber(raw string) (any, error) {
+	if raw == "" {
+		raw = "0"
+	}
+	return marshalViaJSON(json.Number(raw))
+}
+
+func formatFieldAsJSONString(fv reflect.Value, val any) (any, error) {
+	target := fv
+	if target.Kind() == reflect.Pointer {
+		if target.IsNil() {
+			return val, nil
+		}
+		target = target.Elem()
+	}
+	if target.Type() == jsonNumberType {
+		raw := target.String()
+		if raw == "" {
+			return "0", nil
+		}
+		return raw, nil
+	}
+	formatted, ok, err := formatScalarAsJSONString(val)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		return formatted, nil
+	}
+	return val, nil
+}
+
+func formatScalarAsJSONString(val any) (string, bool, error) {
 	switch v := val.(type) {
 	case bool:
-		return strconv.FormatBool(v), true
+		return strconv.FormatBool(v), true, nil
 	case int:
-		return strconv.Itoa(v), true
+		return strconv.Itoa(v), true, nil
 	case int8:
-		return strconv.FormatInt(int64(v), 10), true
+		return strconv.FormatInt(int64(v), 10), true, nil
 	case int16:
-		return strconv.FormatInt(int64(v), 10), true
+		return strconv.FormatInt(int64(v), 10), true, nil
 	case int32:
-		return strconv.FormatInt(int64(v), 10), true
+		return strconv.FormatInt(int64(v), 10), true, nil
 	case int64:
-		return strconv.FormatInt(v, 10), true
+		return strconv.FormatInt(v, 10), true, nil
 	case uint:
-		return strconv.FormatUint(uint64(v), 10), true
+		return strconv.FormatUint(uint64(v), 10), true, nil
 	case uint8:
-		return strconv.FormatUint(uint64(v), 10), true
+		return strconv.FormatUint(uint64(v), 10), true, nil
 	case uint16:
-		return strconv.FormatUint(uint64(v), 10), true
+		return strconv.FormatUint(uint64(v), 10), true, nil
 	case uint32:
-		return strconv.FormatUint(uint64(v), 10), true
+		return strconv.FormatUint(uint64(v), 10), true, nil
 	case uint64:
-		return strconv.FormatUint(v, 10), true
+		return strconv.FormatUint(v, 10), true, nil
 	case float32:
-		return strconv.FormatFloat(float64(v), 'g', -1, 32), true
+		s, err := formatJSONFloat(float64(v), 32)
+		if err != nil {
+			return "", false, err
+		}
+		return s, true, nil
 	case float64:
-		return strconv.FormatFloat(v, 'g', -1, 64), true
+		s, err := formatJSONFloat(v, 64)
+		if err != nil {
+			return "", false, err
+		}
+		return s, true, nil
 	case string:
-		return encodeJSONString(v), true
+		return encodeJSONString(v), true, nil
 	default:
-		return "", false
+		return "", false, nil
 	}
+}
+
+func formatJSONFloat(f float64, bits int) (string, error) {
+	if math.IsInf(f, 0) || math.IsNaN(f) {
+		return "", fmt.Errorf("cannot format non-finite float %v as JSON string", f)
+	}
+	abs := math.Abs(f)
+	format := byte('f')
+	if abs != 0 {
+		if (bits == 64 && (abs < 1e-6 || abs >= 1e21)) ||
+			(bits == 32 && (float32(abs) < 1e-6 || float32(abs) >= 1e21)) {
+			format = 'e'
+		}
+	}
+	b := strconv.AppendFloat(nil, f, format, -1, bits)
+	if format == 'e' {
+		n := len(b)
+		if n >= 4 && b[n-4] == 'e' && b[n-3] == '-' && b[n-2] == '0' {
+			b[n-2] = b[n-1]
+			b = b[:n-1]
+		}
+	}
+	return string(b), nil
 }
 
 // encodeJSONString formats s as an RFC 8259 JSON string literal matching
@@ -751,6 +874,8 @@ func encodeJSONString(s string) string {
 		}
 		r, size := utf8.DecodeRuneInString(s[i:])
 		if r == utf8.RuneError && size == 1 {
+			// Go 1.27+ encoding/json (jsonv2 default) coerces invalid UTF-8 bytes
+			// to the literal Unicode replacement rune U+FFFD rather than \ufffd.
 			b.WriteRune(utf8.RuneError)
 			i++
 			continue

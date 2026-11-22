@@ -2,6 +2,7 @@ package loader
 
 import (
 	"encoding/json"
+	"math"
 	"reflect"
 	"sync"
 	"testing"
@@ -37,6 +38,14 @@ func (nonZeroCustomString) IsZero() bool {
 }
 
 type namedOctet uint8
+
+type ptrJSONMarshaler struct {
+	Label string
+}
+
+func (p *ptrJSONMarshaler) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string]any{"custom": p.Label})
+}
 
 type unexportedEmbeddedBase struct {
 	Name    string `json:"name"`
@@ -488,6 +497,81 @@ func TestNormalizeValue_TagsAndEmbedding(t *testing.T) {
 			"u": "1", "u8": "8", "u16": "16", "u32": "32", "u64": "64",
 			"f32": "2.5",
 		}, gotScalars)
+	})
+
+	t.Run("pointer-receiver marshaler parity, json.Number, string option eligibility, non-zero any interface, and JSON float formatting", func(t *testing.T) {
+		pm := ptrJSONMarshaler{Label: "ok"}
+		gotBoxedPM, err := NormalizeValue(pm)
+		require.NoError(t, err)
+		pmSlice := []ptrJSONMarshaler{pm}
+		gotAddrPM, err := NormalizeReflectValue(reflect.ValueOf(pmSlice).Index(0))
+		require.NoError(t, err)
+		assert.Equal(t, map[string]any{"custom": "ok"}, gotBoxedPM)
+		assert.Equal(t, gotAddrPM, gotBoxedPM)
+
+		ts := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
+		var typedNilIntPtr *int
+		codeVal := 200
+
+		type EdgePayload struct {
+			Count      json.Number `json:"count"`
+			EmptyNum   json.Number `json:"empty_num"`
+			StrNum     json.Number `json:"str_num,string"`
+			AnyInt     any         `json:"any_int,string"`      //nolint:staticcheck // intentionally tests encoding/json ignoring ,string on interface fields
+			TimeStrTag time.Time   `json:"time_str_tag,string"` //nolint:staticcheck // intentionally tests encoding/json ignoring ,string on custom marshalers
+			PtrCode    *int        `json:"ptr_code,string"`
+			NonZeroAny any         `json:"non_zero_any,omitzero"`
+			NilAny     any         `json:"nil_any,omitzero"`
+			BigFloat64 float64     `json:"big_f64,string"`
+			SmallF64   float64     `json:"small_f64,string"`
+			SciF64     float64     `json:"sci_f64,string"`
+			BigFloat32 float32     `json:"big_f32,string"`
+		}
+
+		gotEdge, err := NormalizeValue(EdgePayload{
+			Count:      json.Number("42"),
+			EmptyNum:   json.Number(""),
+			StrNum:     json.Number("9007199254740993"),
+			AnyInt:     42,
+			TimeStrTag: ts,
+			PtrCode:    &codeVal,
+			NonZeroAny: typedNilIntPtr,
+			NilAny:     nil,
+			BigFloat64: 1000000,
+			SmallF64:   1e-7,
+			SciF64:     1e21,
+			BigFloat32: 1000000,
+		})
+		require.NoError(t, err)
+
+		m, ok := gotEdge.(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, float64(42), m["count"])
+		assert.Equal(t, float64(0), m["empty_num"])
+		assert.Equal(t, "9007199254740993", m["str_num"])
+		assert.Equal(t, 42, m["any_int"])
+		assert.Equal(t, "2026-11-22T12:00:00Z", m["time_str_tag"])
+		assert.Equal(t, "200", m["ptr_code"])
+		valAny, hasNonZeroAny := m["non_zero_any"]
+		assert.True(t, hasNonZeroAny, "non-nil interface holding typed nil pointer must be retained under omitzero")
+		assert.True(t, valAny == nil, "typed nil pointer inside any should normalize its value to untyped nil")
+		assert.NotContains(t, m, "nil_any")
+		assert.Equal(t, "1000000", m["big_f64"])
+		assert.Equal(t, "1e-7", m["small_f64"])
+		assert.Equal(t, "1e+21", m["sci_f64"])
+		assert.Equal(t, "1000000", m["big_f32"])
+
+		type BadNumber struct {
+			N json.Number `json:"n"`
+		}
+		_, err = NormalizeValue(BadNumber{N: json.Number("not-a-number")})
+		require.Error(t, err)
+
+		type NaNStringFloat struct {
+			F float64 `json:"f,string"`
+		}
+		_, err = NormalizeValue(NaNStringFloat{F: math.NaN()})
+		require.Error(t, err)
 	})
 }
 

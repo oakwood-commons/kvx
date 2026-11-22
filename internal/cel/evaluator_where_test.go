@@ -467,3 +467,18 @@ func TestEvaluateWhere_ConcurrentRace(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestEvaluateWhere_NilMapSliceElementParity(t *testing.T) {
+	eval, err := NewEvaluator()
+	require.NoError(t, err)
+
+	gotMapSlice, err := eval.EvaluateWhere("true", []map[string]any{nil, {"k": "v"}})
+	require.NoError(t, err)
+
+	gotAnySlice, err := eval.EvaluateWhere("true", []any{map[string]any(nil), map[string]any{"k": "v"}})
+	require.NoError(t, err)
+
+	require.Len(t, gotMapSlice, 2)
+	assert.True(t, gotMapSlice[0] == nil, "nil map element in []map[string]any must normalize to untyped nil")
+	assert.Equal(t, gotAnySlice, gotMapSlice)
+}
