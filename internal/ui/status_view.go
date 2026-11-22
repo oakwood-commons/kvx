@@ -2,8 +2,10 @@ package ui
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
+	"unicode"
 
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
@@ -116,11 +118,8 @@ func buildStatusViewModel(data any, schema *DisplaySchema, keyMode KeyMode, noCo
 			ti.EchoMode = textinput.EchoPassword
 			ti.EchoCharacter = '•'
 		}
-		if width > 6 {
-			ti.SetWidth(width - 6)
-		} else {
-			ti.SetWidth(40)
-		}
+		_, initBodyW, _ := statusInputLayout(width, lipgloss.Width(ti.Prompt), 0)
+		ti.SetWidth(initBodyW)
 		applyStatusInputStyles(&ti, noColor)
 		_ = ti.Focus()
 	}
@@ -298,6 +297,21 @@ func (sv *StatusViewModel) Update(msg tea.Msg) (CustomView, tea.Cmd) {
 
 	default:
 		if sv.HasActiveInput() {
+			if pasted, ok := extractTextInputPasteMsg(msg); ok {
+				if sv.InputSubmitting {
+					return sv, nil
+				}
+				clean := stripCRLF(pasted)
+				if clean == "" {
+					return sv, nil
+				}
+				var cmd tea.Cmd
+				sv.Input, cmd = sv.Input.Update(tea.PasteMsg{Content: clean})
+				return sv, cmd
+			}
+			if sv.InputSubmitting && !isCursorBlinkMsg(msg) {
+				return sv, nil
+			}
 			var cmd tea.Cmd
 			sv.Input, cmd = sv.Input.Update(msg)
 			return sv, cmd
@@ -445,20 +459,83 @@ func stripCRLF(s string) string {
 	return strings.NewReplacer("\r", "", "\n", "").Replace(s)
 }
 
+// extractTextInputPasteMsg extracts clipboard text from Bubbles' unexported
+// textinput.pasteMsg so status input can strip CRLF and respect submission/modal guards.
+func extractTextInputPasteMsg(msg tea.Msg) (string, bool) {
+	if msg == nil {
+		return "", false
+	}
+	t := reflect.TypeOf(msg)
+	if t.PkgPath() == "charm.land/bubbles/v2/textinput" && t.Name() == "pasteMsg" && t.Kind() == reflect.String {
+		return reflect.ValueOf(msg).String(), true
+	}
+	return "", false
+}
+
+// normalizeInputActionKey normalizes modifier names and function-key tokens to
+// lowercase while preserving the case of the trailing key rune (e.g. "Alt+Y" ->
+// "alt+Y", "alt+shift+y" -> "alt+Y", "F2" -> "f2").
+func normalizeInputActionKey(k string) string {
+	k = strings.TrimSpace(k)
+	if k == "" {
+		return ""
+	}
+	if lower := strings.ToLower(k); isStatusFunctionKey(lower) {
+		return lower
+	}
+	parts := strings.Split(k, "+")
+	if len(parts) < 2 {
+		return k
+	}
+	hasShift := false
+	mods := make([]string, 0, len(parts)-1)
+	for _, mod := range parts[:len(parts)-1] {
+		m := strings.ToLower(strings.TrimSpace(mod))
+		if m == "" {
+			return k
+		}
+		if m == "shift" {
+			hasShift = true
+			continue
+		}
+		mods = append(mods, m)
+	}
+	keyToken := parts[len(parts)-1]
+	if keyToken == "" {
+		return k
+	}
+	if fnLower := strings.ToLower(keyToken); isStatusFunctionKey(fnLower) {
+		keyToken = fnLower
+	}
+	if hasShift {
+		runes := []rune(keyToken)
+		if len(runes) == 1 && unicode.IsLetter(runes[0]) {
+			keyToken = string(unicode.ToUpper(runes[0]))
+		} else {
+			mods = append(mods, "shift")
+		}
+	}
+	if len(mods) == 0 {
+		return keyToken
+	}
+	return strings.Join(mods, "+") + "+" + keyToken
+}
+
 // isSafeInputActionKey reports whether key k uses a function key (f2..f9) or an
 // alt+/ctrl+ modifier so it cannot collide with unmodified printable characters.
 func isSafeInputActionKey(k string) bool {
-	k = strings.ToLower(strings.TrimSpace(k))
-	if k == "" {
+	norm := normalizeInputActionKey(k)
+	if norm == "" {
 		return false
 	}
-	if strings.HasPrefix(k, "alt+") && len(k) > len("alt+") {
+	if strings.HasPrefix(norm, "alt+") && len(norm) > len("alt+") {
 		return true
 	}
-	if strings.HasPrefix(k, "ctrl+") && len(k) > len("ctrl+") {
-		return k != "ctrl+c" && k != "ctrl+u" && k != "ctrl+m" && k != "ctrl+j"
+	lower := strings.ToLower(norm)
+	if strings.HasPrefix(lower, "ctrl+") && len(lower) > len("ctrl+") {
+		return lower != "ctrl+c" && lower != "ctrl+u" && lower != "ctrl+m" && lower != "ctrl+j"
 	}
-	switch k {
+	switch lower {
 	case "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9":
 		return true
 	}
@@ -470,7 +547,7 @@ func isSafeInputActionKey(k string) bool {
 func (sv *StatusViewModel) activeInputActionKeys(keys StatusKeyBindings) []string {
 	var result []string
 	addUnique := func(k string) {
-		k = strings.ToLower(strings.TrimSpace(k))
+		k = normalizeInputActionKey(k)
 		if !isSafeInputActionKey(k) {
 			return
 		}
@@ -518,9 +595,9 @@ func (sv *StatusViewModel) activeInputActionKeys(keys StatusKeyBindings) []strin
 
 // matchesInputActionKey reports whether keyStr matches any active safe binding for keys.
 func (sv *StatusViewModel) matchesInputActionKey(keyStr string, keys StatusKeyBindings) bool {
-	lower := strings.ToLower(keyStr)
+	norm := normalizeInputActionKey(keyStr)
 	for _, candidate := range sv.activeInputActionKeys(keys) {
-		if lower == candidate {
+		if norm == candidate {
 			return true
 		}
 	}
@@ -761,6 +838,38 @@ func expandPhysicalLines(lines []string) []string {
 	return out
 }
 
+// statusInputLayout computes the left indent and horizontal textinput viewport
+// width bounded by the actual panel width.
+func statusInputLayout(panelWidth, promptWidth, counterWidth int) (indent string, bodyW int, showCounter bool) {
+	effectivePanelW := panelWidth
+	if effectivePanelW <= 0 {
+		effectivePanelW = 80
+	}
+	if effectivePanelW < 4 {
+		effectivePanelW = 4
+	}
+	innerW := effectivePanelW - 2
+	indent = "  "
+	availW := innerW - 2
+	if availW < promptWidth+2 {
+		indent = ""
+		availW = innerW
+	}
+	if availW < 1 {
+		availW = 1
+	}
+	showCounter = counterWidth > 0 && (availW-promptWidth-counterWidth-1 >= 1)
+	effectiveCounterW := 0
+	if showCounter {
+		effectiveCounterW = counterWidth
+	}
+	bodyW = availW - promptWidth - effectiveCounterW - 1
+	if bodyW < 1 {
+		bodyW = 1
+	}
+	return indent, bodyW, showCounter
+}
+
 // renderInputSection renders the optional helper label and focused inline text input
 // without mutating sv.Input.
 func (sv *StatusViewModel) renderInputSection(th Theme) []string {
@@ -785,24 +894,23 @@ func (sv *StatusViewModel) renderInputSection(th Theme) []string {
 		counter = fmt.Sprintf(" (%d chars)", runeCount)
 	}
 
-	panelW := sv.Width
-	if panelW <= 0 {
-		panelW = 80
-	}
-	availW := panelW - 4
-	if availW < 10 {
-		availW = 40
-	}
-
 	ti := sv.Input
 	applyStatusInputStyles(&ti, sv.NoColor)
 	promptW := lipgloss.Width(ti.Prompt)
-	bodyW := availW - promptW - len(counter) - 1
-	if bodyW < 4 {
-		bodyW = 4
+	indent, bodyW, showCounter := statusInputLayout(sv.Width, promptW, len(counter))
+	if !showCounter {
+		counter = ""
 	}
-	ti.SetWidth(bodyW)
-	ti.SetCursor(ti.Position())
+	pos := ti.Position()
+	if val != "" {
+		ti.Reset()
+		ti.SetWidth(bodyW)
+		ti.SetValue(val)
+		ti.SetCursor(pos)
+	} else {
+		ti.SetWidth(bodyW)
+		ti.SetCursor(pos)
+	}
 
 	rawView := ti.View()
 	if sv.NoColor {
@@ -852,7 +960,7 @@ func (sv *StatusViewModel) renderInputSection(th Theme) []string {
 		rawView += counterStyle.Render(counter)
 	}
 
-	lines = append(lines, "  "+rawView)
+	lines = append(lines, indent+rawView)
 	return lines
 }
 

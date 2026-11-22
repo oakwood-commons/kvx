@@ -136,7 +136,10 @@ func padSnapshotHeight(view string, height, width int) string {
 //     submission command to return, then drains DoneChan non-blockingly once
 //     after submission completes (covering buffered channels).
 //   - Bounds total wait time by snapshotSubmitTimeout so a stalled callback
-//     cannot block RenderModelSnapshot indefinitely.
+//     cannot block RenderModelSnapshot indefinitely. If timeout fires before
+//     DoneChan delivers a result, a one-shot background select drains at most
+//     one late DoneChan send until submitCmd returns so an unbuffered Done
+//     channel cannot deadlock the timed-out callback goroutine.
 func settleSnapshotStatusSubmission(m *Model) {
 	if m == nil || m.ViewMode != "status" || m.StatusViewState == nil ||
 		!m.StatusViewState.InputSubmitting || m.StatusViewState.lastSubmitCmd == nil {
@@ -183,6 +186,12 @@ func settleSnapshotStatusSubmission(m *Model) {
 						gotDone = true
 					}
 				default:
+					go func(ch <-chan StatusResult) {
+						select {
+						case <-submitResCh:
+						case <-ch:
+						}
+					}(doneChan)
 				}
 			}
 			if gotDone {

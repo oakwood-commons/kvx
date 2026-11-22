@@ -1577,3 +1577,194 @@ func TestRenderModelSnapshot_StatusInputSubmitTimeout_AppliesConsumedDoneResult(
 	assert.Contains(t, snap, "Completed before timeout", "consumed DoneChan completion must still be applied when callback exceeds timeout")
 	assert.NotContains(t, snap, "Paste callback URL:")
 }
+
+func TestModel_StatusInputBlocksInternalPasteBehindHelpModalWhilePreservingBlink(t *testing.T) {
+	data := map[string]any{"title": "Verify Session"}
+	schema := &DisplaySchema{
+		Version: "v1",
+		Status: &StatusDisplayConfig{
+			TitleField:  "title",
+			WaitMessage: "Waiting...",
+			Input: &StatusInputConfig{
+				Label: "Paste callback URL:",
+			},
+		},
+	}
+
+	m := InitialModel(data)
+	m.Root = data
+	m.DisplaySchema = schema
+	m.DoneChan = make(chan StatusResult, 1)
+	m.WinWidth = 80
+	m.WinHeight = 24
+	m.updateViewMode(data)
+	require.NotNil(t, m.StatusViewState)
+
+	// Trigger Ctrl+V before opening help; textinput returns its internal Paste command.
+	updated, pasteCmd := m.Update(tea.KeyPressMsg{Code: 'v', Mod: tea.ModCtrl})
+	m = *updated.(*Model)
+	require.NotNil(t, pasteCmd, "Ctrl+V should return textinput.Paste command")
+
+	// Open F1 help modal before the async clipboard command completes.
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyF1})
+	m = *updated.(*Model)
+	require.True(t, m.HelpVisible)
+
+	pasteMsg := pasteCmd()
+	require.False(t, isCursorBlinkMsg(pasteMsg), "clipboard result must not be classified as cursor blink")
+
+	updated, _ = m.Update(pasteMsg)
+	m = *updated.(*Model)
+	assert.Empty(t, m.StatusViewState.Input.Value(), "internal clipboard paste message must be ignored while modal is open")
+	assert.NoError(t, m.StatusViewState.Input.Err, "internal clipboard error message must also be ignored while modal is open")
+
+	// Cursor blink messages must still pass through while the modal is open so
+	// blinking resumes normally once dismissed.
+	blinkInitMsg := textinput.Blink()
+	require.True(t, isCursorBlinkMsg(blinkInitMsg), "cursor blink message must pass modal filter")
+	updated, blinkTickCmd := m.Update(blinkInitMsg)
+	m = *updated.(*Model)
+	assert.NotNil(t, blinkTickCmd, "cursor blink lifecycle should remain active while modal is open")
+}
+
+func TestRenderModelSnapshot_StatusInputSubmitTimeout_DrainsLateUnbufferedDone(t *testing.T) {
+	origTimeout := snapshotSubmitTimeout
+	snapshotSubmitTimeout = 20 * time.Millisecond
+	defer func() { snapshotSubmitTimeout = origTimeout }()
+
+	data := map[string]any{"title": "Verify Session"}
+	schema := &DisplaySchema{
+		Version: "v1",
+		Status: &StatusDisplayConfig{
+			TitleField:  "title",
+			WaitMessage: "Waiting for callback...",
+			Input: &StatusInputConfig{
+				Label: "Paste callback URL:",
+			},
+		},
+	}
+
+	done := make(chan StatusResult)
+	callbackExited := make(chan struct{})
+
+	_ = RenderModelSnapshot(data, ModelSnapshotConfig{
+		Width:     80,
+		Height:    16,
+		NoColor:   true,
+		AppName:   "kvx",
+		StartKeys: []string{"https://localhost:8400/callback?code=late", "<CR>"},
+		Configure: func(m *Model) {
+			m.DisplaySchema = schema
+			m.DoneChan = done
+			m.OnStatusInput = func(string) error {
+				defer close(callbackExited)
+				time.Sleep(50 * time.Millisecond)
+				done <- StatusResult{Message: "Late completion"}
+				return nil
+			}
+		},
+	})
+
+	select {
+	case <-callbackExited:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed-out OnStatusInput callback blocked on unbuffered Done channel send")
+	}
+}
+
+func TestStatusView_ActiveInputPreservesActionLetterCase(t *testing.T) {
+	data := map[string]any{
+		"title":     "Verify Session",
+		"lower_url": "https://localhost:8400/lower",
+		"upper_url": "https://localhost:8400/upper",
+	}
+	schema := &DisplaySchema{
+		Version: "v1",
+		Status: &StatusDisplayConfig{
+			TitleField:  "title",
+			WaitMessage: "Waiting...",
+			Actions: []StatusActionConfig{
+				{
+					Label: "lower link",
+					Type:  "open-url",
+					Field: "lower_url",
+					Keys:  StatusKeyBindings{Vim: "y"},
+				},
+				{
+					Label: "upper link",
+					Type:  "open-url",
+					Field: "upper_url",
+					Keys:  StatusKeyBindings{Vim: "Y"},
+				},
+			},
+			Input: &StatusInputConfig{
+				Label: "Paste callback URL:",
+			},
+		},
+	}
+
+	var opened string
+	sv := buildStatusViewModel(data, schema, KeyModeVim, true, make(chan StatusResult, 1), 100, 20)
+	sv.OpenURLFn = func(url string) error {
+		opened = url
+		return nil
+	}
+
+	bar := sv.FooterBar()
+	assert.Contains(t, bar, "Alt+y lower link")
+	assert.Contains(t, bar, "Alt+Y upper link")
+
+	updated, _ := sv.Update(tea.KeyPressMsg{Code: 'Y', Mod: tea.ModAlt})
+	sv = updated.(*StatusViewModel)
+	assert.Equal(t, "https://localhost:8400/upper", opened, "Alt+Y must invoke uppercase Y action rather than lowercase y")
+
+	opened = ""
+	updated, _ = sv.Update(tea.KeyPressMsg{Code: 'y', Mod: tea.ModAlt | tea.ModShift})
+	sv = updated.(*StatusViewModel)
+	assert.Equal(t, "https://localhost:8400/upper", opened, "Alt+Shift+y must also invoke uppercase Y action")
+
+	opened = ""
+	updated, _ = sv.Update(tea.KeyPressMsg{Code: 'y', Mod: tea.ModAlt})
+	_ = updated.(*StatusViewModel)
+	assert.Equal(t, "https://localhost:8400/lower", opened, "Alt+y must invoke lowercase y action")
+}
+
+func TestRenderModelSnapshot_StatusInputNarrowPanelScrollsTailAndCursor(t *testing.T) {
+	data := map[string]any{"title": "Verify"}
+	schema := &DisplaySchema{
+		Version: "v1",
+		Status: &StatusDisplayConfig{
+			TitleField: "title",
+			Input:      &StatusInputConfig{},
+		},
+	}
+	done := make(chan StatusResult, 1)
+
+	plainSnap := RenderModelSnapshot(data, ModelSnapshotConfig{
+		Width:     13,
+		Height:    8,
+		NoColor:   true,
+		AppName:   "kvx",
+		StartKeys: []string{"0123456789abcdefghij"},
+		Configure: func(m *Model) {
+			m.DisplaySchema = schema
+			m.DoneChan = done
+		},
+	})
+	assert.Contains(t, plainSnap, "efghij", "narrow 13-col panel must scroll horizontally to keep input tail visible")
+	assert.NotContains(t, plainSnap, "012345", "narrow 13-col panel must scroll past leading characters")
+
+	colorSnap := RenderModelSnapshot(data, ModelSnapshotConfig{
+		Width:     13,
+		Height:    8,
+		NoColor:   false,
+		AppName:   "kvx",
+		StartKeys: []string{"0123456789abcdefghij"},
+		Configure: func(m *Model) {
+			m.DisplaySchema = schema
+			m.DoneChan = done
+		},
+	})
+	assert.Contains(t, ansi.Strip(colorSnap), "efghij", "color narrow 13-col panel must also keep input tail visible")
+	assert.Regexp(t, `\x1b\[7(;[0-9;]+)?m `, colorSnap, "color narrow 13-col panel must keep focused reverse-video cursor visible without right-edge clipping")
+}

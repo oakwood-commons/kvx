@@ -3378,6 +3378,20 @@ func (m *Model) isModalBlockingInput() bool {
 	return m.HelpVisible || (m.ShowInfoPopup && m.InfoPopupModal) || m.FunctionPalette.Visible
 }
 
+// isCursorBlinkMsg reports whether msg originates from Bubbles' cursor blink
+// lifecycle (e.g. cursor.BlinkMsg or unexported initialBlinkMsg) so cursor
+// state stays alive while modals block non-cursor messages like clipboard paste.
+func isCursorBlinkMsg(msg tea.Msg) bool {
+	if msg == nil {
+		return false
+	}
+	t := reflect.TypeOf(msg)
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	return t.PkgPath() == "charm.land/bubbles/v2/cursor"
+}
+
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	defer m.clearStickyErrorIfInputChanged()
@@ -5230,6 +5244,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+	}
+	if m.isModalBlockingInput() && !isCursorBlinkMsg(msg) {
+		return m, nil
 	}
 	if m.ViewMode == "status" && m.StatusViewState != nil {
 		var statusCmd tea.Cmd
