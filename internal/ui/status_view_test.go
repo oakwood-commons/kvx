@@ -1493,3 +1493,87 @@ func TestRenderModelSnapshot_ShortPanel80x10_KeepsActiveInputAndCounterVisible(t
 	assert.Contains(t, snap, "Paste callback URL:", "input label should stay visible in 80x10 panel")
 	assert.Contains(t, snap, "•••••••••••• (12 chars)", "active input prompt and masked counter must stay visible in 80x10 panel")
 }
+
+func TestRenderModelSnapshot_ShortPanel80x10_MultilineFieldsAndLabelKeepPromptVisible(t *testing.T) {
+	data := map[string]any{
+		"title":   "Verify Session",
+		"message": "Line 1 instruction\nLine 2 instruction\nLine 3 instruction",
+		"details": "Detail A\nDetail B",
+	}
+	schema := &DisplaySchema{
+		Version: "v1",
+		Status: &StatusDisplayConfig{
+			TitleField:   "title",
+			MessageField: "message",
+			WaitMessage:  "Waiting for callback...",
+			DisplayFields: []StatusFieldDisplay{
+				{Label: "Info", Field: "details"},
+			},
+			Input: &StatusInputConfig{
+				Label:  "Helper line 1\nHelper line 2:",
+				Masked: true,
+			},
+		},
+	}
+	done := make(chan StatusResult, 1)
+
+	snap := RenderModelSnapshot(data, ModelSnapshotConfig{
+		Width:     80,
+		Height:    10,
+		NoColor:   true,
+		AppName:   "kvx",
+		StartKeys: []string{"secret-multiline"},
+		Configure: func(m *Model) {
+			m.DisplaySchema = schema
+			m.DoneChan = done
+		},
+	})
+
+	assert.NotContains(t, snap, "secret-multiline")
+	assert.Contains(t, snap, "Helper line 2:", "multiline input label tail must fit within 80x10 budget")
+	assert.Contains(t, snap, "•••••••••••••••• (16 chars)", "prompt and masked counter must stay visible even with multiline messages/fields/label")
+}
+
+func TestRenderModelSnapshot_StatusInputSubmitTimeout_AppliesConsumedDoneResult(t *testing.T) {
+	origTimeout := snapshotSubmitTimeout
+	snapshotSubmitTimeout = 20 * time.Millisecond
+	defer func() { snapshotSubmitTimeout = origTimeout }()
+
+	data := map[string]any{"title": "Verify Session"}
+	schema := &DisplaySchema{
+		Version: "v1",
+		Status: &StatusDisplayConfig{
+			TitleField:  "title",
+			WaitMessage: "Waiting for callback...",
+			Input: &StatusInputConfig{
+				Label:  "Paste callback URL:",
+				Masked: true,
+			},
+		},
+	}
+
+	done := make(chan StatusResult)
+	unblockCallback := make(chan struct{})
+	defer close(unblockCallback)
+
+	snap := RenderModelSnapshot(data, ModelSnapshotConfig{
+		Width:     100,
+		Height:    20,
+		NoColor:   true,
+		AppName:   "kvx",
+		StartKeys: []string{"https://localhost:8400/callback?code=slow", "<CR>"},
+		Configure: func(m *Model) {
+			m.DisplaySchema = schema
+			m.DoneChan = done
+			m.OnStatusInput = func(string) error {
+				// Deliver completion on unbuffered channel, then stall past snapshotSubmitTimeout.
+				done <- StatusResult{Message: "Completed before timeout"}
+				<-unblockCallback
+				return nil
+			}
+		},
+	})
+
+	assert.Contains(t, snap, "Completed before timeout", "consumed DoneChan completion must still be applied when callback exceeds timeout")
+	assert.NotContains(t, snap, "Paste callback URL:")
+}

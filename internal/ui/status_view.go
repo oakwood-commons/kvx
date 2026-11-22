@@ -687,36 +687,41 @@ func (sv *StatusViewModel) View() string {
 
 // fitStatusInputView combines preceding status lines with active inputLines while
 // ensuring inputLines remain visible at the bottom when maxLines > 0.
+// Both slices are first expanded into physical rows so embedded newlines in
+// messages, display fields, or input labels cannot overflow maxLines.
 func fitStatusInputView(bodyLines, inputLines []string, maxLines int) string {
-	if maxLines <= 0 || len(bodyLines)+len(inputLines)+1 <= maxLines {
-		combined := make([]string, 0, len(bodyLines)+len(inputLines)+1)
-		combined = append(combined, bodyLines...)
-		combined = append(combined, inputLines...)
+	bodyRows := expandPhysicalLines(bodyLines)
+	inputRows := expandPhysicalLines(inputLines)
+
+	if maxLines <= 0 || len(bodyRows)+len(inputRows)+1 <= maxLines {
+		combined := make([]string, 0, len(bodyRows)+len(inputRows)+1)
+		combined = append(combined, bodyRows...)
+		combined = append(combined, inputRows...)
 		combined = append(combined, "")
 		return strings.Join(combined, "\n")
 	}
 
-	if maxLines < len(inputLines) {
-		return strings.Join(inputLines[len(inputLines)-maxLines:], "\n")
+	if maxLines < len(inputRows) {
+		return strings.Join(inputRows[len(inputRows)-maxLines:], "\n")
 	}
 
-	bodyBudget := maxLines - len(inputLines)
+	bodyBudget := maxLines - len(inputRows)
 	if bodyBudget == 0 {
-		return strings.Join(inputLines, "\n")
+		return strings.Join(inputRows, "\n")
 	}
 
 	// Trim trailing blank separator lines first.
-	trimmed := bodyLines
+	trimmed := bodyRows
 	for len(trimmed) > 0 && trimmed[len(trimmed)-1] == "" {
 		trimmed = trimmed[:len(trimmed)-1]
 	}
 	if len(trimmed) <= bodyBudget {
-		combined := make([]string, 0, len(trimmed)+1+len(inputLines))
+		combined := make([]string, 0, len(trimmed)+1+len(inputRows))
 		combined = append(combined, trimmed...)
 		if len(trimmed) < bodyBudget {
 			combined = append(combined, "")
 		}
-		combined = append(combined, inputLines...)
+		combined = append(combined, inputRows...)
 		return strings.Join(combined, "\n")
 	}
 
@@ -731,13 +736,29 @@ func fitStatusInputView(bodyLines, inputLines []string, maxLines int) string {
 		compact = compact[len(compact)-bodyBudget:]
 	}
 
-	combined := make([]string, 0, len(compact)+1+len(inputLines))
+	combined := make([]string, 0, len(compact)+1+len(inputRows))
 	combined = append(combined, compact...)
 	if len(compact) < bodyBudget {
 		combined = append(combined, "")
 	}
-	combined = append(combined, inputLines...)
+	combined = append(combined, inputRows...)
 	return strings.Join(combined, "\n")
+}
+
+// expandPhysicalLines splits any entries containing newlines into individual
+// physical rows while preserving empty-string blank separator rows.
+func expandPhysicalLines(lines []string) []string {
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		normalized := strings.ReplaceAll(line, "\r\n", "\n")
+		normalized = strings.ReplaceAll(normalized, "\r", "\n")
+		if !strings.Contains(normalized, "\n") {
+			out = append(out, normalized)
+			continue
+		}
+		out = append(out, strings.Split(normalized, "\n")...)
+	}
+	return out
 }
 
 // renderInputSection renders the optional helper label and focused inline text input
@@ -751,7 +772,10 @@ func (sv *StatusViewModel) renderInputSection(th Theme) []string {
 		if !sv.NoColor && th.ValueColor != nil {
 			labelStyle = labelStyle.Foreground(th.ValueColor)
 		}
-		lines = append(lines, "  "+labelStyle.Render(ic.Label))
+		normalizedLabel := strings.ReplaceAll(ic.Label, "\r\n", "\n")
+		for _, labelLine := range strings.Split(normalizedLabel, "\n") {
+			lines = append(lines, "  "+labelStyle.Render(labelLine))
+		}
 	}
 
 	val := sv.Input.Value()

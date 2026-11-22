@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"encoding/json"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -582,11 +584,71 @@ func TestParseStatusInputMaxLength_EdgeCases(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 256, n)
 
-	_, err = parseStatusInputMaxLength(-0.5)
-	require.Error(t, err)
+	n, err = parseStatusInputMaxLength(int64(512))
+	require.NoError(t, err)
+	assert.Equal(t, 512, n)
 
-	_, err = parseStatusInputMaxLength(12.5)
-	require.Error(t, err)
+	n, err = parseStatusInputMaxLength(json.Number("1024"))
+	require.NoError(t, err)
+	assert.Equal(t, 1024, n)
+
+	for _, bad := range []any{
+		-1,
+		int64(-5),
+		-0.5,
+		12.5,
+		math.NaN(),
+		math.Inf(1),
+		float64(math.MaxInt64),
+		json.Number("-3"),
+		json.Number("12.5"),
+		"64",
+	} {
+		_, err = parseStatusInputMaxLength(bad)
+		assert.Error(t, err, "expected error for %v (%T)", bad, bad)
+	}
+}
+
+func TestParseStatusExtension_RejectsInvalidInputFieldTypes(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		field string
+	}{
+		{name: "non-boolean masked string", input: `{"masked": "true"}`, field: "status.input.masked"},
+		{name: "non-boolean masked number", input: `{"masked": 1}`, field: "status.input.masked"},
+		{name: "non-string label", input: `{"label": 42}`, field: "status.input.label"},
+		{name: "non-string placeholder", input: `{"placeholder": false}`, field: "status.input.placeholder"},
+		{name: "non-string prompt", input: `{"prompt": []}`, field: "status.input.prompt"},
+		{name: "non-object input", input: `"not-an-object"`, field: "status.input"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			schema := `{
+				"type": "object",
+				"x-kvx-status": {
+					"titleField": "title",
+					"input": ` + tt.input + `
+				},
+				"properties": {"title": {"type": "string"}}
+			}`
+			_, _, err := ParseSchemaWithDisplay([]byte(schema))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.field)
+
+			standalone := `{
+				"displaySchema": "v1",
+				"x-kvx-status": {
+					"titleField": "title",
+					"input": ` + tt.input + `
+				}
+			}`
+			_, err = ParseDisplaySchema([]byte(standalone))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.field)
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------

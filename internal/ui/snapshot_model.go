@@ -11,7 +11,7 @@ import (
 
 // snapshotSubmitTimeout bounds how long RenderModelSnapshot waits for a
 // StartKeys-triggered OnStatusInput callback to return.
-const snapshotSubmitTimeout = 5 * time.Second
+var snapshotSubmitTimeout = 5 * time.Second
 
 // ModelSnapshotConfig configures snapshot rendering using the Model implementation.
 type ModelSnapshotConfig struct {
@@ -95,7 +95,7 @@ func renderModelLayoutSnapshot(node interface{}, cfg ModelSnapshotConfig) string
 		AppName:        cfg.AppName,
 		HelpTitle:      cfg.HelpTitle,
 		HelpText:       helpText,
-		SnapshotHeader: true,
+		SnapshotHeader: m.ViewMode != "status",
 		InputVisible:   inputVisible,
 		HideFooter:     cfg.HideFooter,
 	})
@@ -175,6 +175,23 @@ func settleSnapshotStatusSubmission(m *Model) {
 		case <-timer.C:
 			m.StatusViewState.InputSubmitting = false
 			m.StatusViewState.lastSubmitCmd = nil
+			if !gotDone && doneChan != nil {
+				select {
+				case doneRes, ok := <-doneChan:
+					if ok {
+						pendingDoneMsg = statusDoneMsg(doneRes)
+						gotDone = true
+					}
+				default:
+				}
+			}
+			if gotDone {
+				if updated, _ := m.Update(pendingDoneMsg); updated != nil {
+					if um, ok := updated.(*Model); ok {
+						*m = *um
+					}
+				}
+			}
 			return
 		}
 	}

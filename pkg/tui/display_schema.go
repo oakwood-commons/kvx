@@ -291,17 +291,33 @@ func parseStatusExtension(raw map[string]any) (*StatusDisplayConfig, error) {
 			return nil, fmt.Errorf("display schema: status.input must be an object")
 		}
 		ic := &StatusInputConfig{}
-		if v, ok := inputRaw["label"].(string); ok {
-			ic.Label = v
+		if v, exists := inputRaw["label"]; exists && v != nil {
+			s, ok := v.(string)
+			if !ok {
+				return nil, fmt.Errorf("display schema: status.input.label must be a string, got %T", v)
+			}
+			ic.Label = s
 		}
-		if v, ok := inputRaw["placeholder"].(string); ok {
-			ic.Placeholder = v
+		if v, exists := inputRaw["placeholder"]; exists && v != nil {
+			s, ok := v.(string)
+			if !ok {
+				return nil, fmt.Errorf("display schema: status.input.placeholder must be a string, got %T", v)
+			}
+			ic.Placeholder = s
 		}
-		if v, ok := inputRaw["prompt"].(string); ok {
-			ic.Prompt = v
+		if v, exists := inputRaw["prompt"]; exists && v != nil {
+			s, ok := v.(string)
+			if !ok {
+				return nil, fmt.Errorf("display schema: status.input.prompt must be a string, got %T", v)
+			}
+			ic.Prompt = s
 		}
-		if v, ok := inputRaw["masked"].(bool); ok {
-			ic.Masked = v
+		if v, exists := inputRaw["masked"]; exists && v != nil {
+			b, ok := v.(bool)
+			if !ok {
+				return nil, fmt.Errorf("display schema: status.input.masked must be a boolean, got %T", v)
+			}
+			ic.Masked = b
 		}
 		if v, exists := inputRaw["maxLength"]; exists && v != nil {
 			n, err := parseStatusInputMaxLength(v)

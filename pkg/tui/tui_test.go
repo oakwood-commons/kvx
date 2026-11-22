@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -482,5 +483,43 @@ func TestRenderSnapshot_StatusInputAndCustomOpenURL(t *testing.T) {
 	}
 	if !strings.Contains(afterPaste, "Opened in browser") {
 		t.Fatalf("expected open-url flash message in snapshot, got:\n%s", afterPaste)
+	}
+}
+
+func TestRenderSnapshot_StatusInputRejectedSubmissionShowsWarning(t *testing.T) {
+	data := map[string]any{
+		"title": "Verify Session",
+	}
+	schema := &DisplaySchema{
+		Version: "v1",
+		Status: &StatusDisplayConfig{
+			TitleField:  "title",
+			WaitMessage: "Waiting for callback...",
+			Input: &StatusInputConfig{
+				Label:  "Paste callback URL:",
+				Masked: true,
+			},
+		},
+	}
+
+	done := make(chan StatusResult, 1)
+	cfg := DefaultConfig()
+	cfg.AppName = "demo"
+	cfg.Width = 100
+	cfg.Height = 20
+	cfg.NoColor = true
+	cfg.DisplaySchema = schema
+	cfg.Done = done
+	cfg.StartKeys = []string{"bad-callback-url", "<CR>"}
+	cfg.OnStatusInput = func(string) error {
+		return errors.New("missing token query parameter")
+	}
+
+	snap := RenderSnapshot(data, cfg)
+	if !strings.Contains(snap, "missing token query parameter") {
+		t.Fatalf("expected rejected submission warning flash in snapshot, got:\n%s", snap)
+	}
+	if !strings.Contains(snap, "Paste callback URL:") {
+		t.Fatalf("expected input to remain visible for retry after rejected submission, got:\n%s", snap)
 	}
 }
