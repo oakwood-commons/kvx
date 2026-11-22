@@ -309,11 +309,20 @@ func (sv *StatusViewModel) Update(msg tea.Msg) (CustomView, tea.Cmd) {
 
 // handleKey processes key presses on the status screen.
 func (sv *StatusViewModel) handleKey(msg tea.KeyPressMsg) (*StatusViewModel, tea.Cmd) {
+	updated, cmd, _ := sv.handleKeyWithHandled(msg)
+	return updated, cmd
+}
+
+// handleKeyWithHandled processes key presses on the status screen and reports
+// whether the key was consumed. Unbound function keys (f1..f12) return
+// handled=false so callers such as Model.Update can fall back to global menu
+// actions/popups (e.g. F12).
+func (sv *StatusViewModel) handleKeyWithHandled(msg tea.KeyPressMsg) (*StatusViewModel, tea.Cmd, bool) {
 	keyStr := normalizeStatusKey(msg)
 
 	// Ctrl+C is always an immediate universal quit.
 	if keyStr == "ctrl+c" {
-		return sv, tea.Quit
+		return sv, tea.Quit, true
 	}
 
 	// Active inline input owns printable keys, Esc clear-then-quit, Ctrl+U, and Enter.
@@ -323,22 +332,22 @@ func (sv *StatusViewModel) handleKey(msg tea.KeyPressMsg) (*StatusViewModel, tea
 			if sv.Input.Value() != "" {
 				sv.Input.SetValue("")
 				sv.Input.SetCursor(0)
-				return sv, nil
+				return sv, nil, true
 			}
-			return sv, tea.Quit
+			return sv, tea.Quit, true
 
 		case "ctrl+u":
 			sv.Input.SetValue("")
 			sv.Input.SetCursor(0)
-			return sv, nil
+			return sv, nil, true
 
 		case "enter":
 			if sv.InputSubmitting {
-				return sv, nil
+				return sv, nil, true
 			}
 			val := strings.TrimSpace(stripCRLF(sv.Input.Value()))
 			if val == "" || sv.OnStatusInput == nil {
-				return sv, nil
+				return sv, nil, true
 			}
 			sv.InputSubmitting = true
 			submitFn := sv.OnStatusInput
@@ -346,49 +355,69 @@ func (sv *StatusViewModel) handleKey(msg tea.KeyPressMsg) (*StatusViewModel, tea
 				return statusInputResultMsg{Err: submitFn(val)}
 			}
 			sv.lastSubmitCmd = submitCmd
-			return sv, submitCmd
+			return sv, submitCmd, true
 		}
 
 		// Match only modifier/function action keys so bare single-character keys
 		// (c, o, q, /, ?, f, e, v, etc.) flow directly into textinput during paste.
 		for _, action := range sv.Config.Actions {
 			if sv.matchesInputActionKey(keyStr, action.Keys) {
-				return sv.executeAction(action)
+				updated, cmd := sv.executeAction(action)
+				return updated, cmd, true
 			}
 		}
 
+		// Unhandled function keys (f1..f12) are not text input; allow global menu fallback.
+		if isStatusFunctionKey(keyStr) {
+			return sv, nil, false
+		}
+
 		if sv.InputSubmitting {
-			return sv, nil
+			return sv, nil, true
 		}
 
 		var cmd tea.Cmd
 		sv.Input, cmd = sv.Input.Update(msg)
-		return sv, cmd
+		return sv, cmd, true
 	}
 
 	if keyStr == "esc" {
-		return sv, tea.Quit
+		return sv, tea.Quit, true
 	}
 
 	// If we're in a done phase and waiting for key, any key exits
 	if sv.Phase != statusPhaseWaiting && sv.doneBehavior() == DoneBehaviorWaitForKey {
-		return sv, tea.Quit
+		return sv, tea.Quit, true
 	}
 
 	// Check mode-specific quit key
 	if sv.isQuitKey(keyStr) {
-		return sv, tea.Quit
+		return sv, tea.Quit, true
 	}
 
 	// Check action keys
 	for _, action := range sv.Config.Actions {
 		actionKey := sv.keyForMode(action.Keys)
 		if actionKey != "" && keyStr == actionKey {
-			return sv.executeAction(action)
+			updated, cmd := sv.executeAction(action)
+			return updated, cmd, true
 		}
 	}
 
-	return sv, nil
+	if isStatusFunctionKey(keyStr) {
+		return sv, nil, false
+	}
+
+	return sv, nil, true
+}
+
+// isStatusFunctionKey reports whether keyStr is a function key f1..f12.
+func isStatusFunctionKey(keyStr string) bool {
+	switch strings.ToLower(keyStr) {
+	case "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11", "f12":
+		return true
+	}
+	return false
 }
 
 // normalizeStatusKey normalizes raw control key codes (e.g. from ApplyStartupKeys)
@@ -624,8 +653,8 @@ func (sv *StatusViewModel) View() string {
 			sections = append(sections, "")
 		}
 		if sv.HasActiveInput() {
-			sections = append(sections, sv.renderInputSection(th)...)
-			sections = append(sections, "")
+			inputLines := sv.renderInputSection(th)
+			return fitStatusInputView(sections, inputLines, sv.Height)
 		}
 	case statusPhaseSuccess:
 		successStyle := lipgloss.NewStyle().Bold(true)
@@ -654,6 +683,61 @@ func (sv *StatusViewModel) View() string {
 	content := strings.Join(sections, "\n")
 
 	return content
+}
+
+// fitStatusInputView combines preceding status lines with active inputLines while
+// ensuring inputLines remain visible at the bottom when maxLines > 0.
+func fitStatusInputView(bodyLines, inputLines []string, maxLines int) string {
+	if maxLines <= 0 || len(bodyLines)+len(inputLines)+1 <= maxLines {
+		combined := make([]string, 0, len(bodyLines)+len(inputLines)+1)
+		combined = append(combined, bodyLines...)
+		combined = append(combined, inputLines...)
+		combined = append(combined, "")
+		return strings.Join(combined, "\n")
+	}
+
+	if maxLines < len(inputLines) {
+		return strings.Join(inputLines[len(inputLines)-maxLines:], "\n")
+	}
+
+	bodyBudget := maxLines - len(inputLines)
+	if bodyBudget == 0 {
+		return strings.Join(inputLines, "\n")
+	}
+
+	// Trim trailing blank separator lines first.
+	trimmed := bodyLines
+	for len(trimmed) > 0 && trimmed[len(trimmed)-1] == "" {
+		trimmed = trimmed[:len(trimmed)-1]
+	}
+	if len(trimmed) <= bodyBudget {
+		combined := make([]string, 0, len(trimmed)+1+len(inputLines))
+		combined = append(combined, trimmed...)
+		if len(trimmed) < bodyBudget {
+			combined = append(combined, "")
+		}
+		combined = append(combined, inputLines...)
+		return strings.Join(combined, "\n")
+	}
+
+	// Compact internal blank separator lines so short panes retain maximum information.
+	compact := make([]string, 0, len(trimmed))
+	for _, line := range trimmed {
+		if line != "" {
+			compact = append(compact, line)
+		}
+	}
+	if len(compact) > bodyBudget {
+		compact = compact[len(compact)-bodyBudget:]
+	}
+
+	combined := make([]string, 0, len(compact)+1+len(inputLines))
+	combined = append(combined, compact...)
+	if len(compact) < bodyBudget {
+		combined = append(combined, "")
+	}
+	combined = append(combined, inputLines...)
+	return strings.Join(combined, "\n")
 }
 
 // renderInputSection renders the optional helper label and focused inline text input

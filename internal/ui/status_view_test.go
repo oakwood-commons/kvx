@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -1313,4 +1314,182 @@ func TestRenderModelSnapshot_StatusInputStartupSubmitSettles(t *testing.T) {
 	assert.Equal(t, "https://localhost:8400/callback?code=abc", submitted)
 	assert.Contains(t, snap, "Submitted")
 	assert.NotContains(t, snap, "Paste callback URL:", "input hides after startup <CR> submission succeeds")
+}
+
+func TestRenderModelSnapshot_StatusInputStartupSubmit_UnbufferedDoneChannel(t *testing.T) {
+	data := map[string]any{"title": "Verify Session"}
+	schema := &DisplaySchema{
+		Version: "v1",
+		Status: &StatusDisplayConfig{
+			TitleField:  "title",
+			WaitMessage: "Waiting for callback...",
+			Input: &StatusInputConfig{
+				Label:  "Paste callback URL:",
+				Masked: true,
+			},
+		},
+	}
+
+	// Unbuffered channel: OnStatusInput sends synchronously before returning nil.
+	done := make(chan StatusResult)
+	var submitted string
+
+	finished := make(chan string, 1)
+	go func() {
+		snap := RenderModelSnapshot(data, ModelSnapshotConfig{
+			Width:     100,
+			Height:    20,
+			NoColor:   true,
+			AppName:   "kvx",
+			StartKeys: []string{"https://localhost:8400/callback?code=unbuffered", "<CR>"},
+			Configure: func(m *Model) {
+				m.DisplaySchema = schema
+				m.DoneChan = done
+				m.OnStatusInput = func(val string) error {
+					submitted = val
+					done <- StatusResult{Message: "Verified via callback"}
+					return nil
+				}
+			},
+		})
+		finished <- snap
+	}()
+
+	select {
+	case snap := <-finished:
+		assert.Equal(t, "https://localhost:8400/callback?code=unbuffered", submitted)
+		assert.Contains(t, snap, "Verified via callback")
+		assert.NotContains(t, snap, "Paste callback URL:")
+	case <-time.After(2 * time.Second):
+		t.Fatal("RenderModelSnapshot deadlocked on unbuffered Done channel during StartKeys submission")
+	}
+}
+
+func TestModel_StatusInput_PasteIgnoredBehindHelpAndInfoModals(t *testing.T) {
+	origMenu := CurrentMenuConfig()
+	defer SetMenuConfig(origMenu)
+
+	modal := true
+	enabled := true
+	menu := origMenu
+	menu.F12 = MenuItem{
+		Label:   "about",
+		Action:  "custom",
+		Enabled: true,
+		Popup: InfoPopupConfig{
+			Enabled: &enabled,
+			Modal:   &modal,
+			Text:    "modal info popup",
+		},
+	}
+	SetMenuConfig(menu)
+
+	data := testStatusData()
+	schema := testStatusInputSchema(false)
+
+	m := InitialModel(data)
+	m.Root = data
+	m.DisplaySchema = schema
+	m.WinWidth = 100
+	m.WinHeight = 24
+	m.NoColor = true
+	m.updateViewMode(data)
+
+	// 1. Open F1 help modal -> bracketed paste must be ignored.
+	res, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyF1})
+	mHelp := res.(*Model)
+	require.True(t, mHelp.HelpVisible)
+
+	res, _ = mHelp.Update(tea.PasteMsg{Content: "should-not-paste-under-help"})
+	mHelp = res.(*Model)
+	assert.Empty(t, mHelp.StatusViewState.Input.Value(), "paste must be ignored while F1 help modal is open")
+
+	// Close help with Esc.
+	res, _ = mHelp.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	mClosed := res.(*Model)
+	require.False(t, mClosed.HelpVisible)
+
+	// 2. Open F12 modal info popup -> bracketed paste must also be ignored.
+	res, _ = mClosed.Update(tea.KeyPressMsg{Code: tea.KeyF12})
+	mPopup := res.(*Model)
+	require.True(t, mPopup.ShowInfoPopup)
+
+	res, _ = mPopup.Update(tea.PasteMsg{Content: "should-not-paste-under-popup"})
+	mPopup = res.(*Model)
+	assert.Empty(t, mPopup.StatusViewState.Input.Value(), "paste must be ignored while modal info popup is open")
+
+	// Close modal popup with Esc -> paste works normally again.
+	res, _ = mPopup.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	mActive := res.(*Model)
+	require.False(t, mActive.ShowInfoPopup)
+
+	res, _ = mActive.Update(tea.PasteMsg{Content: "allowed-after-close"})
+	mActive = res.(*Model)
+	assert.Equal(t, "allowed-after-close", mActive.StatusViewState.Input.Value())
+}
+
+func TestModel_StatusView_UnhandledFunctionKeyReachesMenuPopup_WithAndWithoutInput(t *testing.T) {
+	origMenu := CurrentMenuConfig()
+	defer SetMenuConfig(origMenu)
+
+	menu := origMenu
+	menu.F12 = MenuItem{
+		Label:   "custom",
+		Action:  "custom",
+		Enabled: true,
+		Popup: InfoPopupConfig{
+			Text: "hello status popup",
+		},
+	}
+	SetMenuConfig(menu)
+
+	for _, withInput := range []bool{false, true} {
+		name := "without_input"
+		if withInput {
+			name = "with_input"
+		}
+		t.Run(name, func(t *testing.T) {
+			data := testStatusData()
+			schema := testStatusSchema()
+			if withInput {
+				schema = testStatusInputSchema(true)
+			}
+
+			m := InitialModel(data)
+			m.Root = data
+			m.DisplaySchema = schema
+			m.WinWidth = 100
+			m.WinHeight = 24
+			m.NoColor = true
+			m.updateViewMode(data)
+			require.False(t, m.ShowInfoPopup)
+
+			res, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyF12})
+			mAfter := res.(*Model)
+			assert.True(t, mAfter.ShowInfoPopup, "unhandled F12 must fall back to handleMenuKey on status view")
+			assert.Contains(t, fmt.Sprint(mAfter.View().Content), "hello status popup")
+		})
+	}
+}
+
+func TestRenderModelSnapshot_ShortPanel80x10_KeepsActiveInputAndCounterVisible(t *testing.T) {
+	data := testStatusData()
+	schema := testStatusInputSchema(true)
+	done := make(chan StatusResult, 1)
+
+	snap := RenderModelSnapshot(data, ModelSnapshotConfig{
+		Width:     80,
+		Height:    10,
+		NoColor:   true,
+		AppName:   "kvx",
+		StartKeys: []string{"secret-value"},
+		Configure: func(m *Model) {
+			m.DisplaySchema = schema
+			m.DoneChan = done
+		},
+	})
+
+	assert.NotContains(t, snap, "secret-value")
+	assert.Contains(t, snap, "Paste callback URL:", "input label should stay visible in 80x10 panel")
+	assert.Contains(t, snap, "•••••••••••• (12 chars)", "active input prompt and masked counter must stay visible in 80x10 panel")
 }

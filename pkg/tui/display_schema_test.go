@@ -527,22 +527,66 @@ func TestParseSchemaWithDisplay_StatusInputExtension(t *testing.T) {
 }
 
 func TestParseSchemaWithDisplay_StatusInputNegativeMaxLength(t *testing.T) {
-	schema := `{
-		"type": "object",
-		"x-kvx-status": {
-			"titleField": "title",
-			"input": {
-				"maxLength": -10
-			}
-		},
-		"properties": {
-			"title": {"type": "string"}
-		}
-	}`
+	tests := []struct {
+		name      string
+		maxLength string
+	}{
+		{name: "negative integer", maxLength: "-10"},
+		{name: "negative fraction -0.5", maxLength: "-0.5"},
+		{name: "positive fraction 12.5", maxLength: "12.5"},
+		{name: "non-numeric string", maxLength: `"64"`},
+		{name: "boolean", maxLength: "true"},
+	}
 
-	_, _, err := ParseSchemaWithDisplay([]byte(schema))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			schema := `{
+				"type": "object",
+				"x-kvx-status": {
+					"titleField": "title",
+					"input": {
+						"maxLength": ` + tt.maxLength + `
+					}
+				},
+				"properties": {
+					"title": {"type": "string"}
+				}
+			}`
+
+			_, _, err := ParseSchemaWithDisplay([]byte(schema))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "status.input.maxLength")
+
+			standalone := `{
+				"displaySchema": "v1",
+				"x-kvx-status": {
+					"titleField": "title",
+					"input": {
+						"maxLength": ` + tt.maxLength + `
+					}
+				}
+			}`
+			_, err = ParseDisplaySchema([]byte(standalone))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "status.input.maxLength")
+		})
+	}
+}
+
+func TestParseStatusInputMaxLength_EdgeCases(t *testing.T) {
+	n, err := parseStatusInputMaxLength(float64(0))
+	require.NoError(t, err)
+	assert.Equal(t, 0, n)
+
+	n, err = parseStatusInputMaxLength(256)
+	require.NoError(t, err)
+	assert.Equal(t, 256, n)
+
+	_, err = parseStatusInputMaxLength(-0.5)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "status.input.maxLength")
+
+	_, err = parseStatusInputMaxLength(12.5)
+	require.Error(t, err)
 }
 
 // ---------------------------------------------------------------------------

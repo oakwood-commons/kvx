@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 
 	"github.com/oakwood-commons/kvx/internal/ui"
 )
@@ -90,13 +91,15 @@ func ParseDisplaySchema(data []byte) (*DisplaySchema, error) {
 
 	// Parse x-kvx-status from the raw map (not in the base struct JSON tags)
 	if statusRaw, ok := probe["x-kvx-status"]; ok {
-		statusBytes, err := json.Marshal(statusRaw)
-		if err == nil {
-			var sc StatusDisplayConfig
-			if err := json.Unmarshal(statusBytes, &sc); err == nil {
-				ds.Status = &sc
-			}
+		statusMap, ok := statusRaw.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("display schema: x-kvx-status must be an object")
 		}
+		sc, err := parseStatusExtension(statusMap)
+		if err != nil {
+			return nil, err
+		}
+		ds.Status = sc
 	}
 
 	if err := validateDisplaySchema(&ds); err != nil {
@@ -106,8 +109,8 @@ func ParseDisplaySchema(data []byte) (*DisplaySchema, error) {
 }
 
 // extractDisplaySchemaFromJSONSchema extracts x-kvx-* vendor extensions from
-// an already-unmarshalled JSON Schema map. Returns nil when no extensions are present.
-func extractDisplaySchemaFromJSONSchema(raw map[string]any) *DisplaySchema {
+// an already-unmarshalled JSON Schema map. Returns (nil, nil) when no extensions are present.
+func extractDisplaySchemaFromJSONSchema(raw map[string]any) (*DisplaySchema, error) {
 	// Find the right level: for type=array, look at the top level for x-kvx-* keys
 	target := raw
 	if typ, _ := raw["type"].(string); typ == "array" {
@@ -124,7 +127,7 @@ func extractDisplaySchemaFromJSONSchema(raw map[string]any) *DisplaySchema {
 		}
 	}
 	if !hasExtension {
-		return nil
+		return nil, nil
 	}
 
 	ds := &DisplaySchema{Version: "v1"}
@@ -163,8 +166,16 @@ func extractDisplaySchemaFromJSONSchema(raw map[string]any) *DisplaySchema {
 	}
 
 	// x-kvx-status
-	if statusRaw, ok := target["x-kvx-status"].(map[string]any); ok {
-		ds.Status = parseStatusExtension(statusRaw)
+	if statusVal, exists := target["x-kvx-status"]; exists && statusVal != nil {
+		statusRaw, ok := statusVal.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("display schema: x-kvx-status must be an object")
+		}
+		sc, err := parseStatusExtension(statusRaw)
+		if err != nil {
+			return nil, err
+		}
+		ds.Status = sc
 	}
 
 	// x-kvx-detail
@@ -201,11 +212,11 @@ func extractDisplaySchemaFromJSONSchema(raw map[string]any) *DisplaySchema {
 		ds.Detail = detail
 	}
 
-	return ds
+	return ds, nil
 }
 
 // parseStatusExtension parses a raw x-kvx-status map into a StatusDisplayConfig.
-func parseStatusExtension(raw map[string]any) *StatusDisplayConfig {
+func parseStatusExtension(raw map[string]any) (*StatusDisplayConfig, error) {
 	sc := &StatusDisplayConfig{}
 	if v, ok := raw["titleField"].(string); ok {
 		sc.TitleField = v
@@ -274,7 +285,11 @@ func parseStatusExtension(raw map[string]any) *StatusDisplayConfig {
 			sc.Actions = append(sc.Actions, action)
 		}
 	}
-	if inputRaw, ok := raw["input"].(map[string]any); ok {
+	if inputVal, exists := raw["input"]; exists && inputVal != nil {
+		inputRaw, ok := inputVal.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("display schema: status.input must be an object")
+		}
 		ic := &StatusInputConfig{}
 		if v, ok := inputRaw["label"].(string); ok {
 			ic.Label = v
@@ -288,14 +303,65 @@ func parseStatusExtension(raw map[string]any) *StatusDisplayConfig {
 		if v, ok := inputRaw["masked"].(bool); ok {
 			ic.Masked = v
 		}
-		if v, ok := inputRaw["maxLength"]; ok {
-			if n, ok := toInt(v); ok {
-				ic.MaxLength = n
+		if v, exists := inputRaw["maxLength"]; exists && v != nil {
+			n, err := parseStatusInputMaxLength(v)
+			if err != nil {
+				return nil, err
 			}
+			ic.MaxLength = n
 		}
 		sc.Input = ic
 	}
-	return sc
+	return sc, nil
+}
+
+// parseStatusInputMaxLength validates that v is a non-negative representable integer,
+// rejecting negative numbers, fractional floats (e.g. -0.5 or 12.5), NaN/Inf,
+// overflow, and non-numeric types.
+func parseStatusInputMaxLength(v any) (int, error) {
+	const field = "status.input.maxLength"
+	switch n := v.(type) {
+	case int:
+		if n < 0 {
+			return 0, fmt.Errorf("display schema: %s must be >= 0 (got %d)", field, n)
+		}
+		return n, nil
+	case int64:
+		if n < 0 || n > int64(math.MaxInt) {
+			return 0, fmt.Errorf("display schema: %s must be a non-negative representable integer (got %d)", field, n)
+		}
+		return int(n), nil
+	case float64:
+		if math.IsNaN(n) || math.IsInf(n, 0) {
+			return 0, fmt.Errorf("display schema: %s must be a finite integer", field)
+		}
+		if n < 0 {
+			return 0, fmt.Errorf("display schema: %s must be >= 0 (got %v)", field, n)
+		}
+		if math.Trunc(n) != n {
+			return 0, fmt.Errorf("display schema: %s must be an integer (got %v)", field, n)
+		}
+		// float64(math.MaxInt) rounds up to 2^63 on 64-bit architectures; >= rejects overflow safely.
+		if math.MaxInt == math.MaxInt64 {
+			if n >= float64(math.MaxInt64) {
+				return 0, fmt.Errorf("display schema: %s exceeds maximum integer", field)
+			}
+		} else if n > float64(math.MaxInt) {
+			return 0, fmt.Errorf("display schema: %s exceeds maximum integer", field)
+		}
+		return int(n), nil
+	case json.Number:
+		i, err := n.Int64()
+		if err != nil {
+			return 0, fmt.Errorf("display schema: %s must be an integer (got %q): %w", field, n.String(), err)
+		}
+		if i < 0 || i > int64(math.MaxInt) {
+			return 0, fmt.Errorf("display schema: %s must be >= 0 (got %d)", field, i)
+		}
+		return int(i), nil
+	default:
+		return 0, fmt.Errorf("display schema: %s must be a non-negative integer, got %T", field, v)
+	}
 }
 
 // validateDisplaySchema checks that a display schema has the minimum required fields.

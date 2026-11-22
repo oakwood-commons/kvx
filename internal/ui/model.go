@@ -3372,6 +3372,12 @@ func (m *Model) SyncTableState(resetCursorToZero ...bool) {
 	}
 }
 
+// isModalBlockingInput reports whether a modal overlay (help, modal info popup,
+// or function palette) is currently visible and blocking background input.
+func (m *Model) isModalBlockingInput() bool {
+	return m.HelpVisible || (m.ShowInfoPopup && m.InfoPopupModal) || m.FunctionPalette.Visible
+}
+
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	defer m.clearStickyErrorIfInputChanged()
@@ -3395,6 +3401,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.PasteMsg:
+		if m.isModalBlockingInput() {
+			return m, nil
+		}
 		if m.ViewMode == "status" && m.StatusViewState != nil {
 			var statusCmd tea.Cmd
 			var updated CustomView
@@ -3514,9 +3523,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Route non-F1 keys directly to status view before global menu key handling
-		// so pasted characters (q, /, f, e, v, ?, etc.) and status function/modifier
-		// keys (F2..F10, Alt+*, Ctrl+*) are owned by StatusViewModel.
+		// Route non-F1 keys to status view before global menu key handling so active
+		// input and status actions take priority, while unhandled function keys
+		// (e.g. F12 custom popups/actions) return handled=false and reach handleMenuKey.
 		if m.ViewMode == "status" && m.StatusViewState != nil && keyStr != "f1" {
 			if handled, result, viewCmd := m.handleStatusViewKey(msg); handled {
 				return result, viewCmd
@@ -3525,6 +3534,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if handled, cmd := m.handleMenuKey(keyStr); handled {
 			return m, cmd
+		}
+		if m.ViewMode == "status" {
+			return m, nil
 		}
 
 		// Handle custom view modes (list/detail) before standard navigation
@@ -6887,6 +6899,9 @@ func truncateForStatus(s string) string {
 }
 
 func menuActionQuit(m *Model) tea.Cmd {
+	if m.ViewMode == "status" {
+		return tea.Quit
+	}
 	// Both expr and table modes use the PathInput value
 	evalExpr := strings.TrimSpace(m.PathInput.Value())
 	if evalExpr == "" {

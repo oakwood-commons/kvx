@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -508,6 +509,29 @@ func (m *Model) renderCustomViewContent() (string, bool) {
 
 	width := m.WinWidth
 	height := m.WinHeight - 6 // account for borders, footer, status
+	if m.ViewMode == "status" {
+		// Status view never renders the 3-row bottom Expression/Search/Filter panel.
+		// Account for panel borders (2), footer (1), status flash line(s) (1+),
+		// optional debug bar, and optional non-modal info popup.
+		overhead := 4
+		if m.DebugMode {
+			overhead++
+		}
+		if m.StatusViewState != nil && m.StatusViewState.FlashMsg != "" && m.WinWidth > 2 {
+			wrapped := wrapPlainText(m.StatusViewState.FlashMsg, m.WinWidth-2)
+			if flashLines := len(strings.Split(wrapped, "\n")); flashLines > 1 {
+				overhead += flashLines - 1
+			}
+		}
+		if popup := infoPopupText(m); popup != "" && m.WinWidth > 2 {
+			renderedPopup := renderHelpMarkdown(popup, m.WinWidth-2, m.NoColor)
+			overhead += len(strings.Split(renderedPopup, "\n")) + 2
+		}
+		height = m.WinHeight - overhead
+		if height < 1 {
+			height = 1
+		}
+	}
 	content := cv.Render(width, height, m.NoColor)
 	return content, true
 }
@@ -554,15 +578,16 @@ func (m *Model) customSearchTitle() string {
 }
 
 // handleStatusViewKey handles key events when in status view mode.
-// Returns (handled bool, model, cmd).
+// Returns (handled bool, model, cmd). Unhandled function keys return handled=false
+// so Model.Update can fall back to handleMenuKey (e.g. custom F12 popups/actions).
 func (m *Model) handleStatusViewKey(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
 	if m.ViewMode != "status" || m.StatusViewState == nil {
 		return false, m, nil
 	}
 
-	sv, cmd := m.StatusViewState.Update(msg)
-	if updated, ok := sv.(*StatusViewModel); ok {
+	updated, cmd, handled := m.StatusViewState.handleKeyWithHandled(msg)
+	if updated != nil {
 		m.StatusViewState = updated
 	}
-	return true, m, cmd
+	return handled, m, cmd
 }
