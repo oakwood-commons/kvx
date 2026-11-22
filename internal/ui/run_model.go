@@ -76,6 +76,10 @@ func RunModel(appName string, root interface{}, helpTitle, helpText string, debu
 		m.DesiredWinHeight = runH
 		m.WinWidth = runW
 		m.WinHeight = runH
+		if m.StatusViewState != nil {
+			m.StatusViewState.Width = runW
+			m.StatusViewState.Height = runH
+		}
 		opts = append(opts, tea.WithWindowSize(runW, runH))
 	}
 

@@ -262,8 +262,10 @@ type Model struct {
 	preRawListSearchQuery string
 	preRawDetailScrollTop int
 
-	// Status screen async completion (set by library consumers via Config.Done)
-	DoneChan <-chan StatusResult // Optional channel signaling async operation completion
+	// Status screen async completion and callbacks (set by library consumers via tui.Config)
+	DoneChan      <-chan StatusResult    // Optional channel signaling async operation completion
+	OnStatusInput StatusInputSubmitFunc  // Optional callback for StatusDisplayConfig.Input submissions
+	OpenURLFn     func(url string) error // Optional custom URL opener for status "open-url" actions
 
 	// ExprProvider overrides CEL expression evaluation when set.
 	// It allows library consumers to inject custom expression handling.
@@ -3375,7 +3377,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	// Route status view messages when in status mode
-	case spinner.TickMsg, statusDoneMsg, statusTimeoutMsg, statusDoneTimerMsg, statusFlashClearMsg:
+	case spinner.TickMsg, statusDoneMsg, statusTimeoutMsg, statusDoneTimerMsg, statusFlashClearMsg, statusInputResultMsg:
 		if m.ViewMode == "status" && m.StatusViewState != nil {
 			var statusCmd tea.Cmd
 			var updated CustomView
@@ -3386,6 +3388,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, statusCmd
 		}
 		return m, nil
+
+	case tea.PasteMsg:
+		if m.ViewMode == "status" && m.StatusViewState != nil {
+			var statusCmd tea.Cmd
+			var updated CustomView
+			updated, statusCmd = m.StatusViewState.Update(msg)
+			if sv, ok := updated.(*StatusViewModel); ok {
+				m.StatusViewState = sv
+			}
+			return m, statusCmd
+		}
 
 	case SearchDebounceMsg:
 		// Only execute search if this is the latest debounce request
@@ -3415,6 +3428,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Capture terminal size and adjust table height to keep header visible
 		m.WinWidth = targetW
 		m.WinHeight = targetH
+		if m.StatusViewState != nil {
+			m.StatusViewState.Width = targetW
+			m.StatusViewState.Height = targetH
+		}
 		// Apply layout WITHOUT forcing row regeneration - let it decide based on width changes
 		m.applyLayout(false) // Don't force regenerate on every resize
 		// Focus is handled by SyncTableState() below
@@ -3428,9 +3445,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyPressMsg:
-		m.LastKey = msg.String()
 		keyStr := msg.String()
-		m.logKeyEvent(keyStr)
+		if m.ViewMode != "status" || m.StatusViewState == nil || !m.StatusViewState.IsMaskedInput() {
+			m.LastKey = keyStr
+			m.logKeyEvent(keyStr)
+		}
 
 		if m.ShowInfoPopup && m.InfoPopupModal {
 			switch keyStr {
@@ -3490,11 +3509,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Route non-F1 keys directly to status view before global menu key handling
+		// so pasted characters (q, /, f, e, v, ?, etc.) and status function/modifier
+		// keys (F2..F10, Alt+*, Ctrl+*) are owned by StatusViewModel.
+		if m.ViewMode == "status" && m.StatusViewState != nil && keyStr != "f1" {
+			if handled, result, viewCmd := m.handleStatusViewKey(msg); handled {
+				return result, viewCmd
+			}
+		}
+
 		if handled, cmd := m.handleMenuKey(keyStr); handled {
 			return m, cmd
 		}
 
-		// Handle custom view modes (list/detail/status) before standard navigation
+		// Handle custom view modes (list/detail) before standard navigation
 		if m.ViewMode == "list" {
 			if handled, result, viewCmd := m.handleListViewKey(keyStr); handled {
 				return result, viewCmd
@@ -3502,11 +3530,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.ViewMode == "detail" {
 			if handled, result, viewCmd := m.handleDetailViewKey(keyStr); handled {
-				return result, viewCmd
-			}
-		}
-		if m.ViewMode == "status" {
-			if handled, result, viewCmd := m.handleStatusViewKey(msg); handled {
 				return result, viewCmd
 			}
 		}
@@ -5190,6 +5213,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+	}
+	if m.ViewMode == "status" && m.StatusViewState != nil {
+		var statusCmd tea.Cmd
+		var updated CustomView
+		updated, statusCmd = m.StatusViewState.Update(msg)
+		if sv, ok := updated.(*StatusViewModel); ok {
+			m.StatusViewState = sv
+		}
+		return m, statusCmd
 	}
 	var cmds []tea.Cmd
 	if m.InputFocused {

@@ -39,6 +39,9 @@ type StatusActionConfig = ui.StatusActionConfig
 // StatusKeyBindings defines per-mode key bindings for a status action.
 type StatusKeyBindings = ui.StatusKeyBindings
 
+// StatusInputConfig configures an auto-focused inline text input on the status screen.
+type StatusInputConfig = ui.StatusInputConfig
+
 // StatusResult carries the outcome of an async operation for the status screen.
 type StatusResult = ui.StatusResult
 
@@ -271,6 +274,27 @@ func parseStatusExtension(raw map[string]any) *StatusDisplayConfig {
 			sc.Actions = append(sc.Actions, action)
 		}
 	}
+	if inputRaw, ok := raw["input"].(map[string]any); ok {
+		ic := &StatusInputConfig{}
+		if v, ok := inputRaw["label"].(string); ok {
+			ic.Label = v
+		}
+		if v, ok := inputRaw["placeholder"].(string); ok {
+			ic.Placeholder = v
+		}
+		if v, ok := inputRaw["prompt"].(string); ok {
+			ic.Prompt = v
+		}
+		if v, ok := inputRaw["masked"].(bool); ok {
+			ic.Masked = v
+		}
+		if v, ok := inputRaw["maxLength"]; ok {
+			if n, ok := toInt(v); ok {
+				ic.MaxLength = n
+			}
+		}
+		sc.Input = ic
+	}
 	return sc
 }
 
@@ -307,6 +331,9 @@ func validateDisplaySchema(ds *DisplaySchema) error {
 			default:
 				return fmt.Errorf("display schema: status.actions[%d].type: unknown type %q", i, a.Type)
 			}
+		}
+		if ds.Status.Input != nil && ds.Status.Input.MaxLength < 0 {
+			return fmt.Errorf("display schema: status.input.maxLength must be >= 0 (got %d)", ds.Status.Input.MaxLength)
 		}
 	}
 	return nil

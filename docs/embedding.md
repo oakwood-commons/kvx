@@ -60,6 +60,7 @@ Swap `core.LoadObject` with `core.LoadFile` when you want to load from disk. For
 - `tui.DefaultConfig()` loads the bundled theme and key bindings from `internal/ui/default_config.yaml`.
 - Modify the returned config (colors, borders, widths, key bindings) before calling `tui.Run`.
 - To mirror CLI behavior, keep `cfg.Mode` at its default (interactive); snapshot/non-interactive runs are handled by the CLI front-end, not `tui.Run`.
+- For async status screens with actions, inline text input (`StatusInputConfig` / `cfg.OnStatusInput`), and custom URL opening (`cfg.OpenURL`), see [library-usage.md](library-usage.md#status-screens-and-inline-input).
 
 ## Navigation and rendering hooks
 

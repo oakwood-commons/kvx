@@ -334,6 +334,73 @@ func TestParseDisplaySchema_Status(t *testing.T) {
 	assert.Equal(t, "url", ds.Status.Actions[1].Field)
 }
 
+func TestParseDisplaySchema_StatusInput_StandaloneStatusKey(t *testing.T) {
+	doc := `{
+		"displaySchema": "v1",
+		"status": {
+			"titleField": "title",
+			"waitMessage": "Waiting for callback...",
+			"input": {
+				"label": "Paste callback URL:",
+				"placeholder": "http://localhost:8080/callback?token=...",
+				"prompt": "> ",
+				"masked": true,
+				"maxLength": 4096
+			}
+		}
+	}`
+
+	ds, err := ParseDisplaySchema([]byte(doc))
+	require.NoError(t, err)
+	require.NotNil(t, ds.Status)
+	require.NotNil(t, ds.Status.Input)
+	assert.Equal(t, "Paste callback URL:", ds.Status.Input.Label)
+	assert.Equal(t, "http://localhost:8080/callback?token=...", ds.Status.Input.Placeholder)
+	assert.Equal(t, "> ", ds.Status.Input.Prompt)
+	assert.True(t, ds.Status.Input.Masked)
+	assert.Equal(t, 4096, ds.Status.Input.MaxLength)
+}
+
+func TestParseDisplaySchema_StatusInput_StandaloneXKvxStatus(t *testing.T) {
+	doc := `{
+		"displaySchema": "v1",
+		"x-kvx-status": {
+			"titleField": "title",
+			"input": {
+				"label": "Enter verification code:",
+				"placeholder": "XXXX-XXXX",
+				"masked": false,
+				"maxLength": 64
+			}
+		}
+	}`
+
+	ds, err := ParseDisplaySchema([]byte(doc))
+	require.NoError(t, err)
+	require.NotNil(t, ds.Status)
+	require.NotNil(t, ds.Status.Input)
+	assert.Equal(t, "Enter verification code:", ds.Status.Input.Label)
+	assert.Equal(t, "XXXX-XXXX", ds.Status.Input.Placeholder)
+	assert.False(t, ds.Status.Input.Masked)
+	assert.Equal(t, 64, ds.Status.Input.MaxLength)
+}
+
+func TestParseDisplaySchema_StatusInput_NegativeMaxLength(t *testing.T) {
+	doc := `{
+		"displaySchema": "v1",
+		"status": {
+			"titleField": "title",
+			"input": {
+				"maxLength": -1
+			}
+		}
+	}`
+
+	_, err := ParseDisplaySchema([]byte(doc))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "status.input.maxLength")
+}
+
 func TestParseDisplaySchema_StatusMissingTitleField(t *testing.T) {
 	doc := `{
 		"displaySchema": "v1",
@@ -426,6 +493,56 @@ func TestParseSchemaWithDisplay_StatusExtension(t *testing.T) {
 	assert.Equal(t, "Please wait...", ds.Status.WaitMessage)
 	require.Len(t, ds.Status.Actions, 1)
 	assert.Equal(t, "Copy token", ds.Status.Actions[0].Label)
+}
+
+func TestParseSchemaWithDisplay_StatusInputExtension(t *testing.T) {
+	schema := `{
+		"type": "object",
+		"x-kvx-status": {
+			"titleField": "title",
+			"waitMessage": "Waiting for callback...",
+			"input": {
+				"label": "Paste callback URL:",
+				"placeholder": "http://localhost:8080/callback",
+				"prompt": ">> ",
+				"masked": true,
+				"maxLength": 2048
+			}
+		},
+		"properties": {
+			"title": {"type": "string"}
+		}
+	}`
+
+	_, ds, err := ParseSchemaWithDisplay([]byte(schema))
+	require.NoError(t, err)
+	require.NotNil(t, ds)
+	require.NotNil(t, ds.Status)
+	require.NotNil(t, ds.Status.Input)
+	assert.Equal(t, "Paste callback URL:", ds.Status.Input.Label)
+	assert.Equal(t, "http://localhost:8080/callback", ds.Status.Input.Placeholder)
+	assert.Equal(t, ">> ", ds.Status.Input.Prompt)
+	assert.True(t, ds.Status.Input.Masked)
+	assert.Equal(t, 2048, ds.Status.Input.MaxLength)
+}
+
+func TestParseSchemaWithDisplay_StatusInputNegativeMaxLength(t *testing.T) {
+	schema := `{
+		"type": "object",
+		"x-kvx-status": {
+			"titleField": "title",
+			"input": {
+				"maxLength": -10
+			}
+		},
+		"properties": {
+			"title": {"type": "string"}
+		}
+	}`
+
+	_, _, err := ParseSchemaWithDisplay([]byte(schema))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "status.input.maxLength")
 }
 
 // ---------------------------------------------------------------------------

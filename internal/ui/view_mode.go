@@ -20,10 +20,15 @@ func (m *Model) updateViewMode(node interface{}) {
 	// Status view takes priority — it's a top-level screen, not a drill-down view.
 	if m.DisplaySchema.Status != nil && m.DisplaySchema.Status.TitleField != "" {
 		m.ViewMode = "status"
-		m.StatusViewState = buildStatusViewModel(
+		sv := buildStatusViewModel(
 			node, m.DisplaySchema, m.KeyMode, m.NoColor, m.DoneChan,
 			m.WinWidth, m.WinHeight,
 		)
+		if sv != nil {
+			sv.OnStatusInput = m.OnStatusInput
+			sv.OpenURLFn = m.OpenURLFn
+		}
+		m.StatusViewState = sv
 		m.ListViewState = nil
 		m.DetailViewState = nil
 		return

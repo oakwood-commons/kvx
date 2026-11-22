@@ -299,6 +299,35 @@ func TestStatusViewModel_CustomView_FooterBar(t *testing.T) {
 	assert.Contains(t, bar, "quit")
 }
 
+func TestStatusViewModel_CustomView_FooterBar_WithActiveInput(t *testing.T) {
+	data := testStatusData()
+	schema := testStatusSchema()
+	schema.Status.Input = &StatusInputConfig{
+		Label:       "Paste callback URL:",
+		Placeholder: "http://localhost:8080/callback",
+		Masked:      true,
+	}
+	sv := buildStatusViewModel(data, schema, KeyModeVim, true, nil, 80, 24)
+
+	bar := sv.FooterBar()
+	assert.Contains(t, bar, "Enter submit")
+	assert.Contains(t, bar, "F2/Alt+c")
+	assert.Contains(t, bar, "F3/Alt+o")
+	assert.Contains(t, bar, "Esc quit")
+	assert.NotContains(t, bar, "q quit")
+
+	// Non-empty input switches Esc hint to "Esc clear".
+	sv.Input.SetValue("partial")
+	bar = sv.FooterBar()
+	assert.Contains(t, bar, "Esc clear")
+
+	// Once submitted, footer reverts to standard action bar.
+	sv.InputSubmitted = true
+	bar = sv.FooterBar()
+	assert.NotContains(t, bar, "Enter submit")
+	assert.Contains(t, bar, "quit")
+}
+
 func TestStatusViewModel_CustomView_FlashMessage_None(t *testing.T) {
 	data := testStatusData()
 	schema := testStatusSchema()
