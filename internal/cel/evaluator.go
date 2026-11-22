@@ -1,7 +1,9 @@
 package cel
 
 import (
+	"errors"
 	"fmt"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -12,7 +14,26 @@ import (
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
 	celext "github.com/google/cel-go/ext"
+	"github.com/oakwood-commons/kvx/pkg/loader"
 )
+
+// ErrNotList is returned when EvaluateWhere receives non-list data.
+var ErrNotList = errors.New("where filter requires list data")
+
+// NotListError wraps ErrNotList while preserving the concrete Go type name.
+type NotListError struct {
+	GotType string
+}
+
+// Error implements error.
+func (e *NotListError) Error() string {
+	return fmt.Sprintf("EvaluateWhere requires list data; got %s", e.GotType)
+}
+
+// Unwrap returns ErrNotList for errors.Is matching.
+func (e *NotListError) Unwrap() error {
+	return ErrNotList
+}
 
 // Evaluator compiles and evaluates CEL expressions.
 type Evaluator struct {
@@ -96,16 +117,22 @@ func (e *Evaluator) Evaluate(expr string, data interface{}) (interface{}, error)
 }
 
 // EvaluateWhere filters a list by applying a CEL boolean expression to each item.
-// The expression receives each item as '_'. Returns the filtered list.
-// Returns an error if data is not a list or the expression does not return bool.
+// The expression receives each item as '_'. Returns the filtered list as a non-nil
+// []any slice (empty []any{} when zero items match).
+// Returns an error wrapping ErrNotList if data is not a list (or is []byte),
+// or an error if the expression fails compilation or does not return bool.
 //
-// When a map item is missing a key referenced by the expression, the item is
-// silently skipped (treated as non-matching) instead of returning an error.
-// This handles structs serialised with omitempty where some fields are absent.
+// Struct and pointer-to-struct elements are normalized to maps (respecting json and
+// yaml struct tags) before evaluation. When a map item is missing a key referenced
+// by the expression, or a nil item lacks field selection, the item is silently
+// skipped (treated as non-matching) instead of returning an error.
 func (e *Evaluator) EvaluateWhere(expr string, data interface{}) ([]interface{}, error) {
-	items, ok := toSlice(data)
-	if !ok {
-		return nil, fmt.Errorf("EvaluateWhere requires list data; got %T", data)
+	items, isList, normErr := toSlice(data)
+	if !isList {
+		return nil, &NotListError{GotType: fmt.Sprintf("%T", data)}
+	}
+	if normErr != nil {
+		return nil, fmt.Errorf("where filter input normalization error: %w", normErr)
 	}
 
 	// Compile the program once and reuse for each item.
@@ -132,10 +159,11 @@ func (e *Evaluator) EvaluateWhere(expr string, data interface{}) ([]interface{},
 
 		out, _, err := prg.Eval(activation)
 		if err != nil {
-			// Items missing a key referenced by the expression are treated as
-			// non-matching rather than hard errors. This is the standard cel-go
-			// error message for absent map keys.
-			if strings.Contains(err.Error(), "no such key: ") {
+			// Items missing a key referenced by the expression (or nil elements inside
+			// pointer slices such as []*MyStruct) are treated as non-matching rather than
+			// hard errors.
+			if strings.Contains(err.Error(), "no such key: ") ||
+				(item == nil && strings.Contains(err.Error(), "null_type")) {
 				continue
 			}
 			return nil, fmt.Errorf("where filter eval error: %w", err)
@@ -154,20 +182,80 @@ func (e *Evaluator) EvaluateWhere(expr string, data interface{}) ([]interface{},
 	return result, nil
 }
 
-// toSlice converts data to []interface{} if it is a slice type.
-func toSlice(data interface{}) ([]interface{}, bool) {
-	switch v := data.(type) {
-	case []interface{}:
-		return v, true
-	case []map[string]interface{}:
-		s := make([]interface{}, len(v))
-		for i, item := range v {
-			s[i] = item
-		}
-		return s, true
-	default:
-		return nil, false
+// toSlice converts slice/array data (except byte slices) to a non-nil []any slice
+// with struct and pointer-to-struct elements normalized to map[string]any.
+func toSlice(data any) ([]any, bool, error) {
+	if data == nil {
+		return nil, false, nil
 	}
+
+	switch v := data.(type) {
+	case []byte:
+		// Scalar bytes, never a list of uint8 integers.
+		return nil, false, nil
+	case []any:
+		if len(v) == 0 {
+			return []any{}, true, nil
+		}
+		if !loader.ValueNeedsNormalization(v) {
+			return v, true, nil
+		}
+		out := make([]any, len(v))
+		for i, elem := range v {
+			norm, err := loader.NormalizeValue(elem)
+			if err != nil {
+				return nil, true, fmt.Errorf("element [%d]: %w", i, err)
+			}
+			out[i] = norm
+		}
+		return out, true, nil
+	case []map[string]any:
+		if len(v) == 0 {
+			return []any{}, true, nil
+		}
+		out := make([]any, len(v))
+		for i, item := range v {
+			if item != nil && loader.ValueNeedsNormalization(item) {
+				norm, err := loader.NormalizeValue(item)
+				if err != nil {
+					return nil, true, fmt.Errorf("element [%d]: %w", i, err)
+				}
+				out[i] = norm
+			} else {
+				out[i] = item
+			}
+		}
+		return out, true, nil
+	}
+
+	rt := reflect.TypeOf(data)
+	kind := rt.Kind()
+	if kind != reflect.Slice && kind != reflect.Array {
+		return nil, false, nil
+	}
+	// Named byte slices (e.g. json.RawMessage, type RawBytes []byte) are scalar bytes.
+	if kind == reflect.Slice && rt.Elem().Kind() == reflect.Uint8 {
+		return nil, false, nil
+	}
+
+	rv := reflect.ValueOf(data)
+	if kind == reflect.Slice && rv.IsNil() {
+		return []any{}, true, nil
+	}
+	n := rv.Len()
+	if n == 0 {
+		return []any{}, true, nil
+	}
+
+	out := make([]any, n)
+	for i := range n {
+		norm, err := loader.NormalizeReflectValue(rv.Index(i))
+		if err != nil {
+			return nil, true, fmt.Errorf("element [%d]: %w", i, err)
+		}
+		out[i] = norm
+	}
+	return out, true, nil
 }
 
 // ToGo converts CEL types to Go native types recursively.

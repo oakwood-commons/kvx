@@ -84,8 +84,9 @@ This lets you reuse kvx navigation/formatting while embedding the TUI only where
 requests), be aware of the following:
 
 - `tui.RenderTable`, `tui.RenderList`, and `core.Engine.Rows` /
-  `core.Engine.RenderTable` are safe to call concurrently from multiple
-  goroutines with different options — each call builds its own render styles
+  `core.Engine.RenderTable` / `core.Engine.FilterWhere` /
+  `core.Engine.EvaluateWhere` are safe to call concurrently from multiple
+  goroutines with different options -- each call builds its own render styles
   and sort order rather than mutating shared package state.
 - Package-level setters such as `tui.SetMaxValueLines`, the legacy
   `formatter.SetTableTheme`/`formatter.SetMaxValueLines`, and

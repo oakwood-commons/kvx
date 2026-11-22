@@ -1,6 +1,9 @@
 package cel
 
 import (
+	"encoding/json"
+	"errors"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -194,6 +197,7 @@ func BenchmarkEvaluateWhere(b *testing.B) {
 		}
 	}
 
+	b.ReportAllocs()
 	b.ResetTimer()
 
 	for b.Loop() {
@@ -202,4 +206,264 @@ func BenchmarkEvaluateWhere(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
+}
+
+func TestEvaluateWhere_TypedSlicesAndNonListSentinel(t *testing.T) {
+	type Summary struct {
+		Name       string `json:"name" yaml:"name"`
+		Category   string `json:"category" yaml:"category"`
+		Deprecated bool   `json:"deprecated" yaml:"deprecated"`
+	}
+	type unexportedBase struct {
+		Name string `json:"name"`
+	}
+	type EmbeddedUnexportedSummary struct {
+		unexportedBase
+		Category string `json:"category"`
+	}
+	type UnnormalizableItem struct {
+		Callback func() `json:"callback"`
+	}
+	type YAMLOnlySummary struct {
+		ServiceName string `yaml:"service_name"`
+		Enabled     bool   `yaml:"enabled"`
+	}
+	type rawBytes []byte
+
+	var nilSummarySlice []Summary
+	var nilPtrSlice []*Summary
+	var nilAnySlice []any
+	var nilByteSlice []byte
+
+	eval, err := NewEvaluator()
+	require.NoError(t, err)
+
+	tests := []struct {
+		name          string
+		expr          string
+		data          any
+		expected      []any
+		wantNotList   bool
+		wantErrSubstr string
+	}{
+		{
+			name: "typed struct slice []Summary",
+			expr: `_.name == "http"`,
+			data: []Summary{
+				{Name: "http", Category: "network"},
+				{Name: "exec", Category: "system"},
+			},
+			expected: []any{
+				map[string]any{"name": "http", "category": "network", "deprecated": false},
+			},
+		},
+		{
+			name: "pointer-to-struct slice []*Summary with nil element",
+			expr: `_.name == "http"`,
+			data: []*Summary{
+				nil,
+				{Name: "http", Category: "network"},
+				{Name: "exec", Category: "system"},
+			},
+			expected: []any{
+				map[string]any{"name": "http", "category": "network", "deprecated": false},
+			},
+		},
+		{
+			name: "yaml-only struct tags",
+			expr: `_.service_name == "auth" && _.enabled`,
+			data: []YAMLOnlySummary{
+				{ServiceName: "auth", Enabled: true},
+				{ServiceName: "billing", Enabled: false},
+			},
+			expected: []any{
+				map[string]any{"service_name": "auth", "enabled": true},
+			},
+		},
+		{
+			name: "fixed-size struct array",
+			expr: `_.name == "http"`,
+			data: [2]Summary{
+				{Name: "http", Category: "network"},
+				{Name: "exec", Category: "system"},
+			},
+			expected: []any{
+				map[string]any{"name": "http", "category": "network", "deprecated": false},
+			},
+		},
+		{
+			name:     "typed string slice",
+			expr:     `_.startsWith("prod-")`,
+			data:     []string{"prod-api", "dev-api", "prod-web"},
+			expected: []any{"prod-api", "prod-web"},
+		},
+		{
+			name:     "[]any containing structs and pointers",
+			expr:     `_.name == "http"`,
+			data:     []any{Summary{Name: "http"}, &Summary{Name: "exec"}},
+			expected: []any{map[string]any{"name": "http", "category": "", "deprecated": false}},
+		},
+		{
+			name:     "typed nil []Summary returns empty non-nil slice",
+			expr:     `_.name == "http"`,
+			data:     nilSummarySlice,
+			expected: []any{},
+		},
+		{
+			name:     "typed nil []*Summary returns empty non-nil slice",
+			expr:     `_.name == "http"`,
+			data:     nilPtrSlice,
+			expected: []any{},
+		},
+		{
+			name:     "typed nil []any returns empty non-nil slice",
+			expr:     `_.name == "http"`,
+			data:     nilAnySlice,
+			expected: []any{},
+		},
+		{
+			name:        "[]byte rejected as ErrNotList",
+			expr:        `_ > 0`,
+			data:        []byte("hello"),
+			wantNotList: true,
+		},
+		{
+			name:        "nil []byte rejected as ErrNotList",
+			expr:        `_ > 0`,
+			data:        nilByteSlice,
+			wantNotList: true,
+		},
+		{
+			name:        "named byte slice rejected as ErrNotList",
+			expr:        `_ > 0`,
+			data:        rawBytes(`{"a":1}`),
+			wantNotList: true,
+		},
+		{
+			name:        "map rejected as ErrNotList",
+			expr:        `_.ok`,
+			data:        map[string]any{"ok": true},
+			wantNotList: true,
+		},
+		{
+			name:        "struct rejected as ErrNotList",
+			expr:        `_.name == "http"`,
+			data:        Summary{Name: "http"},
+			wantNotList: true,
+		},
+		{
+			name:        "scalar string rejected as ErrNotList",
+			expr:        `_ == "solo"`,
+			data:        "solo",
+			wantNotList: true,
+		},
+		{
+			name:        "nil interface rejected as ErrNotList",
+			expr:        `_ == null`,
+			data:        nil,
+			wantNotList: true,
+		},
+		{
+			name:          "invalid CEL syntax on typed slice",
+			expr:          `_.name ==`,
+			data:          []Summary{{Name: "http"}},
+			wantErrSubstr: "where filter compilation error",
+		},
+		{
+			name: "struct slice with unexported embedded struct promotes exported fields",
+			expr: `_.name == "http"`,
+			data: []EmbeddedUnexportedSummary{
+				{unexportedBase: unexportedBase{Name: "http"}, Category: "network"},
+				{unexportedBase: unexportedBase{Name: "exec"}, Category: "system"},
+			},
+			expected: []any{
+				map[string]any{"name": "http", "category": "network"},
+			},
+		},
+		{
+			name:          "unnormalizable slice element surfaces normalization error (not ErrNotList)",
+			expr:          `true`,
+			data:          []UnnormalizableItem{{Callback: func() {}}},
+			wantErrSubstr: "where filter input normalization error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := eval.EvaluateWhere(tt.expr, tt.data)
+			if tt.wantNotList {
+				require.Error(t, err)
+				assert.True(t, errors.Is(err, ErrNotList), "expected ErrNotList, got: %v", err)
+				assert.Nil(t, got)
+				return
+			}
+			if tt.wantErrSubstr != "" {
+				require.Error(t, err)
+				assert.False(t, errors.Is(err, ErrNotList))
+				assert.Contains(t, err.Error(), tt.wantErrSubstr)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			assert.Equal(t, tt.expected, got)
+			if len(tt.expected) == 0 {
+				encoded, mErr := json.Marshal(got)
+				require.NoError(t, mErr)
+				assert.Equal(t, "[]", string(encoded))
+			}
+		})
+	}
+}
+
+func BenchmarkEvaluateWhere_TypedStructSlice(b *testing.B) {
+	type Summary struct {
+		Name       string `json:"name" yaml:"name"`
+		Category   string `json:"category" yaml:"category"`
+		Deprecated bool   `json:"deprecated" yaml:"deprecated"`
+	}
+
+	eval, err := NewEvaluator()
+	require.NoError(b, err)
+
+	items := make([]Summary, 1000)
+	for i := range items {
+		if i%2 == 0 {
+			items[i] = Summary{Name: "http", Category: "network"}
+		} else {
+			items[i] = Summary{Name: "exec", Category: "system", Deprecated: true}
+		}
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
+		_, err := eval.EvaluateWhere(`_.name == "http" && !_.deprecated`, items)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func TestEvaluateWhere_ConcurrentRace(t *testing.T) {
+	type Summary struct {
+		Name string `json:"name"`
+	}
+	eval, err := NewEvaluator()
+	require.NoError(t, err)
+
+	items := []Summary{{Name: "http"}, {Name: "exec"}}
+	var wg sync.WaitGroup
+	for range 12 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 25 {
+				got, evalErr := eval.EvaluateWhere(`_.name == "http"`, items)
+				assert.NoError(t, evalErr)
+				assert.Len(t, got, 1)
+			}
+		}()
+	}
+	wg.Wait()
 }

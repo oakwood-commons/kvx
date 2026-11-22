@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -118,6 +119,29 @@ func main() {
 			Bordered: true,
 			AppName:  "filtered",
 			Path:     `_.filter(a, a.Version >= "2.0.0")`,
+			NoColor:  true,
+		}))
+	}
+
+	// Filter a typed struct slice directly via Engine.FilterWhere (no LoadObject wrapper needed),
+	// checking core.ErrNotList for non-list inputs when exposing --where uniformly.
+	typedArtifacts := []ArtifactListItem{
+		{Name: "backend-service", Version: "2.1.0", Sha: "abc123def456", Date: "2026-02-06", Location: "registry"},
+		{Name: "frontend-app", Version: "1.5.0", Sha: "xyz789uvw012", Date: "2026-02-05", Location: "registry"},
+	}
+	fmt.Println("\nFilter typed []ArtifactListItem directly via FilterWhere:") //nolint:forbidigo
+	whereFiltered, err := engine.FilterWhere(`_.Name == "backend-service"`, typedArtifacts)
+	if errors.Is(err, core.ErrNotList) {
+		whereFiltered = typedArtifacts
+		err = nil
+	}
+	if err != nil {
+		fmt.Printf("  Error: %v\n", err) //nolint:forbidigo
+	} else {
+		fmt.Print(tui.RenderTable(whereFiltered, tui.TableOptions{ //nolint:forbidigo
+			Bordered: true,
+			AppName:  "where-filtered",
+			Path:     `--where '_.Name == "backend-service"'`,
 			NoColor:  true,
 		}))
 	}

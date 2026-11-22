@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/go-logr/logr"
@@ -9,6 +10,23 @@ import (
 	"github.com/oakwood-commons/kvx/internal/navigator"
 	"github.com/oakwood-commons/kvx/pkg/loader"
 )
+
+// ErrNotList is returned when EvaluateWhere or FilterWhere receives an input
+// that is not a slice or array (for example, a map, struct, scalar, []byte, or nil).
+// Embedders can check errors.Is(err, core.ErrNotList) to treat non-list inputs as a no-op.
+var ErrNotList = errors.New("where filter requires list data")
+
+type notListError struct {
+	err error
+}
+
+func (e notListError) Error() string {
+	return e.err.Error()
+}
+
+func (e notListError) Unwrap() []error {
+	return []error{ErrNotList, e.err}
+}
 
 // Evaluator evaluates expressions against a root node.
 type Evaluator interface {
@@ -149,6 +167,8 @@ func (e *Engine) Evaluate(expr string, root interface{}) (interface{}, error) {
 
 // EvaluateWhere filters list data by applying a per-item boolean expression.
 // The evaluator must implement WhereEvaluator; otherwise an error is returned.
+// Non-list inputs (maps, structs, scalars, []byte, nil) return an error wrapping ErrNotList.
+// When zero items match, a non-nil []any{} slice is returned.
 func (e *Engine) EvaluateWhere(expr string, root interface{}) ([]interface{}, error) {
 	if e == nil || e.Evaluator == nil {
 		return nil, fmt.Errorf("evaluator is not configured")
@@ -157,7 +177,35 @@ func (e *Engine) EvaluateWhere(expr string, root interface{}) ([]interface{}, er
 	if !ok {
 		return nil, fmt.Errorf("evaluator does not support where filtering")
 	}
-	return weval.EvaluateWhere(expr, root)
+	filtered, err := weval.EvaluateWhere(expr, root)
+	if err != nil {
+		if errors.Is(err, cel.ErrNotList) && !errors.Is(err, ErrNotList) {
+			return nil, notListError{err: err}
+		}
+		return nil, err
+	}
+	if filtered == nil {
+		return []any{}, nil
+	}
+	return filtered, nil
+}
+
+// FilterWhere evaluates a per-item CEL boolean predicate (with '_' bound to each
+// normalized element) against slice or array data and returns the matching elements.
+//
+// Typed Go slices/arrays (such as []MyStruct or []*MyStruct) have struct elements
+// normalized to maps respecting json and yaml struct tags, and typed nil slices are
+// treated as empty lists. When zero items match, FilterWhere always returns a non-nil
+// []any{} slice so json.Marshal produces "[]" rather than "null".
+//
+// Non-list inputs (maps, structs, scalars, []byte, nil) return an error wrapping
+// ErrNotList so embedders can check errors.Is(err, core.ErrNotList).
+func (e *Engine) FilterWhere(expr string, root any) (any, error) {
+	filtered, err := e.EvaluateWhere(expr, root)
+	if err != nil {
+		return nil, err
+	}
+	return filtered, nil
 }
 
 // NodeAtPath navigates a path into the root using navigator rules.
