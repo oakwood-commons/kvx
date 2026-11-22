@@ -19,6 +19,25 @@ func (c customZeroFlag) IsZero() bool {
 	return c.unset
 }
 
+type ptrZeroFlag struct {
+	unset bool
+}
+
+func (p *ptrZeroFlag) IsZero() bool {
+	if p == nil {
+		return true
+	}
+	return p.unset
+}
+
+type nonZeroCustomString string
+
+func (nonZeroCustomString) IsZero() bool {
+	return false
+}
+
+type namedOctet uint8
+
 type unexportedEmbeddedBase struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
@@ -167,11 +186,17 @@ func TestNormalizeValue_TagsAndEmbedding(t *testing.T) {
 		}, gotPtr)
 
 		gotNamedUnexp, err := NormalizeValue(NamedUnexported{
-			unexportedEmbeddedBase: unexportedEmbeddedBase{Name: "ignored"},
+			unexportedEmbeddedBase: unexportedEmbeddedBase{Name: "nested", Version: "3.0.0", secret: "hidden"},
 			Category:               "only-exported",
 		})
 		require.NoError(t, err)
-		assert.Equal(t, map[string]any{"category": "only-exported"}, gotNamedUnexp)
+		assert.Equal(t, map[string]any{
+			"sub": map[string]any{
+				"name":    "nested",
+				"version": "3.0.0",
+			},
+			"category": "only-exported",
+		}, gotNamedUnexp)
 	})
 
 	t.Run("custom json marshaler like time.Time", func(t *testing.T) {
@@ -245,6 +270,224 @@ func TestNormalizeValue_TagsAndEmbedding(t *testing.T) {
 		}
 		_, err := NormalizeValue(Bad{Callback: func() {}})
 		require.Error(t, err)
+	})
+
+	t.Run("container cycles in maps and slices error without stack overflow", func(t *testing.T) {
+		cyclicMap := map[string]any{}
+		cyclicMap["self"] = cyclicMap
+		assert.True(t, ValueNeedsNormalization(cyclicMap))
+		_, err := NormalizeValue(cyclicMap)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cyclic map")
+		_, err = LoadObject(cyclicMap)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cyclic map")
+
+		cyclicSlice := make([]any, 1)
+		cyclicSlice[0] = cyclicSlice
+		assert.True(t, ValueNeedsNormalization(cyclicSlice))
+		_, err = NormalizeValue(cyclicSlice)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cyclic slice")
+
+		// Shared acyclic map/slice DAGs (including deep > cycleCheckStartDepth) succeed.
+		sharedLeaf := map[string]any{"ok": true}
+		sharedSlice := []any{sharedLeaf, sharedLeaf}
+		cur := sharedSlice
+		for range 40 {
+			cur = []any{cur, sharedLeaf}
+		}
+		assert.False(t, ValueNeedsNormalization(cur))
+		gotDAG, err := NormalizeValue(cur)
+		require.NoError(t, err)
+		assert.NotNil(t, gotDAG)
+	})
+
+	t.Run("named uint8 slice copies safely to byte slice", func(t *testing.T) {
+		type Packet struct {
+			Payload []namedOctet `json:"payload"`
+			Empty   []namedOctet `json:"empty"`
+		}
+		got, err := NormalizeValue(Packet{
+			Payload: []namedOctet{0x61, 0x62, 0x63},
+			Empty:   nil,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, map[string]any{
+			"payload": []byte("abc"),
+			"empty":   nil,
+		}, got)
+	})
+
+	t.Run("colliding normalized map keys return error", func(t *testing.T) {
+		colliding := map[any]any{
+			1:   "from-int",
+			"1": "from-string",
+		}
+		_, err := NormalizeValue(colliding)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `duplicate normalized map key "1"`)
+	})
+
+	t.Run("embedded field dominance by depth tag precedence and ambiguity", func(t *testing.T) {
+		type Deep struct {
+			Name string `json:"name"`
+		}
+		type Mid struct {
+			Deep
+		}
+		type Shallow struct {
+			Name string `json:"name"`
+		}
+		// Mid appears before Shallow, yet Shallow is shallower (depth 2 vs 3).
+		type DepthWins struct {
+			Mid
+			Shallow
+		}
+		gotDepth, err := NormalizeValue(DepthWins{
+			Mid:     Mid{Deep: Deep{Name: "from-deep"}},
+			Shallow: Shallow{Name: "from-shallow"},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, map[string]any{"name": "from-shallow"}, gotDepth)
+
+		// Equal-depth conflict with both tagged is omitted as ambiguous.
+		type A struct {
+			Name string `json:"name"`
+		}
+		type B struct {
+			Name string `json:"name"`
+		}
+		type EqualTaggedAmbiguous struct {
+			A
+			B           //nolint:govet // intentionally tests encoding/json duplicate embedded tag ambiguity
+			Keep string `json:"keep"`
+		}
+		gotAmb, err := NormalizeValue(EqualTaggedAmbiguous{
+			A:    A{Name: "a"},
+			B:    B{Name: "b"},
+			Keep: "yes",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, map[string]any{"keep": "yes"}, gotAmb)
+
+		// Equal-depth tie broken by explicit tag over untagged field name.
+		type Untagged struct {
+			Title string
+		}
+		type Tagged struct {
+			Title string `json:"Title"`
+		}
+		type TagTieBreak struct {
+			Untagged
+			Tagged
+		}
+		gotTag, err := NormalizeValue(TagTieBreak{
+			Untagged: Untagged{Title: "untagged"},
+			Tagged:   Tagged{Title: "tagged"},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, map[string]any{"Title": "tagged"}, gotTag)
+
+		// Diamond embedding omits ambiguous promoted fields just like encoding/json.
+		type DiamondLeaf struct {
+			Shared string `json:"shared"`
+		}
+		type Left struct {
+			DiamondLeaf
+		}
+		type Right struct {
+			DiamondLeaf
+		}
+		type Diamond struct {
+			Left
+			Right        //nolint:govet // intentionally tests encoding/json diamond embedding ambiguity
+			ID    string `json:"id"`
+		}
+		gotDiamond, err := NormalizeValue(Diamond{
+			Left:  Left{DiamondLeaf: DiamondLeaf{Shared: "x"}},
+			Right: Right{DiamondLeaf: DiamondLeaf{Shared: "x"}},
+			ID:    "d1",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, map[string]any{"id": "d1"}, gotDiamond)
+	})
+
+	t.Run("omitzero false custom IsZero still honors omitempty and pointer receiver parity", func(t *testing.T) {
+		type Record struct {
+			BothEmpty    nonZeroCustomString `json:"both_empty,omitempty,omitzero"`
+			ZeroOnly     nonZeroCustomString `json:"zero_only,omitzero"`
+			PtrZeroTrue  ptrZeroFlag         `json:"ptr_zero_true,omitzero"`
+			PtrZeroFalse ptrZeroFlag         `json:"ptr_zero_false,omitzero"`
+			IfaceNilPtr  isZeroer            `json:"iface_nil_ptr,omitzero"`
+		}
+
+		var nilPtr *ptrZeroFlag
+		rec := Record{
+			BothEmpty:    "",
+			ZeroOnly:     "",
+			PtrZeroTrue:  ptrZeroFlag{unset: true},
+			PtrZeroFalse: ptrZeroFlag{unset: false},
+			IfaceNilPtr:  nilPtr,
+		}
+
+		// Unaddressable struct value (e.g. boxed in any)
+		gotBoxed, err := NormalizeValue(rec)
+		require.NoError(t, err)
+
+		// Addressable struct element inside typed slice
+		typedSlice := []Record{rec}
+		gotAddr, err := NormalizeReflectValue(reflect.ValueOf(typedSlice).Index(0))
+		require.NoError(t, err)
+
+		expected := map[string]any{
+			"zero_only":      "",
+			"ptr_zero_false": map[string]any{},
+		}
+		assert.Equal(t, expected, gotBoxed)
+		assert.Equal(t, expected, gotAddr)
+	})
+
+	t.Run("encodeJSONString matches encoding/json across special characters and scalars", func(t *testing.T) {
+		samples := []string{
+			"",
+			"plain-ascii",
+			`with "quotes" and \backslash\`,
+			"controls \b\f\n\r\t\x00\x1f",
+			"html <script>&</script>",
+			"utf8 cafe \u00e9 \U0001f680",
+			"js-line-separators \u2028 \u2029",
+			string([]byte{0xff, 'a', 0xfe}),
+		}
+		for _, s := range samples {
+			stdBytes, err := json.Marshal(s)
+			require.NoError(t, err)
+			assert.Equal(t, string(stdBytes), encodeJSONString(s), "mismatch for %q", s)
+		}
+
+		type AllStringTaggedScalars struct {
+			I8  int8    `json:"i8,string"`
+			I16 int16   `json:"i16,string"`
+			I32 int32   `json:"i32,string"`
+			I64 int64   `json:"i64,string"`
+			U   uint    `json:"u,string"`
+			U8  uint8   `json:"u8,string"`
+			U16 uint16  `json:"u16,string"`
+			U32 uint32  `json:"u32,string"`
+			U64 uint64  `json:"u64,string"`
+			F32 float32 `json:"f32,string"`
+		}
+		gotScalars, err := NormalizeValue(AllStringTaggedScalars{
+			I8: -8, I16: -16, I32: -32, I64: -64,
+			U: 1, U8: 8, U16: 16, U32: 32, U64: 64,
+			F32: 2.5,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, map[string]any{
+			"i8": "-8", "i16": "-16", "i32": "-32", "i64": "-64",
+			"u": "1", "u8": "8", "u16": "16", "u32": "32", "u64": "64",
+			"f32": "2.5",
+		}, gotScalars)
 	})
 }
 

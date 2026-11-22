@@ -369,6 +369,68 @@ func TestEngineFilterWhere_ConcurrentRace(t *testing.T) {
 	wg.Wait()
 }
 
+type corePtrZeroFlag struct {
+	zero bool
+}
+
+func (p *corePtrZeroFlag) IsZero() bool {
+	return p == nil || p.zero
+}
+
+type coreUnexpSub struct {
+	Name string `json:"name"`
+}
+
+func TestFilterWhere_NormalizationEdgeCases(t *testing.T) {
+	engine, err := New()
+	require.NoError(t, err)
+
+	t.Run("cyclic map and slice inputs return error without stack overflow", func(t *testing.T) {
+		cyclicMap := map[string]any{}
+		cyclicMap["self"] = cyclicMap
+		_, err := engine.FilterWhere("true", []any{cyclicMap})
+		require.Error(t, err)
+		assert.False(t, errors.Is(err, ErrNotList))
+
+		cyclicSlice := make([]any, 1)
+		cyclicSlice[0] = cyclicSlice
+		_, err = engine.FilterWhere("true", cyclicSlice)
+		require.Error(t, err)
+		assert.False(t, errors.Is(err, ErrNotList))
+	})
+
+	t.Run("named byte slice field, tagged unexported anonymous struct, and pointer IsZero parity", func(t *testing.T) {
+		type Octet uint8
+		type Item struct {
+			coreUnexpSub `json:"sub"`
+			Payload      []Octet         `json:"payload"`
+			Flag         corePtrZeroFlag `json:"flag,omitzero"`
+		}
+
+		itemsTyped := []Item{
+			{
+				coreUnexpSub: coreUnexpSub{Name: "alpha"},
+				Payload:      []Octet("ok"),
+				Flag:         corePtrZeroFlag{zero: true},
+			},
+			{
+				coreUnexpSub: coreUnexpSub{Name: "beta"},
+				Payload:      []Octet("ok"),
+				Flag:         corePtrZeroFlag{zero: false},
+			},
+		}
+		itemsBoxed := []any{itemsTyped[0], itemsTyped[1]}
+
+		gotTyped, err := engine.FilterWhere(`_.sub.name == "alpha" && !has(_.flag)`, itemsTyped)
+		require.NoError(t, err)
+		require.Len(t, gotTyped, 1)
+
+		gotBoxed, err := engine.FilterWhere(`_.sub.name == "alpha" && !has(_.flag)`, itemsBoxed)
+		require.NoError(t, err)
+		assert.Equal(t, gotTyped, gotBoxed)
+	})
+}
+
 func BenchmarkEngineFilterWhere(b *testing.B) {
 	engine, err := New()
 	require.NoError(b, err)
