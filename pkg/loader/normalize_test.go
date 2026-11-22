@@ -664,6 +664,9 @@ func TestValueNeedsNormalization(t *testing.T) {
 		{"nil map[string]any", map[string]any(nil), true},
 		{"map[string]any containing struct", map[string]any{"s": sample{Name: "a"}}, true},
 		{"[]any of scalars and maps", []any{"a", map[string]any{"k": 1}}, false},
+		{"empty non-nil []any", []any{}, false},
+		{"nil []any", []any(nil), true},
+		{"map[string]any containing nil []any", map[string]any{"tags": []any(nil)}, true},
 		{"[]any containing pointer to struct", []any{&sample{Name: "a"}}, true},
 		{"typed struct", sample{Name: "a"}, true},
 		{"typed slice []string", []string{"a", "b"}, true},
@@ -675,6 +678,60 @@ func TestValueNeedsNormalization(t *testing.T) {
 			assert.Equal(t, tt.want, ValueNeedsNormalization(tt.value))
 		})
 	}
+
+	t.Run("nested nil []any normalizes consistently regardless of sibling types", func(t *testing.T) {
+		var nilSlice []any
+		withoutStruct, err := NormalizeValue(map[string]any{"tags": nilSlice, "label": "plain"})
+		require.NoError(t, err)
+
+		withStruct, err := NormalizeValue(map[string]any{"tags": nilSlice, "item": sample{Name: "x"}})
+		require.NoError(t, err)
+
+		m1 := withoutStruct.(map[string]any)
+		m2 := withStruct.(map[string]any)
+		s1, ok1 := m1["tags"].([]any)
+		s2, ok2 := m2["tags"].([]any)
+		require.True(t, ok1)
+		require.True(t, ok2)
+		assert.NotNil(t, s1)
+		assert.NotNil(t, s2)
+		assert.Equal(t, s1, s2)
+	})
+
+	t.Run("Normalizer bounds deterministic work linearly across shared graphs and DAGs", func(t *testing.T) {
+		// Depth-35 binary DAG (2^35 paths, 36 distinct slices).
+		dag := []any{0}
+		for range 35 {
+			dag = []any{dag, dag}
+		}
+		var dagNorm Normalizer
+		assert.False(t, dagNorm.ValueNeedsNormalization(dag))
+		pfSteps, nSteps := dagNorm.Stats()
+		assert.Less(t, pfSteps, 600, "depth-35 DAG preflight must visit O(depth) nodes, not O(2^depth)")
+		assert.Equal(t, 0, nSteps)
+
+		// N elements referencing a shared N-entry map of structs (would be O(N^2) = 40,000+ without cross-element memoization).
+		const count = 200
+		sharedGraph := make(map[string]sample, count)
+		for i := range count {
+			sharedGraph[string(rune('a'+(i%26)))+string(rune('0'+(i/26)))] = sample{Name: "svc"}
+		}
+		list := make([]map[string]sample, count)
+		for i := range count {
+			list[i] = sharedGraph
+		}
+
+		var listNorm Normalizer
+		rv := reflect.ValueOf(list)
+		for i := range rv.Len() {
+			got, err := listNorm.NormalizeReflectValue(rv.Index(i))
+			require.NoError(t, err)
+			require.NotNil(t, got)
+		}
+		_, normWork := listNorm.Stats()
+		// 1st visit does ~200*(1+1) = ~600 work units; remaining 199 elements do 1 lookup each (< 2,000 total vs > 120,000 quadratic).
+		assert.Less(t, normWork, 2500, "shared N-node graph across N list elements must normalize in O(N) work")
+	})
 }
 
 func TestNormalizeReflectValue_TableDriven(t *testing.T) {

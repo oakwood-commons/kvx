@@ -28,6 +28,7 @@ const (
 	visitUnseen visitState = iota
 	visitActive
 	visitDone
+	visitDirty
 )
 
 type preflightState struct {
@@ -39,6 +40,45 @@ type normState struct {
 	steps  int
 	active map[visitKey]struct{}
 	memo   map[visitKey]any
+}
+
+// Normalizer shares preflight and normalization memoization state across
+// elements of a list so shared subgraphs are scanned and normalized in linear
+// time rather than once per element. A Normalizer is intended for a single
+// sequential operation and is not safe for concurrent use across goroutines.
+type Normalizer struct {
+	preflight preflightState
+	norm      normState
+}
+
+// ValueNeedsNormalization reports whether value requires normalization,
+// reusing completed acyclic container checks across calls on n.
+func (n *Normalizer) ValueNeedsNormalization(value any) bool {
+	return valueNeedsNormalization(value, 0, &n.preflight)
+}
+
+// NormalizeValue normalizes value into CEL-compatible maps, slices, and scalars,
+// reusing memoized results across calls on n.
+func (n *Normalizer) NormalizeValue(value any) (any, error) {
+	if value == nil {
+		return nil, nil
+	}
+	if !n.ValueNeedsNormalization(value) {
+		return value, nil
+	}
+	return normalizeReflectValue(reflect.ValueOf(value), 0, &n.norm, &n.preflight)
+}
+
+// NormalizeReflectValue normalizes an already-reflected value while reusing
+// memoized results across calls on n.
+func (n *Normalizer) NormalizeReflectValue(rv reflect.Value) (any, error) {
+	return normalizeReflectValue(rv, 0, &n.norm, &n.preflight)
+}
+
+// Stats returns the cumulative preflight and normalization work units recorded
+// by n, used by deterministic complexity tests.
+func (n *Normalizer) Stats() (preflightSteps, normSteps int) {
+	return n.preflight.steps, n.norm.steps
 }
 
 const hexDigits = "0123456789abcdef"
@@ -129,12 +169,12 @@ func mapNeedsNormalization(v map[string]any, depth int, st *preflightState) bool
 	st.steps++
 	var vk visitKey
 	tracked := false
-	if depth >= containerTrackStartDepth || st.steps > containerTrackStartSteps {
+	if depth >= containerTrackStartDepth || st.steps+len(v) > containerTrackStartSteps {
 		ptr := reflect.ValueOf(v).Pointer()
 		if ptr != 0 {
 			vk = visitKey{ptr: ptr, typ: mapStringAnyType}
 			switch st.states[vk] {
-			case visitActive:
+			case visitActive, visitDirty:
 				return true
 			case visitDone:
 				return false
@@ -147,8 +187,12 @@ func mapNeedsNormalization(v map[string]any, depth int, st *preflightState) bool
 			tracked = true
 		}
 	}
+	st.steps += len(v)
 	for _, mv := range v {
 		if valueNeedsNormalization(mv, depth+1, st) {
+			if tracked {
+				st.states[vk] = visitDirty
+			}
 			return true
 		}
 	}
@@ -160,17 +204,17 @@ func mapNeedsNormalization(v map[string]any, depth int, st *preflightState) bool
 
 func sliceNeedsNormalization(v []any, depth int, st *preflightState) bool {
 	if len(v) == 0 {
-		return false
+		return v == nil
 	}
 	st.steps++
 	var vk visitKey
 	tracked := false
-	if depth >= containerTrackStartDepth || st.steps > containerTrackStartSteps {
+	if depth >= containerTrackStartDepth || st.steps+len(v) > containerTrackStartSteps {
 		ptr := reflect.ValueOf(v).Pointer()
 		if ptr != 0 {
 			vk = visitKey{ptr: ptr, typ: sliceAnyType, slen: len(v)}
 			switch st.states[vk] {
-			case visitActive:
+			case visitActive, visitDirty:
 				return true
 			case visitDone:
 				return false
@@ -183,8 +227,12 @@ func sliceNeedsNormalization(v []any, depth int, st *preflightState) bool {
 			tracked = true
 		}
 	}
+	st.steps += len(v)
 	for _, ev := range v {
 		if valueNeedsNormalization(ev, depth+1, st) {
+			if tracked {
+				st.states[vk] = visitDirty
+			}
 			return true
 		}
 	}
@@ -199,24 +247,18 @@ func sliceNeedsNormalization(v []any, depth int, st *preflightState) bool {
 // and scalars that CEL can evaluate directly. Struct tags ("json" preferred,
 // falling back to "yaml", then exported field name) are respected.
 func NormalizeValue(value any) (any, error) {
-	if value == nil {
-		return nil, nil
-	}
-	if !ValueNeedsNormalization(value) {
-		return value, nil
-	}
-	var st normState
-	return normalizeReflectValue(reflect.ValueOf(value), 0, &st)
+	var n Normalizer
+	return n.NormalizeValue(value)
 }
 
 // NormalizeReflectValue is like NormalizeValue for an already-reflected value,
 // avoiding an extra interface-boxing allocation when iterating typed slices.
 func NormalizeReflectValue(rv reflect.Value) (any, error) {
-	var st normState
-	return normalizeReflectValue(rv, 0, &st)
+	var n Normalizer
+	return n.NormalizeReflectValue(rv)
 }
 
-func normalizeReflectValue(rv reflect.Value, depth int, st *normState) (any, error) {
+func normalizeReflectValue(rv reflect.Value, depth int, st *normState, preflight *preflightState) (any, error) {
 	if !rv.IsValid() {
 		return nil, nil
 	}
@@ -256,11 +298,7 @@ func normalizeReflectValue(rv reflect.Value, depth int, st *normState) (any, err
 	}
 
 	if rv.CanInterface() && implementsCustomMarshaler(rv.Type()) {
-		res, err := marshalViaJSON(rv.Interface())
-		if err == nil {
-			storeNormMemo(st, ptrKeys, res)
-		}
-		return res, err
+		return marshalViaJSON(rv.Interface())
 	}
 	if rv.CanInterface() && implementsCustomMarshaler(reflect.PointerTo(rv.Type())) {
 		addrTarget := rv
@@ -269,14 +307,10 @@ func normalizeReflectValue(rv reflect.Value, depth int, st *normState) (any, err
 			boxed.Set(rv)
 			addrTarget = boxed
 		}
-		res, err := marshalViaJSON(addrTarget.Addr().Interface())
-		if err == nil {
-			storeNormMemo(st, ptrKeys, res)
-		}
-		return res, err
+		return marshalViaJSON(addrTarget.Addr().Interface())
 	}
 
-	res, err := normalizeUnwrappedValue(rv, depth, st)
+	res, err := normalizeUnwrappedValue(rv, depth, st, preflight)
 	if err == nil {
 		storeNormMemo(st, ptrKeys, res)
 	}
@@ -295,7 +329,7 @@ func storeNormMemo(st *normState, keys []visitKey, val any) {
 	}
 }
 
-func normalizeUnwrappedValue(rv reflect.Value, depth int, st *normState) (any, error) {
+func normalizeUnwrappedValue(rv reflect.Value, depth int, st *normState, preflight *preflightState) (any, error) {
 	rt := rv.Type()
 	isPredeclared := rt.PkgPath() == ""
 
@@ -328,13 +362,13 @@ func normalizeUnwrappedValue(rv reflect.Value, depth int, st *normState) (any, e
 		}
 		return rv.String(), nil
 	case reflect.Slice, reflect.Array:
-		return normalizeSequence(rv, depth, st)
+		return normalizeSequence(rv, depth, st, preflight)
 	case reflect.Map:
-		return normalizeMap(rv, depth, st)
+		return normalizeMap(rv, depth, st, preflight)
 	case reflect.Struct:
-		return normalizeStruct(rv, depth, st)
+		return normalizeStruct(rv, depth, st, preflight)
 	case reflect.Interface, reflect.Pointer:
-		return normalizeReflectValue(rv, depth, st)
+		return normalizeReflectValue(rv, depth, st, preflight)
 	case reflect.Chan, reflect.Func, reflect.Invalid, reflect.Complex64, reflect.Complex128, reflect.UnsafePointer:
 		return nil, fmt.Errorf("cannot normalize unsupported type %s", rt)
 	default:
@@ -342,7 +376,7 @@ func normalizeUnwrappedValue(rv reflect.Value, depth int, st *normState) (any, e
 	}
 }
 
-func normalizeSequence(rv reflect.Value, depth int, st *normState) (any, error) {
+func normalizeSequence(rv reflect.Value, depth int, st *normState, preflight *preflightState) (any, error) {
 	rt := rv.Type()
 	if rv.Kind() == reflect.Slice && rt.Elem().Kind() == reflect.Uint8 {
 		elemType := rt.Elem()
@@ -351,8 +385,8 @@ func normalizeSequence(rv reflect.Value, depth int, st *normState) (any, error) 
 		}
 	}
 
-	if depth == 0 && rv.Kind() == reflect.Slice && !rv.IsNil() && rv.CanInterface() {
-		if s, ok := rv.Interface().([]any); ok && !ValueNeedsNormalization(s) {
+	if rv.Kind() == reflect.Slice && !rv.IsNil() && rv.CanInterface() {
+		if s, ok := rv.Interface().([]any); ok && !valueNeedsNormalization(s, depth, preflight) {
 			return s, nil
 		}
 	}
@@ -373,6 +407,7 @@ func normalizeSequence(rv reflect.Value, depth int, st *normState) (any, error) 
 					return cached, nil
 				}
 			}
+			st.steps += length
 			if st.active == nil {
 				st.active = make(map[visitKey]struct{})
 			}
@@ -387,7 +422,7 @@ func normalizeSequence(rv reflect.Value, depth int, st *normState) (any, error) 
 
 	normalized := make([]any, length)
 	for i := range length {
-		val, err := normalizeReflectValue(rv.Index(i), depth+1, st)
+		val, err := normalizeReflectValue(rv.Index(i), depth+1, st, preflight)
 		if err != nil {
 			return nil, fmt.Errorf("element [%d]: %w", i, err)
 		}
@@ -417,12 +452,12 @@ func copyByteLikeSlice(rv reflect.Value, elemType reflect.Type) any {
 	return cp
 }
 
-func normalizeMap(rv reflect.Value, depth int, st *normState) (any, error) {
+func normalizeMap(rv reflect.Value, depth int, st *normState, preflight *preflightState) (any, error) {
 	if rv.IsNil() {
 		return nil, nil
 	}
-	if depth == 0 && rv.CanInterface() {
-		if m, ok := rv.Interface().(map[string]any); ok && !ValueNeedsNormalization(m) {
+	if rv.CanInterface() {
+		if m, ok := rv.Interface().(map[string]any); ok && !valueNeedsNormalization(m, depth, preflight) {
 			return m, nil
 		}
 	}
@@ -441,6 +476,7 @@ func normalizeMap(rv reflect.Value, depth int, st *normState) (any, error) {
 				return cached, nil
 			}
 		}
+		st.steps += rv.Len()
 		if st.active == nil {
 			st.active = make(map[visitKey]struct{})
 		}
@@ -460,7 +496,7 @@ func normalizeMap(rv reflect.Value, depth int, st *normState) (any, error) {
 		if k.Kind() == reflect.String {
 			keyStr = k.String()
 		} else {
-			normKey, err := normalizeReflectValue(k, depth+1, st)
+			normKey, err := normalizeReflectValue(k, depth+1, st, preflight)
 			if err != nil {
 				return nil, fmt.Errorf("map key: %w", err)
 			}
@@ -469,7 +505,7 @@ func normalizeMap(rv reflect.Value, depth int, st *normState) (any, error) {
 		if _, exists := out[keyStr]; exists {
 			return nil, fmt.Errorf("duplicate normalized map key %q", keyStr)
 		}
-		val, err := normalizeReflectValue(iter.Value(), depth+1, st)
+		val, err := normalizeReflectValue(iter.Value(), depth+1, st, preflight)
 		if err != nil {
 			return nil, fmt.Errorf("map key %q: %w", keyStr, err)
 		}
@@ -484,8 +520,9 @@ func normalizeMap(rv reflect.Value, depth int, st *normState) (any, error) {
 	return out, nil
 }
 
-func normalizeStruct(rv reflect.Value, depth int, st *normState) (map[string]any, error) {
+func normalizeStruct(rv reflect.Value, depth int, st *normState, preflight *preflightState) (map[string]any, error) {
 	plan := getStructFieldsPlan(rv.Type())
+	st.steps += 1 + len(plan.fields)
 	out := make(map[string]any, len(plan.fields))
 
 	var shadowed map[string]struct{}
@@ -513,7 +550,7 @@ func normalizeStruct(rv reflect.Value, depth int, st *normState) (map[string]any
 				continue
 			}
 		}
-		val, err := normalizeReflectValue(fv, depth+1, st)
+		val, err := normalizeReflectValue(fv, depth+1, st, preflight)
 		if err != nil {
 			return nil, fmt.Errorf("field %s: %w", f.key, err)
 		}
@@ -532,7 +569,7 @@ func normalizeStruct(rv reflect.Value, depth int, st *normState) (map[string]any
 		if !ok {
 			continue
 		}
-		val, err := normalizeReflectValue(fv, depth+1, st)
+		val, err := normalizeReflectValue(fv, depth+1, st, preflight)
 		if err != nil {
 			return nil, fmt.Errorf("embedded field #%v: %w", f.index, err)
 		}

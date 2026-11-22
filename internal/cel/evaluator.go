@@ -189,6 +189,8 @@ func toSlice(data any) ([]any, bool, error) {
 		return nil, false, nil
 	}
 
+	var norm loader.Normalizer
+
 	switch v := data.(type) {
 	case []byte:
 		// Scalar bytes, never a list of uint8 integers.
@@ -197,16 +199,16 @@ func toSlice(data any) ([]any, bool, error) {
 		if len(v) == 0 {
 			return []any{}, true, nil
 		}
-		if !loader.ValueNeedsNormalization(v) {
+		if !norm.ValueNeedsNormalization(v) {
 			return v, true, nil
 		}
 		out := make([]any, len(v))
 		for i, elem := range v {
-			norm, err := loader.NormalizeValue(elem)
+			normalized, err := norm.NormalizeValue(elem)
 			if err != nil {
 				return nil, true, fmt.Errorf("element [%d]: %w", i, err)
 			}
-			out[i] = norm
+			out[i] = normalized
 		}
 		return out, true, nil
 	case []map[string]any:
@@ -215,12 +217,12 @@ func toSlice(data any) ([]any, bool, error) {
 		}
 		out := make([]any, len(v))
 		for i, item := range v {
-			if loader.ValueNeedsNormalization(item) {
-				norm, err := loader.NormalizeValue(item)
+			if norm.ValueNeedsNormalization(item) {
+				normalized, err := norm.NormalizeValue(item)
 				if err != nil {
 					return nil, true, fmt.Errorf("element [%d]: %w", i, err)
 				}
-				out[i] = norm
+				out[i] = normalized
 			} else {
 				out[i] = item
 			}
@@ -249,11 +251,11 @@ func toSlice(data any) ([]any, bool, error) {
 
 	out := make([]any, n)
 	for i := range n {
-		norm, err := loader.NormalizeReflectValue(rv.Index(i))
+		normalized, err := norm.NormalizeReflectValue(rv.Index(i))
 		if err != nil {
 			return nil, true, fmt.Errorf("element [%d]: %w", i, err)
 		}
-		out[i] = norm
+		out[i] = normalized
 	}
 	return out, true, nil
 }

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -431,7 +430,7 @@ func TestFilterWhere_NormalizationEdgeCases(t *testing.T) {
 		assert.Equal(t, gotTyped, gotBoxed)
 	})
 
-	t.Run("depth-35 shared []any and map[string]any DAG completes in under 50ms", func(t *testing.T) {
+	t.Run("depth-35 shared []any, map[string]any, and struct DAGs normalize linearly", func(t *testing.T) {
 		sharedSlice := []any{0}
 		for range 35 {
 			sharedSlice = []any{sharedSlice, sharedSlice}
@@ -441,14 +440,23 @@ func TestFilterWhere_NormalizationEdgeCases(t *testing.T) {
 		for range 35 {
 			sharedMap = map[string]any{"left": sharedMap, "right": sharedMap}
 		}
-		mapRoot := []any{sharedMap, sharedMap}
+		mapRoot := []map[string]any{sharedMap, sharedMap}
 
 		sharedStructDAG := []any{providerSummary{Name: "http"}}
 		for range 35 {
 			sharedStructDAG = []any{sharedStructDAG, sharedStructDAG}
 		}
 
-		start := time.Now()
+		const fanout = 200
+		sharedTypedMap := make(map[string]providerSummary, fanout)
+		for i := range fanout {
+			sharedTypedMap[string(rune('a'+(i%26)))+string(rune('0'+(i/26)))] = providerSummary{Name: "http"}
+		}
+		sharedTypedList := make([]map[string]providerSummary, fanout)
+		for i := range fanout {
+			sharedTypedList[i] = sharedTypedMap
+		}
+
 		gotSlice, err := engine.FilterWhere("true", sharedSlice)
 		require.NoError(t, err)
 		assert.Len(t, gotSlice, 2)
@@ -460,7 +468,10 @@ func TestFilterWhere_NormalizationEdgeCases(t *testing.T) {
 		gotStructDAG, err := engine.FilterWhere("true", sharedStructDAG)
 		require.NoError(t, err)
 		assert.Len(t, gotStructDAG, 2)
-		assert.Less(t, time.Since(start), 50*time.Millisecond, "shared acyclic DAG preflight and normalization must run in O(N), not O(2^N)")
+
+		gotTypedList, err := engine.FilterWhere("true", sharedTypedList)
+		require.NoError(t, err)
+		assert.Len(t, gotTypedList, fanout)
 	})
 
 	t.Run("string-tagged huge json.Number and named float32 filter accurately", func(t *testing.T) {
@@ -537,6 +548,20 @@ func BenchmarkEngineFilterWhere(b *testing.B) {
 		b.ResetTimer()
 		for b.Loop() {
 			if _, err := engine.FilterWhere(`_.name == "http"`, maps); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	sharedDAG := []any{0}
+	for range 35 {
+		sharedDAG = []any{sharedDAG, sharedDAG}
+	}
+	b.Run("shared_dag", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for b.Loop() {
+			if _, err := engine.FilterWhere("true", sharedDAG); err != nil {
 				b.Fatal(err)
 			}
 		}
