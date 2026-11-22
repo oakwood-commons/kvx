@@ -2,10 +2,13 @@ package ui
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
+	"unicode"
 
 	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -18,6 +21,11 @@ const (
 	statusPhaseWaiting statusPhase = iota
 	statusPhaseSuccess
 	statusPhaseError
+)
+
+const (
+	defaultStatusInputPrompt    = "❯ "
+	defaultStatusInputMaxLength = 8192
 )
 
 // StatusViewModel holds state for the status screen view mode.
@@ -35,6 +43,14 @@ type StatusViewModel struct {
 
 	// Spinner
 	Spinner spinner.Model
+
+	// Inline text input (active while Phase == statusPhaseWaiting && !InputSubmitted)
+	Input           textinput.Model
+	InputSubmitted  bool
+	InputSubmitting bool
+	lastSubmitCmd   tea.Cmd
+	OnStatusInput   StatusInputSubmitFunc
+	OpenURLFn       func(url string) error
 
 	// Action flash messages
 	FlashMsg   string
@@ -62,6 +78,11 @@ type statusTimeoutMsg struct{}
 // statusDoneTimerMsg is sent after the done-delay to trigger exit.
 type statusDoneTimerMsg struct{}
 
+// statusInputResultMsg carries the outcome of an async OnStatusInput callback.
+type statusInputResultMsg struct {
+	Err error
+}
+
 // buildStatusViewModel creates a StatusViewModel from the schema config and data.
 func buildStatusViewModel(data any, schema *DisplaySchema, keyMode KeyMode, noColor bool, doneChan <-chan StatusResult, width, height int) *StatusViewModel {
 	if schema == nil || schema.Status == nil {
@@ -78,6 +99,31 @@ func buildStatusViewModel(data any, schema *DisplaySchema, keyMode KeyMode, noCo
 		}
 	}
 
+	var ti textinput.Model
+	if schema.Status.Input != nil {
+		ic := schema.Status.Input
+		ti = textinput.New()
+		if ic.Prompt != "" {
+			ti.Prompt = ic.Prompt
+		} else {
+			ti.Prompt = defaultStatusInputPrompt
+		}
+		ti.Placeholder = ic.Placeholder
+		maxLen := ic.MaxLength
+		if maxLen <= 0 {
+			maxLen = defaultStatusInputMaxLength
+		}
+		ti.CharLimit = maxLen
+		if ic.Masked {
+			ti.EchoMode = textinput.EchoPassword
+			ti.EchoCharacter = '•'
+		}
+		_, initBodyW, _ := statusInputLayout(width, lipgloss.Width(ti.Prompt), 0)
+		ti.SetWidth(initBodyW)
+		applyStatusInputStyles(&ti, noColor)
+		_ = ti.Focus()
+	}
+
 	return &StatusViewModel{
 		Config:   schema.Status,
 		Data:     data,
@@ -87,14 +133,56 @@ func buildStatusViewModel(data any, schema *DisplaySchema, keyMode KeyMode, noCo
 		HasDone:  hasDone,
 		Phase:    statusPhaseWaiting,
 		Spinner:  s,
+		Input:    ti,
 		Width:    width,
 		Height:   height,
 	}
 }
 
-// Init returns the initial commands for the status view (spinner tick + completion source).
+// applyStatusInputStyles configures styles on a status textinput according to NoColor and CurrentTheme.
+func applyStatusInputStyles(ti *textinput.Model, noColor bool) {
+	if noColor {
+		ti.SetStyles(textinput.Styles{
+			Cursor: textinput.CursorStyle{Blink: true},
+		})
+		return
+	}
+	th := CurrentTheme()
+	styles := textinput.DefaultDarkStyles()
+	if th.HeaderFG != nil {
+		styles.Focused.Prompt = lipgloss.NewStyle().Foreground(th.HeaderFG).Bold(true)
+		styles.Blurred.Prompt = lipgloss.NewStyle().Foreground(th.HeaderFG)
+	}
+	if th.InputFG != nil {
+		styles.Focused.Text = lipgloss.NewStyle().Foreground(th.InputFG)
+		styles.Blurred.Text = lipgloss.NewStyle().Foreground(th.InputFG)
+	}
+	if th.GhostFG != nil {
+		styles.Focused.Placeholder = lipgloss.NewStyle().Foreground(th.GhostFG)
+		styles.Blurred.Placeholder = lipgloss.NewStyle().Foreground(th.GhostFG)
+	}
+	ti.SetStyles(styles)
+}
+
+// HasActiveInput reports whether the status screen currently has an active
+// inline text input accepting keystrokes and paste events.
+func (sv *StatusViewModel) HasActiveInput() bool {
+	return sv != nil && sv.Config != nil && sv.Config.Input != nil &&
+		sv.Phase == statusPhaseWaiting && !sv.InputSubmitted
+}
+
+// IsMaskedInput reports whether an active inline input is configured as masked.
+func (sv *StatusViewModel) IsMaskedInput() bool {
+	return sv.HasActiveInput() && sv.Config.Input.Masked
+}
+
+// Init returns the initial commands for the status view (spinner tick + completion source + cursor blink).
 func (sv *StatusViewModel) Init() tea.Cmd {
 	cmds := []tea.Cmd{sv.Spinner.Tick}
+
+	if sv.HasActiveInput() {
+		cmds = append(cmds, textinput.Blink)
+	}
 
 	if sv.DoneChan != nil {
 		// Listen on the programmatic Done channel
@@ -121,6 +209,15 @@ func (sv *StatusViewModel) Update(msg tea.Msg) (CustomView, tea.Cmd) {
 		return sv, nil
 
 	case statusDoneMsg:
+		sv.FlashMsg = ""
+		sv.FlashTimer++
+		if sv.Config.Input != nil {
+			sv.Input.SetValue("")
+			sv.Input.SetCursor(0)
+			sv.Input.Blur()
+			sv.InputSubmitting = false
+			sv.lastSubmitCmd = nil
+		}
 		if msg.Err != nil {
 			sv.Phase = statusPhaseError
 			sv.ResultMsg = msg.Err.Error()
@@ -138,6 +235,15 @@ func (sv *StatusViewModel) Update(msg tea.Msg) (CustomView, tea.Cmd) {
 		return sv, sv.doneDelayCmd()
 
 	case statusTimeoutMsg:
+		sv.FlashMsg = ""
+		sv.FlashTimer++
+		if sv.Config.Input != nil {
+			sv.Input.SetValue("")
+			sv.Input.SetCursor(0)
+			sv.Input.Blur()
+			sv.InputSubmitting = false
+			sv.lastSubmitCmd = nil
+		}
 		sv.Phase = statusPhaseSuccess
 		if sv.Config.SuccessMessage != "" {
 			sv.ResultMsg = sv.Config.SuccessMessage
@@ -155,8 +261,61 @@ func (sv *StatusViewModel) Update(msg tea.Msg) (CustomView, tea.Cmd) {
 		}
 		return sv, nil
 
+	case statusInputResultMsg:
+		sv.InputSubmitting = false
+		sv.lastSubmitCmd = nil
+		if sv.Phase != statusPhaseWaiting {
+			return sv, nil
+		}
+		sv.FlashTimer++
+		sv.Input.SetValue("")
+		sv.Input.SetCursor(0)
+		if msg.Err != nil {
+			sv.FlashMsg = "⚠ " + msg.Err.Error()
+			cmd := sv.Input.Focus()
+			return sv, cmd
+		}
+		sv.Input.Blur()
+		sv.InputSubmitted = true
+		sv.FlashMsg = "✓ Submitted"
+		return sv, nil
+
+	case tea.PasteMsg:
+		if sv.HasActiveInput() && !sv.InputSubmitting {
+			clean := stripCRLF(msg.Content)
+			if clean == "" {
+				return sv, nil
+			}
+			var cmd tea.Cmd
+			sv.Input, cmd = sv.Input.Update(tea.PasteMsg{Content: clean})
+			return sv, cmd
+		}
+		return sv, nil
+
 	case tea.KeyPressMsg:
 		return sv.handleKey(msg)
+
+	default:
+		if sv.HasActiveInput() {
+			if pasted, ok := extractTextInputPasteMsg(msg); ok {
+				if sv.InputSubmitting {
+					return sv, nil
+				}
+				clean := stripCRLF(pasted)
+				if clean == "" {
+					return sv, nil
+				}
+				var cmd tea.Cmd
+				sv.Input, cmd = sv.Input.Update(tea.PasteMsg{Content: clean})
+				return sv, cmd
+			}
+			if sv.InputSubmitting && !isCursorBlinkMsg(msg) {
+				return sv, nil
+			}
+			var cmd tea.Cmd
+			sv.Input, cmd = sv.Input.Update(msg)
+			return sv, cmd
+		}
 	}
 
 	return sv, nil
@@ -164,32 +323,318 @@ func (sv *StatusViewModel) Update(msg tea.Msg) (CustomView, tea.Cmd) {
 
 // handleKey processes key presses on the status screen.
 func (sv *StatusViewModel) handleKey(msg tea.KeyPressMsg) (*StatusViewModel, tea.Cmd) {
-	keyStr := msg.String()
+	updated, cmd, _ := sv.handleKeyWithHandled(msg)
+	return updated, cmd
+}
 
-	// Universal quit keys
-	if keyStr == "ctrl+c" || keyStr == "esc" {
-		return sv, tea.Quit
+// handleKeyWithHandled processes key presses on the status screen and reports
+// whether the key was consumed. Unbound function keys (f1..f12) return
+// handled=false so callers such as Model.Update can fall back to global menu
+// actions/popups (e.g. F12).
+func (sv *StatusViewModel) handleKeyWithHandled(msg tea.KeyPressMsg) (*StatusViewModel, tea.Cmd, bool) {
+	keyStr := normalizeStatusKey(msg)
+
+	// Ctrl+C is always an immediate universal quit.
+	if keyStr == "ctrl+c" {
+		return sv, tea.Quit, true
+	}
+
+	// Active inline input owns printable keys, Esc clear-then-quit, Ctrl+U, and Enter.
+	if sv.HasActiveInput() {
+		switch keyStr {
+		case "esc":
+			if sv.Input.Value() != "" {
+				sv.Input.SetValue("")
+				sv.Input.SetCursor(0)
+				return sv, nil, true
+			}
+			return sv, tea.Quit, true
+
+		case "ctrl+u":
+			sv.Input.SetValue("")
+			sv.Input.SetCursor(0)
+			return sv, nil, true
+
+		case "enter":
+			if sv.InputSubmitting {
+				return sv, nil, true
+			}
+			val := strings.TrimSpace(stripCRLF(sv.Input.Value()))
+			if val == "" || sv.OnStatusInput == nil {
+				return sv, nil, true
+			}
+			sv.InputSubmitting = true
+			submitFn := sv.OnStatusInput
+			submitCmd := func() tea.Msg {
+				return statusInputResultMsg{Err: submitFn(val)}
+			}
+			sv.lastSubmitCmd = submitCmd
+			return sv, submitCmd, true
+		}
+
+		// Match only modifier/function action keys so bare single-character keys
+		// (c, o, q, /, ?, f, e, v, etc.) flow directly into textinput during paste.
+		for _, action := range sv.Config.Actions {
+			if sv.matchesInputActionKey(keyStr, action.Keys) {
+				updated, cmd := sv.executeAction(action)
+				return updated, cmd, true
+			}
+		}
+
+		// Unhandled function keys (f1..f12) are not text input; allow global menu fallback.
+		if isStatusFunctionKey(keyStr) {
+			return sv, nil, false
+		}
+
+		if sv.InputSubmitting {
+			return sv, nil, true
+		}
+
+		var cmd tea.Cmd
+		sv.Input, cmd = sv.Input.Update(msg)
+		return sv, cmd, true
+	}
+
+	if keyStr == "esc" {
+		return sv, tea.Quit, true
 	}
 
 	// If we're in a done phase and waiting for key, any key exits
 	if sv.Phase != statusPhaseWaiting && sv.doneBehavior() == DoneBehaviorWaitForKey {
-		return sv, tea.Quit
+		return sv, tea.Quit, true
 	}
 
 	// Check mode-specific quit key
 	if sv.isQuitKey(keyStr) {
-		return sv, tea.Quit
+		return sv, tea.Quit, true
 	}
 
 	// Check action keys
 	for _, action := range sv.Config.Actions {
 		actionKey := sv.keyForMode(action.Keys)
 		if actionKey != "" && keyStr == actionKey {
-			return sv.executeAction(action)
+			updated, cmd := sv.executeAction(action)
+			return updated, cmd, true
 		}
 	}
 
-	return sv, nil
+	if isStatusFunctionKey(keyStr) {
+		return sv, nil, false
+	}
+
+	return sv, nil, true
+}
+
+// isStatusFunctionKey reports whether keyStr is a function key f1..f12.
+func isStatusFunctionKey(keyStr string) bool {
+	switch strings.ToLower(keyStr) {
+	case "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11", "f12":
+		return true
+	}
+	return false
+}
+
+// normalizeStatusKey normalizes raw control key codes (e.g. from ApplyStartupKeys)
+// to standard key strings.
+func normalizeStatusKey(msg tea.KeyPressMsg) string {
+	switch msg.Code {
+	case 0x03:
+		return "ctrl+c"
+	case 0x15:
+		return "ctrl+u"
+	case tea.KeyEscape:
+		if msg.Mod == 0 {
+			return "esc"
+		}
+	case tea.KeyEnter:
+		if msg.Mod == 0 {
+			return "enter"
+		}
+	}
+	return msg.String()
+}
+
+// stripCRLF removes carriage returns and newlines from pasted or submitted text.
+func stripCRLF(s string) string {
+	return strings.NewReplacer("\r", "", "\n", "").Replace(s)
+}
+
+// extractTextInputPasteMsg extracts clipboard text from Bubbles' unexported
+// textinput.pasteMsg so status input can strip CRLF and respect submission/modal guards.
+func extractTextInputPasteMsg(msg tea.Msg) (string, bool) {
+	if msg == nil {
+		return "", false
+	}
+	t := reflect.TypeOf(msg)
+	if t.PkgPath() == "charm.land/bubbles/v2/textinput" && t.Name() == "pasteMsg" && t.Kind() == reflect.String {
+		return reflect.ValueOf(msg).String(), true
+	}
+	return "", false
+}
+
+// normalizeInputActionKey normalizes modifier names and function-key tokens to
+// lowercase while preserving the case of the trailing key rune (e.g. "Alt+Y" ->
+// "alt+Y", "alt+shift+y" -> "alt+Y", "F2" -> "f2").
+func normalizeInputActionKey(k string) string {
+	k = strings.TrimSpace(k)
+	if k == "" {
+		return ""
+	}
+	if lower := strings.ToLower(k); isStatusFunctionKey(lower) {
+		return lower
+	}
+	parts := strings.Split(k, "+")
+	if len(parts) < 2 {
+		return k
+	}
+	hasShift := false
+	mods := make([]string, 0, len(parts)-1)
+	for _, mod := range parts[:len(parts)-1] {
+		m := strings.ToLower(strings.TrimSpace(mod))
+		if m == "" {
+			return k
+		}
+		if m == "shift" {
+			hasShift = true
+			continue
+		}
+		mods = append(mods, m)
+	}
+	keyToken := parts[len(parts)-1]
+	if keyToken == "" {
+		return k
+	}
+	if fnLower := strings.ToLower(keyToken); isStatusFunctionKey(fnLower) {
+		keyToken = fnLower
+	}
+	if hasShift {
+		runes := []rune(keyToken)
+		if len(runes) == 1 && unicode.IsLetter(runes[0]) {
+			keyToken = string(unicode.ToUpper(runes[0]))
+		} else {
+			mods = append(mods, "shift")
+		}
+	}
+	if len(mods) == 0 {
+		return keyToken
+	}
+	return strings.Join(mods, "+") + "+" + keyToken
+}
+
+// isSafeInputActionKey reports whether key k uses a function key (f2..f9) or an
+// alt+/ctrl+ modifier so it cannot collide with unmodified printable characters.
+func isSafeInputActionKey(k string) bool {
+	norm := normalizeInputActionKey(k)
+	if norm == "" {
+		return false
+	}
+	if strings.HasPrefix(norm, "alt+") && len(norm) > len("alt+") {
+		return true
+	}
+	lower := strings.ToLower(norm)
+	if strings.HasPrefix(lower, "ctrl+") && len(lower) > len("ctrl+") {
+		return lower != "ctrl+c" && lower != "ctrl+u" && lower != "ctrl+m" && lower != "ctrl+j"
+	}
+	switch lower {
+	case "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9":
+		return true
+	}
+	return false
+}
+
+// activeInputActionKeys returns the safe modifier/function key bindings for an
+// action while StatusDisplayConfig.Input is active.
+func (sv *StatusViewModel) activeInputActionKeys(keys StatusKeyBindings) []string {
+	var result []string
+	addUnique := func(k string) {
+		k = normalizeInputActionKey(k)
+		if !isSafeInputActionKey(k) {
+			return
+		}
+		for _, existing := range result {
+			if existing == k {
+				return
+			}
+		}
+		result = append(result, k)
+	}
+
+	trimmedVim := strings.TrimSpace(keys.Vim)
+	trimmedEmacs := strings.TrimSpace(keys.Emacs)
+
+	switch sv.KeyMode {
+	case KeyModeFunction:
+		addUnique(keys.Function)
+	case KeyModeEmacs:
+		if isSafeInputActionKey(trimmedEmacs) {
+			addUnique(trimmedEmacs)
+		} else {
+			addUnique(keys.Function)
+			if len([]rune(trimmedEmacs)) == 1 {
+				addUnique("alt+" + trimmedEmacs)
+			}
+		}
+		addUnique(keys.Function)
+	case KeyModeVim:
+		fallthrough
+	default:
+		if isSafeInputActionKey(trimmedVim) {
+			addUnique(trimmedVim)
+		} else {
+			addUnique(keys.Function)
+			if len([]rune(trimmedVim)) == 1 {
+				addUnique("alt+" + trimmedVim)
+			} else if isSafeInputActionKey(trimmedEmacs) {
+				addUnique(trimmedEmacs)
+			}
+		}
+	}
+
+	return result
+}
+
+// matchesInputActionKey reports whether keyStr matches any active safe binding for keys.
+func (sv *StatusViewModel) matchesInputActionKey(keyStr string, keys StatusKeyBindings) bool {
+	norm := normalizeInputActionKey(keyStr)
+	for _, candidate := range sv.activeInputActionKeys(keys) {
+		if norm == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+// displayInputActionKey formats the active safe bindings for footer display while Input is active.
+func (sv *StatusViewModel) displayInputActionKey(keys StatusKeyBindings) string {
+	active := sv.activeInputActionKeys(keys)
+	if len(active) == 0 {
+		return ""
+	}
+	if sv.KeyMode == KeyModeEmacs {
+		return formatEmacsKey(active[0])
+	}
+	if sv.KeyMode == KeyModeFunction {
+		return formatInputKeyToken(active[0])
+	}
+	labels := make([]string, 0, len(active))
+	for _, k := range active {
+		labels = append(labels, formatInputKeyToken(k))
+	}
+	return strings.Join(labels, "/")
+}
+
+// formatInputKeyToken renders a normalized safe key token in human-readable form.
+func formatInputKeyToken(k string) string {
+	if strings.HasPrefix(k, "f") && len(k) >= 2 && k[1] >= '0' && k[1] <= '9' {
+		return strings.ToUpper(k)
+	}
+	if strings.HasPrefix(k, "alt+") {
+		return "Alt+" + strings.TrimPrefix(k, "alt+")
+	}
+	if strings.HasPrefix(k, "ctrl+") {
+		return "Ctrl+" + strings.TrimPrefix(k, "ctrl+")
+	}
+	return k
 }
 
 // executeAction runs a built-in action handler and shows a flash message.
@@ -206,7 +651,11 @@ func (sv *StatusViewModel) executeAction(action StatusActionConfig) (*StatusView
 	case "copy-value":
 		err = CopyToClipboard(fieldValue)
 	case "open-url":
-		err = OpenURL(fieldValue)
+		if sv.OpenURLFn != nil {
+			err = sv.OpenURLFn(fieldValue)
+		} else {
+			err = OpenURL(fieldValue)
+		}
 	}
 
 	if err != nil {
@@ -280,6 +729,10 @@ func (sv *StatusViewModel) View() string {
 			sections = append(sections, "  "+spinnerView+" "+waitStyle.Render(sv.Config.WaitMessage))
 			sections = append(sections, "")
 		}
+		if sv.HasActiveInput() {
+			inputLines := sv.renderInputSection(th)
+			return fitStatusInputView(sections, inputLines, sv.Height)
+		}
 	case statusPhaseSuccess:
 		successStyle := lipgloss.NewStyle().Bold(true)
 		if !sv.NoColor && th.StatusSuccess != nil {
@@ -309,11 +762,214 @@ func (sv *StatusViewModel) View() string {
 	return content
 }
 
+// fitStatusInputView combines preceding status lines with active inputLines while
+// ensuring inputLines remain visible at the bottom when maxLines > 0.
+// Both slices are first expanded into physical rows so embedded newlines in
+// messages, display fields, or input labels cannot overflow maxLines.
+func fitStatusInputView(bodyLines, inputLines []string, maxLines int) string {
+	bodyRows := expandPhysicalLines(bodyLines)
+	inputRows := expandPhysicalLines(inputLines)
+
+	if maxLines <= 0 || len(bodyRows)+len(inputRows)+1 <= maxLines {
+		combined := make([]string, 0, len(bodyRows)+len(inputRows)+1)
+		combined = append(combined, bodyRows...)
+		combined = append(combined, inputRows...)
+		combined = append(combined, "")
+		return strings.Join(combined, "\n")
+	}
+
+	if maxLines < len(inputRows) {
+		return strings.Join(inputRows[len(inputRows)-maxLines:], "\n")
+	}
+
+	bodyBudget := maxLines - len(inputRows)
+	if bodyBudget == 0 {
+		return strings.Join(inputRows, "\n")
+	}
+
+	// Trim trailing blank separator lines first.
+	trimmed := bodyRows
+	for len(trimmed) > 0 && trimmed[len(trimmed)-1] == "" {
+		trimmed = trimmed[:len(trimmed)-1]
+	}
+	if len(trimmed) <= bodyBudget {
+		combined := make([]string, 0, len(trimmed)+1+len(inputRows))
+		combined = append(combined, trimmed...)
+		if len(trimmed) < bodyBudget {
+			combined = append(combined, "")
+		}
+		combined = append(combined, inputRows...)
+		return strings.Join(combined, "\n")
+	}
+
+	// Compact internal blank separator lines so short panes retain maximum information.
+	compact := make([]string, 0, len(trimmed))
+	for _, line := range trimmed {
+		if line != "" {
+			compact = append(compact, line)
+		}
+	}
+	if len(compact) > bodyBudget {
+		compact = compact[len(compact)-bodyBudget:]
+	}
+
+	combined := make([]string, 0, len(compact)+1+len(inputRows))
+	combined = append(combined, compact...)
+	if len(compact) < bodyBudget {
+		combined = append(combined, "")
+	}
+	combined = append(combined, inputRows...)
+	return strings.Join(combined, "\n")
+}
+
+// expandPhysicalLines splits any entries containing newlines into individual
+// physical rows while preserving empty-string blank separator rows.
+func expandPhysicalLines(lines []string) []string {
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		normalized := strings.ReplaceAll(line, "\r\n", "\n")
+		normalized = strings.ReplaceAll(normalized, "\r", "\n")
+		if !strings.Contains(normalized, "\n") {
+			out = append(out, normalized)
+			continue
+		}
+		out = append(out, strings.Split(normalized, "\n")...)
+	}
+	return out
+}
+
+// statusInputLayout computes the left indent and horizontal textinput viewport
+// width bounded by the actual panel width.
+func statusInputLayout(panelWidth, promptWidth, counterWidth int) (indent string, bodyW int, showCounter bool) {
+	effectivePanelW := panelWidth
+	if effectivePanelW <= 0 {
+		effectivePanelW = 80
+	}
+	if effectivePanelW < 4 {
+		effectivePanelW = 4
+	}
+	innerW := effectivePanelW - 2
+	indent = "  "
+	availW := innerW - 2
+	if availW < promptWidth+2 {
+		indent = ""
+		availW = innerW
+	}
+	if availW < 1 {
+		availW = 1
+	}
+	showCounter = counterWidth > 0 && (availW-promptWidth-counterWidth-1 >= 1)
+	effectiveCounterW := 0
+	if showCounter {
+		effectiveCounterW = counterWidth
+	}
+	bodyW = availW - promptWidth - effectiveCounterW - 1
+	if bodyW < 1 {
+		bodyW = 1
+	}
+	return indent, bodyW, showCounter
+}
+
+// renderInputSection renders the optional helper label and focused inline text input
+// without mutating sv.Input.
+func (sv *StatusViewModel) renderInputSection(th Theme) []string {
+	ic := sv.Config.Input
+	lines := make([]string, 0, 2)
+
+	if ic.Label != "" {
+		labelStyle := lipgloss.NewStyle()
+		if !sv.NoColor && th.ValueColor != nil {
+			labelStyle = labelStyle.Foreground(th.ValueColor)
+		}
+		normalizedLabel := strings.ReplaceAll(ic.Label, "\r\n", "\n")
+		for _, labelLine := range strings.Split(normalizedLabel, "\n") {
+			lines = append(lines, "  "+labelStyle.Render(labelLine))
+		}
+	}
+
+	val := sv.Input.Value()
+	runeCount := len([]rune(val))
+	counter := ""
+	if ic.Masked && runeCount > 0 {
+		counter = fmt.Sprintf(" (%d chars)", runeCount)
+	}
+
+	ti := sv.Input
+	applyStatusInputStyles(&ti, sv.NoColor)
+	promptW := lipgloss.Width(ti.Prompt)
+	indent, bodyW, showCounter := statusInputLayout(sv.Width, promptW, len(counter))
+	if !showCounter {
+		counter = ""
+	}
+	pos := ti.Position()
+	if val != "" {
+		ti.Reset()
+		ti.SetWidth(bodyW)
+		ti.SetValue(val)
+		ti.SetCursor(pos)
+	} else {
+		ti.SetWidth(bodyW)
+		ti.SetCursor(pos)
+	}
+
+	rawView := ti.View()
+	if sv.NoColor {
+		rawView = ansi.Strip(rawView)
+		rawView = strings.TrimRight(rawView, " ")
+		if len(rawView) < len(ti.Prompt) {
+			rawView = ti.Prompt
+		}
+	} else {
+		var desiredW int
+		switch {
+		case val != "":
+			valW := lipgloss.Width(val)
+			if ic.Masked {
+				valW = runeCount
+			}
+			if valW > bodyW {
+				valW = bodyW
+			}
+			desiredW = promptW + valW
+			if ti.Focused() && ti.Position() >= runeCount {
+				desiredW++
+			}
+		case ic.Placeholder != "":
+			phW := lipgloss.Width(ic.Placeholder)
+			if phW > bodyW {
+				phW = bodyW
+			}
+			if phW < 1 {
+				phW = 1
+			}
+			desiredW = promptW + phW
+		default:
+			desiredW = promptW
+			if ti.Focused() {
+				desiredW++
+			}
+		}
+		rawView = ansi.Truncate(rawView, desiredW, "")
+	}
+
+	if counter != "" {
+		counterStyle := lipgloss.NewStyle()
+		if !sv.NoColor && th.HelpValue != nil {
+			counterStyle = counterStyle.Foreground(th.HelpValue)
+		}
+		rawView += counterStyle.Render(counter)
+	}
+
+	lines = append(lines, indent+rawView)
+	return lines
+}
+
 // renderActionBar renders the footer-style action key labels.
 func (sv *StatusViewModel) renderActionBar() string {
 	th := CurrentTheme()
-	fkeyStyle := lipgloss.NewStyle().Bold(true)
+	fkeyStyle := lipgloss.NewStyle()
 	if !sv.NoColor {
+		fkeyStyle = fkeyStyle.Bold(true)
 		if th.FooterFG != nil {
 			fkeyStyle = fkeyStyle.Foreground(th.FooterFG)
 		}
@@ -322,21 +978,38 @@ func (sv *StatusViewModel) renderActionBar() string {
 		}
 	}
 
-	parts := []string{}
+	if sv.HasActiveInput() {
+		entries := make([]string, 0, len(sv.Config.Actions)+2)
+		entries = append(entries, fkeyStyle.Render("Enter")+" submit")
+		for _, action := range sv.Config.Actions {
+			key := sv.displayInputActionKey(action.Keys)
+			if key != "" && action.Label != "" {
+				entries = append(entries, fkeyStyle.Render(key)+" "+action.Label)
+			}
+		}
+		escLabel := "quit"
+		if sv.Input.Value() != "" {
+			escLabel = "clear"
+		}
+		entries = append(entries, fkeyStyle.Render("Esc")+" "+escLabel)
+		return fitFooterParts(entries, sv.Width)
+	}
+
+	entries := make([]string, 0, len(sv.Config.Actions)+1)
 
 	// Configured actions
 	for _, action := range sv.Config.Actions {
 		key := sv.displayKeyForMode(action.Keys)
 		if key != "" && action.Label != "" {
-			parts = append(parts, fkeyStyle.Render(key), action.Label)
+			entries = append(entries, fkeyStyle.Render(key)+" "+action.Label)
 		}
 	}
 
 	// Quit action (always present)
 	quitKey := sv.quitKeyDisplay()
-	parts = append(parts, fkeyStyle.Render(quitKey), "quit")
+	entries = append(entries, fkeyStyle.Render(quitKey)+" quit")
 
-	return strings.Join(parts, " ")
+	return fitFooterParts(entries, sv.Width)
 }
 
 // getTitleText extracts the title from the data using the schema's TitleField.

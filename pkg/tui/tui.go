@@ -163,6 +163,12 @@ func Run(root interface{}, cfg Config, opts ...tea.ProgramOption) error {
 		if cfg.Done != nil {
 			m.DoneChan = cfg.Done
 		}
+		if cfg.OnStatusInput != nil {
+			m.OnStatusInput = cfg.OnStatusInput
+		}
+		if cfg.OpenURL != nil {
+			m.OpenURLFn = cfg.OpenURL
+		}
 		if cfg.ExpressionProvider != nil {
 			m.ExprProvider = cfg.ExpressionProvider
 		}
@@ -238,6 +244,15 @@ func RenderSnapshot(root interface{}, cfg Config) string {
 		}
 		if cfg.DisplaySchema != nil {
 			m.DisplaySchema = cfg.DisplaySchema
+		}
+		if cfg.Done != nil {
+			m.DoneChan = cfg.Done
+		}
+		if cfg.OnStatusInput != nil {
+			m.OnStatusInput = cfg.OnStatusInput
+		}
+		if cfg.OpenURL != nil {
+			m.OpenURLFn = cfg.OpenURL
 		}
 		if cfg.ExpressionProvider != nil {
 			m.ExprProvider = cfg.ExpressionProvider

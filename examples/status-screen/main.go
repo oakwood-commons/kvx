@@ -12,7 +12,8 @@ import (
 func main() {
 	keyMode := flag.String("key-mode", "vim", "keybinding mode: vim, emacs, or function")
 	noTUI := flag.Bool("no-tui", false, "disable TUI, use plain text output")
-	timeout := flag.Duration("timeout", 10*time.Second, "simulated auth timeout")
+	withInput := flag.Bool("with-input", false, "enable inline status text input")
+	timeout := flag.Duration("timeout", 10*time.Second, "simulated wait timeout")
 	flag.Parse()
 
 	data := map[string]any{
@@ -83,6 +84,22 @@ func main() {
 	cfg.DisplaySchema = schema
 	cfg.KeyMode = *keyMode
 	cfg.Done = done
+	// Optional custom URL opener for "open-url" actions (falls back to tui.OpenURL when nil).
+	cfg.OpenURL = tui.OpenURL
+	if *withInput {
+		schema.Status.Input = &tui.StatusInputConfig{
+			Label:       "Paste callback URL:",
+			Placeholder: "http://localhost:8080/callback?token=...",
+			Masked:      true,
+		}
+		cfg.OnStatusInput = func(val string) error {
+			if len(val) < 8 {
+				return fmt.Errorf("expected callback URL of at least 8 characters")
+			}
+			done <- tui.StatusResult{Message: "Completed via inline input"}
+			return nil
+		}
+	}
 
 	if err := tui.Run(data, cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)

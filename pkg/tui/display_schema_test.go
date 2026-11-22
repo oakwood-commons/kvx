@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"encoding/json"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -334,6 +336,73 @@ func TestParseDisplaySchema_Status(t *testing.T) {
 	assert.Equal(t, "url", ds.Status.Actions[1].Field)
 }
 
+func TestParseDisplaySchema_StatusInput_StandaloneStatusKey(t *testing.T) {
+	doc := `{
+		"displaySchema": "v1",
+		"status": {
+			"titleField": "title",
+			"waitMessage": "Waiting for callback...",
+			"input": {
+				"label": "Paste callback URL:",
+				"placeholder": "http://localhost:8080/callback?token=...",
+				"prompt": "> ",
+				"masked": true,
+				"maxLength": 4096
+			}
+		}
+	}`
+
+	ds, err := ParseDisplaySchema([]byte(doc))
+	require.NoError(t, err)
+	require.NotNil(t, ds.Status)
+	require.NotNil(t, ds.Status.Input)
+	assert.Equal(t, "Paste callback URL:", ds.Status.Input.Label)
+	assert.Equal(t, "http://localhost:8080/callback?token=...", ds.Status.Input.Placeholder)
+	assert.Equal(t, "> ", ds.Status.Input.Prompt)
+	assert.True(t, ds.Status.Input.Masked)
+	assert.Equal(t, 4096, ds.Status.Input.MaxLength)
+}
+
+func TestParseDisplaySchema_StatusInput_StandaloneXKvxStatus(t *testing.T) {
+	doc := `{
+		"displaySchema": "v1",
+		"x-kvx-status": {
+			"titleField": "title",
+			"input": {
+				"label": "Enter verification code:",
+				"placeholder": "XXXX-XXXX",
+				"masked": false,
+				"maxLength": 64
+			}
+		}
+	}`
+
+	ds, err := ParseDisplaySchema([]byte(doc))
+	require.NoError(t, err)
+	require.NotNil(t, ds.Status)
+	require.NotNil(t, ds.Status.Input)
+	assert.Equal(t, "Enter verification code:", ds.Status.Input.Label)
+	assert.Equal(t, "XXXX-XXXX", ds.Status.Input.Placeholder)
+	assert.False(t, ds.Status.Input.Masked)
+	assert.Equal(t, 64, ds.Status.Input.MaxLength)
+}
+
+func TestParseDisplaySchema_StatusInput_NegativeMaxLength(t *testing.T) {
+	doc := `{
+		"displaySchema": "v1",
+		"status": {
+			"titleField": "title",
+			"input": {
+				"maxLength": -1
+			}
+		}
+	}`
+
+	_, err := ParseDisplaySchema([]byte(doc))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "status.input.maxLength")
+}
+
 func TestParseDisplaySchema_StatusMissingTitleField(t *testing.T) {
 	doc := `{
 		"displaySchema": "v1",
@@ -426,6 +495,160 @@ func TestParseSchemaWithDisplay_StatusExtension(t *testing.T) {
 	assert.Equal(t, "Please wait...", ds.Status.WaitMessage)
 	require.Len(t, ds.Status.Actions, 1)
 	assert.Equal(t, "Copy token", ds.Status.Actions[0].Label)
+}
+
+func TestParseSchemaWithDisplay_StatusInputExtension(t *testing.T) {
+	schema := `{
+		"type": "object",
+		"x-kvx-status": {
+			"titleField": "title",
+			"waitMessage": "Waiting for callback...",
+			"input": {
+				"label": "Paste callback URL:",
+				"placeholder": "http://localhost:8080/callback",
+				"prompt": ">> ",
+				"masked": true,
+				"maxLength": 2048
+			}
+		},
+		"properties": {
+			"title": {"type": "string"}
+		}
+	}`
+
+	_, ds, err := ParseSchemaWithDisplay([]byte(schema))
+	require.NoError(t, err)
+	require.NotNil(t, ds)
+	require.NotNil(t, ds.Status)
+	require.NotNil(t, ds.Status.Input)
+	assert.Equal(t, "Paste callback URL:", ds.Status.Input.Label)
+	assert.Equal(t, "http://localhost:8080/callback", ds.Status.Input.Placeholder)
+	assert.Equal(t, ">> ", ds.Status.Input.Prompt)
+	assert.True(t, ds.Status.Input.Masked)
+	assert.Equal(t, 2048, ds.Status.Input.MaxLength)
+}
+
+func TestParseSchemaWithDisplay_StatusInputNegativeMaxLength(t *testing.T) {
+	tests := []struct {
+		name      string
+		maxLength string
+	}{
+		{name: "negative integer", maxLength: "-10"},
+		{name: "negative fraction -0.5", maxLength: "-0.5"},
+		{name: "positive fraction 12.5", maxLength: "12.5"},
+		{name: "non-numeric string", maxLength: `"64"`},
+		{name: "boolean", maxLength: "true"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			schema := `{
+				"type": "object",
+				"x-kvx-status": {
+					"titleField": "title",
+					"input": {
+						"maxLength": ` + tt.maxLength + `
+					}
+				},
+				"properties": {
+					"title": {"type": "string"}
+				}
+			}`
+
+			_, _, err := ParseSchemaWithDisplay([]byte(schema))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "status.input.maxLength")
+
+			standalone := `{
+				"displaySchema": "v1",
+				"x-kvx-status": {
+					"titleField": "title",
+					"input": {
+						"maxLength": ` + tt.maxLength + `
+					}
+				}
+			}`
+			_, err = ParseDisplaySchema([]byte(standalone))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "status.input.maxLength")
+		})
+	}
+}
+
+func TestParseStatusInputMaxLength_EdgeCases(t *testing.T) {
+	n, err := parseStatusInputMaxLength(float64(0))
+	require.NoError(t, err)
+	assert.Equal(t, 0, n)
+
+	n, err = parseStatusInputMaxLength(256)
+	require.NoError(t, err)
+	assert.Equal(t, 256, n)
+
+	n, err = parseStatusInputMaxLength(int64(512))
+	require.NoError(t, err)
+	assert.Equal(t, 512, n)
+
+	n, err = parseStatusInputMaxLength(json.Number("1024"))
+	require.NoError(t, err)
+	assert.Equal(t, 1024, n)
+
+	for _, bad := range []any{
+		-1,
+		int64(-5),
+		-0.5,
+		12.5,
+		math.NaN(),
+		math.Inf(1),
+		float64(math.MaxInt64),
+		json.Number("-3"),
+		json.Number("12.5"),
+		"64",
+	} {
+		_, err = parseStatusInputMaxLength(bad)
+		assert.Error(t, err, "expected error for %v (%T)", bad, bad)
+	}
+}
+
+func TestParseStatusExtension_RejectsInvalidInputFieldTypes(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		field string
+	}{
+		{name: "non-boolean masked string", input: `{"masked": "true"}`, field: "status.input.masked"},
+		{name: "non-boolean masked number", input: `{"masked": 1}`, field: "status.input.masked"},
+		{name: "non-string label", input: `{"label": 42}`, field: "status.input.label"},
+		{name: "non-string placeholder", input: `{"placeholder": false}`, field: "status.input.placeholder"},
+		{name: "non-string prompt", input: `{"prompt": []}`, field: "status.input.prompt"},
+		{name: "non-object input", input: `"not-an-object"`, field: "status.input"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			schema := `{
+				"type": "object",
+				"x-kvx-status": {
+					"titleField": "title",
+					"input": ` + tt.input + `
+				},
+				"properties": {"title": {"type": "string"}}
+			}`
+			_, _, err := ParseSchemaWithDisplay([]byte(schema))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.field)
+
+			standalone := `{
+				"displaySchema": "v1",
+				"x-kvx-status": {
+					"titleField": "title",
+					"input": ` + tt.input + `
+				}
+			}`
+			_, err = ParseDisplaySchema([]byte(standalone))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.field)
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------

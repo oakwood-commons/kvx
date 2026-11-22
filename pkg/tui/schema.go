@@ -83,7 +83,7 @@ func ParseSchema(schemaJSON []byte) (map[string]ColumnHint, error) {
 // ParseSchemaWithDisplay extracts both [ColumnHint] values and an optional
 // [DisplaySchema] from a JSON Schema document. The display schema is derived
 // from x-kvx-* vendor extension keys (e.g., x-kvx-list, x-kvx-detail,
-// x-kvx-icon, x-kvx-collectionTitle).
+// x-kvx-status, x-kvx-icon, x-kvx-collectionTitle).
 //
 // When no x-kvx-* extensions are present, the returned *DisplaySchema is nil.
 // This function is a superset of [ParseSchema].
@@ -96,7 +96,10 @@ func ParseSchemaWithDisplay(schemaJSON []byte) (map[string]ColumnHint, *DisplayS
 	if err != nil {
 		return nil, nil, err
 	}
-	ds := extractDisplaySchemaFromJSONSchema(raw)
+	ds, err := extractDisplaySchemaFromJSONSchema(raw)
+	if err != nil {
+		return hints, nil, err
+	}
 	if ds != nil {
 		if err := validateDisplaySchema(ds); err != nil {
 			return hints, nil, err

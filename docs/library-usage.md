@@ -371,6 +371,85 @@ output := tui.RenderSnapshot(root, cfg)
 fmt.Print(output)
 ```
 
+### Status screens and inline input
+
+Use `StatusDisplayConfig` (`DisplaySchema.Status` or JSON Schema `x-kvx-status`) to render an async waiting screen with display fields, hotkey actions, and an optional frame-1 focused inline text input (`StatusInputConfig`):
+
+```go
+done := make(chan tui.StatusResult, 1)
+
+cfg := tui.DefaultConfig()
+cfg.AppName = "my-app"
+cfg.Done = done
+cfg.DisplaySchema = &tui.DisplaySchema{
+    Version: "v1",
+    Status: &tui.StatusDisplayConfig{
+        TitleField:   "title",
+        WaitMessage:  "Waiting for callback...",
+        DisplayFields: []tui.StatusFieldDisplay{
+            {Label: "Endpoint", Field: "url"},
+        },
+        Actions: []tui.StatusActionConfig{
+            {
+                Label: "Copy URL",
+                Type:  "copy-value",
+                Field: "url",
+                Keys:  tui.StatusKeyBindings{Vim: "c", Emacs: "alt+c", Function: "f2"},
+            },
+            {
+                Label: "Open URL",
+                Type:  "open-url",
+                Field: "url",
+                Keys:  tui.StatusKeyBindings{Vim: "o", Emacs: "alt+o", Function: "f3"},
+            },
+        },
+        Input: &tui.StatusInputConfig{
+            Label:       "Paste callback URL:",
+            Placeholder: "http://localhost:8080/callback?token=...",
+            Masked:      true,
+        },
+    },
+}
+cfg.OnStatusInput = func(value string) error {
+    // Return a non-nil error to clear the buffer and display a retry warning.
+    // Return nil to mark submitted while continuing to await Done.
+    return processCallbackURL(value)
+}
+cfg.OpenURL = func(url string) error {
+    // Optional custom URL opener for "open-url" status actions.
+    return tui.OpenURL(url)
+}
+```
+
+You can also declare status input settings via JSON Schema vendor extensions (`x-kvx-status.input`) parsed with `tui.ParseSchemaWithDisplay` or standalone display schemas parsed with `tui.ParseDisplaySchema`:
+
+```json
+{
+  "type": "object",
+  "x-kvx-status": {
+    "titleField": "title",
+    "waitMessage": "Waiting for callback...",
+    "input": {
+      "label": "Paste callback URL:",
+      "placeholder": "http://localhost:8080/callback?token=...",
+      "prompt": "> ",
+      "masked": true,
+      "maxLength": 4096
+    }
+  }
+}
+```
+
+`StatusInputConfig` fields:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `Label` | `string` | Optional helper text rendered above the input prompt |
+| `Placeholder` | `string` | Placeholder shown inside the input when empty |
+| `Prompt` | `string` | Prefix shown before the text input (default: `"> "` / theme prompt) |
+| `Masked` | `bool` | Echoes bullet characters, renders `(N chars)` when non-empty, and skips keystroke debug logging |
+| `MaxLength` | `int` | Maximum accepted input length in runes (`0` uses the default `8192`; negative values fail schema validation) |
+
 ---
 
 ## Custom CEL Functions
@@ -441,6 +520,7 @@ these global setters.
 | [examples/embed-tui](../examples/embed-tui/) | Load a file, render a bordered table or launch the TUI | `go run ./examples/embed-tui sample.json` |
 | [examples/custom_struct](../examples/custom_struct/) | Load Go structs, evaluate CEL expressions | `go run ./examples/custom_struct` |
 | [examples/core-cli](../examples/core-cli/) | Headless CLI — load, evaluate, render (no TUI) | `go run ./examples/core-cli data.yaml "_.items[0]"` |
+| [examples/status-screen](../examples/status-screen/) | Async status screen with actions and optional inline input | `go run ./examples/status-screen -with-input` |
 
 ---
 
@@ -477,6 +557,9 @@ these global setters.
 | `tui.NewCELExpressionProvider(env, hints)` | Create an expression provider from a CEL env |
 | `tui.SetExpressionProvider(p)` | Override the global expression provider |
 | `tui.ResetExpressionProvider()` | Restore the default provider |
+| `tui.ParseDisplaySchema(data)` | Parse a standalone `DisplaySchema` JSON document |
+| `tui.ParseSchemaWithDisplay(schemaJSON)` | Extract `ColumnHint` values and `x-kvx-*` `DisplaySchema` from JSON Schema |
+| `tui.OpenURL(url)` | Open a URL in the default system browser |
 
 ### `tui.ColumnHint` fields
 
