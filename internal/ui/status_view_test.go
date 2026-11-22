@@ -1144,3 +1144,173 @@ func TestRenderModelSnapshot_StatusInputAndOpenURL(t *testing.T) {
 	assert.NotContains(t, snap, "localhost:8080")
 	assert.Contains(t, snap, "Opened in browser")
 }
+
+// collectStatusInputResultFromCmd executes a tea.Cmd (flattening tea.BatchMsg)
+// concurrently and returns the first statusInputResultMsg produced.
+func collectStatusInputResultFromCmd(t *testing.T, cmd tea.Cmd) statusInputResultMsg {
+	t.Helper()
+	require.NotNil(t, cmd)
+
+	out := make(chan statusInputResultMsg, 4)
+	var run func(tea.Cmd)
+	run = func(c tea.Cmd) {
+		if c == nil {
+			return
+		}
+		msg := c()
+		switch v := msg.(type) {
+		case tea.BatchMsg:
+			for _, sub := range v {
+				go run(sub)
+			}
+		case statusInputResultMsg:
+			out <- v
+		}
+	}
+	go run(cmd)
+
+	select {
+	case res := <-out:
+		return res
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for statusInputResultMsg from Init() startup commands")
+		return statusInputResultMsg{}
+	}
+}
+
+func TestApplyStartupKeys_StatusInputSubmit_PreservesCommandInInit_SuccessAndError(t *testing.T) {
+	data := testStatusData()
+
+	t.Run("success resets InputSubmitting and marks InputSubmitted", func(t *testing.T) {
+		schema := testStatusInputSchema(true)
+		done := make(chan StatusResult, 1)
+		defer close(done)
+
+		var submittedVal string
+		m := InitialModel(data)
+		m.Root = data
+		m.DisplaySchema = schema
+		m.DoneChan = done
+		m.WinWidth = 100
+		m.WinHeight = 24
+		m.NoColor = true
+		m.OnStatusInput = func(val string) error {
+			submittedVal = val
+			return nil
+		}
+		m.updateViewMode(data)
+
+		ApplyStartupKeys(&m, []string{"https://localhost:8400/callback?code=abc", "<CR>"})
+		assert.True(t, m.StatusViewState.InputSubmitting, "InputSubmitting set while command awaits Init() execution")
+		assert.NotEmpty(t, m.PendingStartupCmds, "ApplyStartupKeys must preserve returned submission command")
+
+		initCmd := m.Init()
+		assert.Empty(t, m.PendingStartupCmds, "Model.Init() must drain PendingStartupCmds")
+
+		resultMsg := collectStatusInputResultFromCmd(t, initCmd)
+		require.NoError(t, resultMsg.Err)
+		assert.Equal(t, "https://localhost:8400/callback?code=abc", submittedVal)
+
+		updated, _ := m.Update(resultMsg)
+		mAfter := updated.(*Model)
+		assert.False(t, mAfter.StatusViewState.InputSubmitting)
+		assert.True(t, mAfter.StatusViewState.InputSubmitted)
+		assert.Equal(t, "✓ Submitted", mAfter.StatusViewState.FlashMsg)
+	})
+
+	t.Run("error resets InputSubmitting and leaves input interactive for retry", func(t *testing.T) {
+		schema := testStatusInputSchema(false)
+		done := make(chan StatusResult, 1)
+		defer close(done)
+
+		calls := 0
+		var lastSubmitted string
+		m := InitialModel(data)
+		m.Root = data
+		m.DisplaySchema = schema
+		m.DoneChan = done
+		m.WinWidth = 100
+		m.WinHeight = 24
+		m.NoColor = true
+		m.OnStatusInput = func(val string) error {
+			calls++
+			lastSubmitted = val
+			if calls == 1 {
+				return assert.AnError
+			}
+			return nil
+		}
+		m.updateViewMode(data)
+
+		ApplyStartupKeys(&m, []string{"https://localhost:8400/callback?code=bad", "<CR>"})
+		initCmd := m.Init()
+		resultMsg := collectStatusInputResultFromCmd(t, initCmd)
+		require.ErrorIs(t, resultMsg.Err, assert.AnError)
+		assert.Equal(t, "https://localhost:8400/callback?code=bad", lastSubmitted)
+
+		updated, _ := m.Update(resultMsg)
+		mAfter := updated.(*Model)
+		assert.False(t, mAfter.StatusViewState.InputSubmitting, "InputSubmitting must reset after startup submit error")
+		assert.False(t, mAfter.StatusViewState.InputSubmitted)
+		assert.True(t, mAfter.StatusViewState.Input.Focused())
+		assert.Contains(t, mAfter.StatusViewState.FlashMsg, "⚠")
+
+		// Verify input accepts subsequent paste, Esc clear, typing, and re-submission.
+		updated, _ = mAfter.Update(tea.PasteMsg{Content: "draft"})
+		mAfter = updated.(*Model)
+		assert.Equal(t, "draft", mAfter.StatusViewState.Input.Value())
+
+		updated, _ = mAfter.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+		mAfter = updated.(*Model)
+		assert.Empty(t, mAfter.StatusViewState.Input.Value())
+
+		updated, _ = mAfter.Update(tea.PasteMsg{Content: "https://localhost:8400/callback?code=good"})
+		mAfter = updated.(*Model)
+		updated, retryCmd := mAfter.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+		mAfter = updated.(*Model)
+		require.NotNil(t, retryCmd)
+		updated, _ = mAfter.Update(retryCmd())
+		mAfter = updated.(*Model)
+		assert.Equal(t, 2, calls)
+		assert.Equal(t, "https://localhost:8400/callback?code=good", lastSubmitted)
+		assert.False(t, mAfter.StatusViewState.InputSubmitting)
+		assert.True(t, mAfter.StatusViewState.InputSubmitted)
+	})
+}
+
+func TestRenderModelSnapshot_StatusInputStartupSubmitSettles(t *testing.T) {
+	data := map[string]any{"title": "Verify Session"}
+	schema := &DisplaySchema{
+		Version: "v1",
+		Status: &StatusDisplayConfig{
+			TitleField:  "title",
+			WaitMessage: "Waiting for callback...",
+			Input: &StatusInputConfig{
+				Label:  "Paste callback URL:",
+				Masked: true,
+			},
+		},
+	}
+
+	var submitted string
+	done := make(chan StatusResult, 1)
+	snap := RenderModelSnapshot(data, ModelSnapshotConfig{
+		Width:     100,
+		Height:    20,
+		NoColor:   true,
+		AppName:   "kvx",
+		StartKeys: []string{"https://localhost:8400/callback?code=abc", "<CR>"},
+		Configure: func(m *Model) {
+			m.DisplaySchema = schema
+			m.DoneChan = done
+			m.OnStatusInput = func(val string) error {
+				submitted = val
+				return nil
+			}
+		},
+	})
+
+	assert.Equal(t, "https://localhost:8400/callback?code=abc", submitted)
+	assert.Contains(t, snap, "Submitted")
+	assert.NotContains(t, snap, "Paste callback URL:", "input hides after startup <CR> submission succeeds")
+}

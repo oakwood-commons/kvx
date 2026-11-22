@@ -46,6 +46,7 @@ type StatusViewModel struct {
 	Input           textinput.Model
 	InputSubmitted  bool
 	InputSubmitting bool
+	lastSubmitCmd   tea.Cmd
 	OnStatusInput   StatusInputSubmitFunc
 	OpenURLFn       func(url string) error
 
@@ -216,6 +217,7 @@ func (sv *StatusViewModel) Update(msg tea.Msg) (CustomView, tea.Cmd) {
 			sv.Input.SetCursor(0)
 			sv.Input.Blur()
 			sv.InputSubmitting = false
+			sv.lastSubmitCmd = nil
 		}
 		if msg.Err != nil {
 			sv.Phase = statusPhaseError
@@ -241,6 +243,7 @@ func (sv *StatusViewModel) Update(msg tea.Msg) (CustomView, tea.Cmd) {
 			sv.Input.SetCursor(0)
 			sv.Input.Blur()
 			sv.InputSubmitting = false
+			sv.lastSubmitCmd = nil
 		}
 		sv.Phase = statusPhaseSuccess
 		if sv.Config.SuccessMessage != "" {
@@ -261,6 +264,7 @@ func (sv *StatusViewModel) Update(msg tea.Msg) (CustomView, tea.Cmd) {
 
 	case statusInputResultMsg:
 		sv.InputSubmitting = false
+		sv.lastSubmitCmd = nil
 		if sv.Phase != statusPhaseWaiting {
 			return sv, nil
 		}
@@ -338,9 +342,11 @@ func (sv *StatusViewModel) handleKey(msg tea.KeyPressMsg) (*StatusViewModel, tea
 			}
 			sv.InputSubmitting = true
 			submitFn := sv.OnStatusInput
-			return sv, func() tea.Msg {
+			submitCmd := func() tea.Msg {
 				return statusInputResultMsg{Err: submitFn(val)}
 			}
+			sv.lastSubmitCmd = submitCmd
+			return sv, submitCmd
 		}
 
 		// Match only modifier/function action keys so bare single-character keys

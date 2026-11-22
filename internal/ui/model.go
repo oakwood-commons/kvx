@@ -263,9 +263,10 @@ type Model struct {
 	preRawDetailScrollTop int
 
 	// Status screen async completion and callbacks (set by library consumers via tui.Config)
-	DoneChan      <-chan StatusResult    // Optional channel signaling async operation completion
-	OnStatusInput StatusInputSubmitFunc  // Optional callback for StatusDisplayConfig.Input submissions
-	OpenURLFn     func(url string) error // Optional custom URL opener for status "open-url" actions
+	DoneChan           <-chan StatusResult    // Optional channel signaling async operation completion
+	OnStatusInput      StatusInputSubmitFunc  // Optional callback for StatusDisplayConfig.Input submissions
+	OpenURLFn          func(url string) error // Optional custom URL opener for status "open-url" actions
+	PendingStartupCmds []tea.Cmd              // Commands emitted during ApplyStartupKeys, flushed in Init()
 
 	// ExprProvider overrides CEL expression evaluation when set.
 	// It allows library consumers to inject custom expression handling.
@@ -3016,6 +3017,10 @@ func (m *Model) Init() tea.Cmd {
 	m.syncPathInputWithCursor()
 	if cv := m.activeCustomView(); cv != nil {
 		cmds = append(cmds, cv.Init())
+	}
+	if len(m.PendingStartupCmds) > 0 {
+		cmds = append(cmds, m.PendingStartupCmds...)
+		m.PendingStartupCmds = nil
 	}
 	return tea.Batch(cmds...)
 }

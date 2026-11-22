@@ -61,6 +61,18 @@ func renderModelLayoutSnapshot(node interface{}, cfg ModelSnapshotConfig) string
 	}
 	if len(cfg.StartKeys) > 0 {
 		ApplyStartupKeys(&m, cfg.StartKeys)
+		// In snapshot mode there is no Bubble Tea event loop to run Model.Init(),
+		// so settle any pending status-input submission triggered by StartKeys.
+		if m.ViewMode == "status" && m.StatusViewState != nil &&
+			m.StatusViewState.InputSubmitting && m.StatusViewState.lastSubmitCmd != nil {
+			submitMsg := m.StatusViewState.lastSubmitCmd()
+			if updated, _ := m.Update(submitMsg); updated != nil {
+				if um, ok := updated.(*Model); ok {
+					m = *um
+				}
+			}
+		}
+		m.PendingStartupCmds = nil
 	}
 	if containsF1(cfg.StartKeys) {
 		m.HelpVisible = true

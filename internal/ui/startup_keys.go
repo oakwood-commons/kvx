@@ -12,6 +12,18 @@ func ApplyStartupKeys(m *Model, keys []string) {
 	if len(keys) == 0 || m == nil {
 		return
 	}
+	applyMsg := func(msg tea.KeyPressMsg) {
+		updated, cmd := m.Update(msg)
+		if updated != nil {
+			if um, ok := updated.(*Model); ok {
+				*m = *um
+			}
+		}
+		if cmd != nil {
+			m.PendingStartupCmds = append(m.PendingStartupCmds, cmd)
+		}
+	}
+
 	sawEsc := false
 	for _, raw := range keys {
 		token := strings.TrimSpace(raw)
@@ -22,12 +34,7 @@ func ApplyStartupKeys(m *Model, keys []string) {
 		if strings.HasPrefix(token, `\`) {
 			token = strings.TrimPrefix(token, `\`)
 			for _, r := range token {
-				msg := tea.KeyPressMsg{Code: r, Text: string(r)}
-				if updated, _ := m.Update(msg); updated != nil {
-					if um, ok := updated.(*Model); ok {
-						*m = *um
-					}
-				}
+				applyMsg(tea.KeyPressMsg{Code: r, Text: string(r)})
 			}
 			continue
 		}
@@ -43,22 +50,13 @@ func ApplyStartupKeys(m *Model, keys []string) {
 						if msg.Code == tea.KeyEscape {
 							sawEsc = true
 						}
-						if updated, _ := m.Update(msg); updated != nil {
-							if um, ok := updated.(*Model); ok {
-								*m = *um
-							}
-						}
+						applyMsg(msg)
 					}
 				}
 			} else {
 				// Process as literal text
 				for _, r := range segment.text {
-					msg := tea.KeyPressMsg{Code: r, Text: string(r)}
-					if updated, _ := m.Update(msg); updated != nil {
-						if um, ok := updated.(*Model); ok {
-							*m = *um
-						}
-					}
+					applyMsg(tea.KeyPressMsg{Code: r, Text: string(r)})
 				}
 			}
 		}
