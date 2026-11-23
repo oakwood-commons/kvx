@@ -89,7 +89,7 @@ root, err := core.LoadObject(myStruct)
 
 ### Custom structs
 
-`LoadObject` automatically converts structs to maps via JSON serialization so they work with the expression engine:
+`LoadObject` automatically normalizes structs to maps (respecting `json` and `yaml` struct tags) so they work seamlessly with the expression engine:
 
 ```go
 type Artifact struct {
@@ -150,6 +150,43 @@ _.items.size()                       # list length
 _.name.startsWith("api")            # string functions
 _.count > 10 ? "high" : "low"       # ternary
 ```
+
+### Filtering Lists (`FilterWhere` and `ErrNotList`)
+
+Use `engine.FilterWhere(expr, root)` to apply a per-item CEL boolean predicate (`_` bound to each item) across any slice or array -- including typed Go struct slices (`[]Summary`, `[]*Summary`), `[]map[string]any`, and `[]any`:
+
+~~~go
+type Summary struct {
+    Name       string `json:"name" yaml:"name"`
+    Deprecated bool   `json:"deprecated" yaml:"deprecated"`
+}
+
+providers := []Summary{
+    {Name: "http", Deprecated: false},
+    {Name: "legacy", Deprecated: true},
+}
+
+engine, _ := core.New()
+
+filtered, err := engine.FilterWhere(`_.name == "http" && !_.deprecated`, providers)
+if errors.Is(err, core.ErrNotList) {
+    // Non-list input (map, struct, scalar, []byte, nil): safe no-op for uniform --where flags.
+    filtered = providers
+    err = nil
+}
+if err != nil {
+    log.Fatal(err)
+}
+// filtered is a non-nil []any (marshals to "[]" via encoding/json when 0 items match, never "null")
+~~~
+
+Key behaviors:
+
+- Accepts any Go slice or array except `[]byte` (byte slices are treated as scalar bytes and return `core.ErrNotList`).
+- Typed `nil` slices (for example `var items []Summary`) are treated as empty lists and return `[]any{}` without error.
+- Struct and pointer-to-struct elements are normalized to `map[string]any` respecting `json` and `yaml` struct tags, so predicates like `_.name == "http"` behave identically across `[]Summary`, `[]*Summary`, and `[]map[string]any`.
+- Zero matches always return a non-nil `[]any{}` slice so `json.Marshal` produces `[]`, never `null`.
+- Non-list inputs return an error wrapping `core.ErrNotList` (`errors.Is(err, core.ErrNotList)`).
 
 ---
 
@@ -493,7 +530,7 @@ tui.Run(root, cfg)
 
 ## Concurrency
 
-`tui.RenderTable`/`tui.RenderList` and `core.Engine.Rows`/`RenderTable` are
+`tui.RenderTable`/`tui.RenderList` and `core.Engine.Rows`/`RenderTable`/`FilterWhere`/`EvaluateWhere` are
 safe to call from multiple goroutines concurrently, including with different
 per-call options (theme, `MaxValueLines`): each call builds its own render
 state instead of mutating shared package globals. Sort order is per-call-safe
@@ -536,6 +573,9 @@ these global setters.
 | `core.LoadObject(value)` | Wrap a Go value (map, slice, struct) |
 | `core.New(opts...)` | Create an `Engine` with defaults |
 | `engine.Evaluate(expr, root)` | Run a CEL expression |
+| `engine.FilterWhere(expr, root)` | Filter a slice/array per item via CEL (`_` = item); returns non-nil `[]any{}` on 0 matches, wraps `core.ErrNotList` on non-list input |
+| `engine.EvaluateWhere(expr, root)` | Typed `([]any, error)` variant of `FilterWhere`; wraps `core.ErrNotList` on non-list input |
+| `core.ErrNotList` | Sentinel error matched via `errors.Is(err, core.ErrNotList)` when `FilterWhere`/`EvaluateWhere` receives non-list data |
 | `engine.NodeAtPath(root, path)` | Navigate to a nested node |
 | `engine.Rows(node)` | Convert a node to `[][]string` rows |
 | `engine.RenderTable(node, noColor, keyW, valW, columnOrder)` | Render a plain KEY/VALUE table (no columnar detection -- use `tui.RenderTable` for arrays) |

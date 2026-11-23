@@ -14,11 +14,11 @@ This happens because CEL (the expression language used by kvx) needs to convert 
 
 ## The Solution
 
-kvx now automatically converts custom structs to maps via JSON serialization when you use `LoadObject()`. This ensures:
+kvx automatically normalizes custom structs to maps (respecting `json` and `yaml` struct tags) when you use `LoadObject()`, `FilterWhere()`, or `EvaluateWhere()`. This ensures:
 
 1. **Full CEL Compatibility**: Expressions can be evaluated on custom data
-2. **Data Preservation**: JSON tags are respected, so your struct data is preserved
-3. **Transparent**: No special handling needed - just pass your struct to `LoadObject()`
+2. **Data Preservation**: JSON and YAML struct tags are respected, so your struct field names and types are preserved
+3. **Transparent**: Pass structs or typed struct slices (`[]MyStruct`, `[]*MyStruct`) directly -- `FilterWhere` also wraps `core.ErrNotList` on non-list inputs
 
 ## Usage
 
