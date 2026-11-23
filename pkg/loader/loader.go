@@ -289,7 +289,7 @@ func LoadFileWithLogger(path string, lgr logr.Logger) (interface{}, error) {
 
 // LoadObject accepts an already parsed object (maps, slices, structs, etc.).
 // Strings and byte slices are parsed using the existing loaders for format detection.
-// Custom structs are converted to maps via JSON marshaling to ensure CEL compatibility.
+// Custom structs are normalized to maps (respecting json and yaml struct tags) for CEL compatibility.
 func LoadObject(value any) (interface{}, error) {
 	if value == nil {
 		return nil, fmt.Errorf("object input is nil")
@@ -306,86 +306,16 @@ func LoadObject(value any) (interface{}, error) {
 	case []byte:
 		return LoadRootBytes(v)
 	default:
-		// Convert to JSON-compatible type via marshal/unmarshal for CEL compatibility.
-		// This handles custom structs by converting them to maps, allowing CEL to
-		// evaluate expressions without "unsupported conversion to ref.Val" errors.
+		// Normalize custom structs, typed slices, and typed maps into CEL-compatible
+		// values while preserving existing map[string]any references when possible.
 		return normalizeCELType(value)
 	}
 }
 
-// normalizeCELType converts arbitrary Go types to JSON-compatible types that CEL can handle.
-// Custom structs are converted to maps via JSON marshaling. Standard types (maps, slices, primitives)
-// are returned as-is for efficiency. Slices are recursively normalized.
+// normalizeCELType converts arbitrary Go types to CEL-compatible maps, slices, and scalars.
+// Structs are converted to maps respecting json and yaml struct tags.
 func normalizeCELType(value interface{}) (interface{}, error) {
-	if value == nil {
-		return nil, nil
-	}
-
-	rv := reflect.ValueOf(value)
-	kind := rv.Kind()
-
-	// Handle pointer types - dereference once
-	if kind == reflect.Pointer {
-		if rv.IsNil() {
-			return nil, nil
-		}
-		rv = rv.Elem()
-		kind = rv.Kind()
-	}
-
-	// Standard JSON-compatible types that CEL can already handle
-	switch kind {
-	case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
-		reflect.Float32, reflect.Float64, reflect.String:
-		return value, nil
-	case reflect.Slice, reflect.Array:
-		// Recursively normalize slice elements to handle custom structs within slices
-		length := rv.Len()
-		normalized := make([]interface{}, length)
-		for i := 0; i < length; i++ {
-			elemVal := rv.Index(i).Interface()
-			val, err := normalizeCELType(elemVal)
-			if err != nil {
-				return nil, fmt.Errorf("element [%d]: %w", i, err)
-			}
-			normalized[i] = val
-		}
-		return normalized, nil
-	case reflect.Map:
-		// Maps are handled by CEL
-		return value, nil
-	case reflect.Interface:
-		// Recursively normalize interface values
-		return normalizeCELType(rv.Interface())
-	case reflect.Struct:
-		// Custom structs need to be converted via JSON to be CEL-compatible
-		// This respects struct tags (json, yaml, etc.)
-		data, err := json.Marshal(value)
-		if err != nil {
-			return nil, fmt.Errorf("cannot marshal custom type to JSON: %w", err)
-		}
-		var result interface{}
-		if err := json.Unmarshal(data, &result); err != nil {
-			return nil, fmt.Errorf("cannot unmarshal to standard type: %w", err)
-		}
-		return result, nil
-	case reflect.Chan, reflect.Func, reflect.Invalid, reflect.Complex64, reflect.Complex128, reflect.UnsafePointer, reflect.Pointer:
-		// These types cannot be reliably converted, attempt JSON conversion as last resort
-		data, err := json.Marshal(value)
-		if err != nil {
-			// If JSON marshaling fails, return the value as-is and let CEL attempt to handle it
-			return value, err
-		}
-		var result interface{}
-		if err := json.Unmarshal(data, &result); err != nil {
-			return value, err
-		}
-		return result, nil
-	default:
-		// This should not be reached if exhaustive checker is working correctly
-		return nil, fmt.Errorf("unsupported type: %v", kind)
-	}
+	return NormalizeValue(value)
 }
 
 // loadJSON parses a single JSON object or array and wraps it in []interface{}

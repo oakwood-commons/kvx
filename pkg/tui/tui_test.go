@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -392,4 +393,133 @@ type mockNavigator struct{}
 
 func (m *mockNavigator) NodeAtPath(root interface{}, path string) (interface{}, error) {
 	return root, nil
+}
+
+func TestRenderSnapshot_StatusInputAndCustomOpenURL(t *testing.T) {
+	data := map[string]any{
+		"title": "Verify Session",
+		"url":   "https://example.com/verify",
+		"messages": []any{
+			"Complete verification in your browser.",
+		},
+	}
+	schema := &DisplaySchema{
+		Version: "v1",
+		Status: &StatusDisplayConfig{
+			TitleField:   "title",
+			MessageField: "messages",
+			WaitMessage:  "Waiting for callback...",
+			DisplayFields: []StatusFieldDisplay{
+				{Label: "Endpoint", Field: "url"},
+			},
+			Actions: []StatusActionConfig{
+				{
+					Label: "Copy URL",
+					Type:  "copy-value",
+					Field: "url",
+					Keys:  StatusKeyBindings{Vim: "c", Emacs: "alt+c", Function: "f2"},
+				},
+				{
+					Label: "Open",
+					Type:  "open-url",
+					Field: "url",
+					Keys:  StatusKeyBindings{Vim: "o", Emacs: "alt+o", Function: "f3"},
+				},
+			},
+			Input: &StatusInputConfig{
+				Label:       "Paste callback URL from browser:",
+				Placeholder: "http://localhost:45189/?token=...",
+				Masked:      true,
+			},
+		},
+	}
+
+	done := make(chan StatusResult, 1)
+	var openedURL string
+
+	cfg := DefaultConfig()
+	cfg.AppName = "demo"
+	cfg.Width = 100
+	cfg.Height = 24
+	cfg.NoColor = true
+	cfg.DisplaySchema = schema
+	cfg.Done = done
+	cfg.OpenURL = func(u string) error {
+		openedURL = u
+		return nil
+	}
+
+	// Frame-1 snapshot: shows helper label, placeholder, waiting message, and safe footer hints.
+	frame1 := RenderSnapshot(data, cfg)
+	if !strings.Contains(frame1, "Paste callback URL from browser:") {
+		t.Fatalf("expected input label in snapshot, got:\n%s", frame1)
+	}
+	if !strings.Contains(frame1, "http://localhost:45189/?token=...") {
+		t.Fatalf("expected input placeholder in snapshot, got:\n%s", frame1)
+	}
+	if !strings.Contains(frame1, "Waiting for callback...") {
+		t.Fatalf("expected wait message in snapshot, got:\n%s", frame1)
+	}
+	if !strings.Contains(frame1, "Enter submit") || !strings.Contains(frame1, "F2/Alt+c") || !strings.Contains(frame1, "F3/Alt+o") {
+		t.Fatalf("expected active-input footer hints in snapshot, got:\n%s", frame1)
+	}
+
+	// Simulated raw-keystroke paste containing q, c, o, /, ?, f, e, v + F3 custom OpenURL trigger.
+	rawURL := "http://localhost:45189/verify?req=foo&token=qcovef"
+	cfg.StartKeys = []string{rawURL, "<F3>"}
+	afterPaste := RenderSnapshot(data, cfg)
+
+	if openedURL != "https://example.com/verify" {
+		t.Fatalf("expected custom OpenURL to receive https://example.com/verify, got %q", openedURL)
+	}
+	if strings.Contains(afterPaste, "qcovef") {
+		t.Fatalf("masked snapshot must not leak raw input text:\n%s", afterPaste)
+	}
+	if !strings.Contains(afterPaste, "(50 chars)") {
+		t.Fatalf("expected masked char counter (50 chars) in snapshot, got:\n%s", afterPaste)
+	}
+	if !strings.Contains(afterPaste, "•") {
+		t.Fatalf("expected bullet masking in snapshot, got:\n%s", afterPaste)
+	}
+	if !strings.Contains(afterPaste, "Opened in browser") {
+		t.Fatalf("expected open-url flash message in snapshot, got:\n%s", afterPaste)
+	}
+}
+
+func TestRenderSnapshot_StatusInputRejectedSubmissionShowsWarning(t *testing.T) {
+	data := map[string]any{
+		"title": "Verify Session",
+	}
+	schema := &DisplaySchema{
+		Version: "v1",
+		Status: &StatusDisplayConfig{
+			TitleField:  "title",
+			WaitMessage: "Waiting for callback...",
+			Input: &StatusInputConfig{
+				Label:  "Paste callback URL:",
+				Masked: true,
+			},
+		},
+	}
+
+	done := make(chan StatusResult, 1)
+	cfg := DefaultConfig()
+	cfg.AppName = "demo"
+	cfg.Width = 100
+	cfg.Height = 20
+	cfg.NoColor = true
+	cfg.DisplaySchema = schema
+	cfg.Done = done
+	cfg.StartKeys = []string{"bad-callback-url", "<CR>"}
+	cfg.OnStatusInput = func(string) error {
+		return errors.New("missing token query parameter")
+	}
+
+	snap := RenderSnapshot(data, cfg)
+	if !strings.Contains(snap, "missing token query parameter") {
+		t.Fatalf("expected rejected submission warning flash in snapshot, got:\n%s", snap)
+	}
+	if !strings.Contains(snap, "Paste callback URL:") {
+		t.Fatalf("expected input to remain visible for retry after rejected submission, got:\n%s", snap)
+	}
 }

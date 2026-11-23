@@ -262,8 +262,11 @@ type Model struct {
 	preRawListSearchQuery string
 	preRawDetailScrollTop int
 
-	// Status screen async completion (set by library consumers via Config.Done)
-	DoneChan <-chan StatusResult // Optional channel signaling async operation completion
+	// Status screen async completion and callbacks (set by library consumers via tui.Config)
+	DoneChan           <-chan StatusResult    // Optional channel signaling async operation completion
+	OnStatusInput      StatusInputSubmitFunc  // Optional callback for StatusDisplayConfig.Input submissions
+	OpenURLFn          func(url string) error // Optional custom URL opener for status "open-url" actions
+	PendingStartupCmds []tea.Cmd              // Commands emitted during ApplyStartupKeys, flushed in Init()
 
 	// ExprProvider overrides CEL expression evaluation when set.
 	// It allows library consumers to inject custom expression handling.
@@ -3015,6 +3018,10 @@ func (m *Model) Init() tea.Cmd {
 	if cv := m.activeCustomView(); cv != nil {
 		cmds = append(cmds, cv.Init())
 	}
+	if len(m.PendingStartupCmds) > 0 {
+		cmds = append(cmds, m.PendingStartupCmds...)
+		m.PendingStartupCmds = nil
+	}
 	return tea.Batch(cmds...)
 }
 
@@ -3365,6 +3372,26 @@ func (m *Model) SyncTableState(resetCursorToZero ...bool) {
 	}
 }
 
+// isModalBlockingInput reports whether a modal overlay (help, modal info popup,
+// or function palette) is currently visible and blocking background input.
+func (m *Model) isModalBlockingInput() bool {
+	return m.HelpVisible || (m.ShowInfoPopup && m.InfoPopupModal) || m.FunctionPalette.Visible
+}
+
+// isCursorBlinkMsg reports whether msg originates from Bubbles' cursor blink
+// lifecycle (e.g. cursor.BlinkMsg or unexported initialBlinkMsg) so cursor
+// state stays alive while modals block non-cursor messages like clipboard paste.
+func isCursorBlinkMsg(msg tea.Msg) bool {
+	if msg == nil {
+		return false
+	}
+	t := reflect.TypeOf(msg)
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	return t.PkgPath() == "charm.land/bubbles/v2/cursor"
+}
+
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	defer m.clearStickyErrorIfInputChanged()
@@ -3375,7 +3402,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	// Route status view messages when in status mode
-	case spinner.TickMsg, statusDoneMsg, statusTimeoutMsg, statusDoneTimerMsg, statusFlashClearMsg:
+	case spinner.TickMsg, statusDoneMsg, statusTimeoutMsg, statusDoneTimerMsg, statusFlashClearMsg, statusInputResultMsg:
 		if m.ViewMode == "status" && m.StatusViewState != nil {
 			var statusCmd tea.Cmd
 			var updated CustomView
@@ -3386,6 +3413,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, statusCmd
 		}
 		return m, nil
+
+	case tea.PasteMsg:
+		if m.isModalBlockingInput() {
+			return m, nil
+		}
+		if m.ViewMode == "status" && m.StatusViewState != nil {
+			var statusCmd tea.Cmd
+			var updated CustomView
+			updated, statusCmd = m.StatusViewState.Update(msg)
+			if sv, ok := updated.(*StatusViewModel); ok {
+				m.StatusViewState = sv
+			}
+			return m, statusCmd
+		}
 
 	case SearchDebounceMsg:
 		// Only execute search if this is the latest debounce request
@@ -3415,6 +3456,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Capture terminal size and adjust table height to keep header visible
 		m.WinWidth = targetW
 		m.WinHeight = targetH
+		if m.StatusViewState != nil {
+			m.StatusViewState.Width = targetW
+			m.StatusViewState.Height = targetH
+		}
 		// Apply layout WITHOUT forcing row regeneration - let it decide based on width changes
 		m.applyLayout(false) // Don't force regenerate on every resize
 		// Focus is handled by SyncTableState() below
@@ -3428,9 +3473,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyPressMsg:
-		m.LastKey = msg.String()
 		keyStr := msg.String()
-		m.logKeyEvent(keyStr)
+		if m.ViewMode != "status" || m.StatusViewState == nil || !m.StatusViewState.IsMaskedInput() {
+			m.LastKey = keyStr
+			m.logKeyEvent(keyStr)
+		}
 
 		if m.ShowInfoPopup && m.InfoPopupModal {
 			switch keyStr {
@@ -3490,11 +3537,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Route non-F1 keys to status view before global menu key handling so active
+		// input and status actions take priority, while unhandled function keys
+		// (e.g. F12 custom popups/actions) return handled=false and reach handleMenuKey.
+		if m.ViewMode == "status" && m.StatusViewState != nil && keyStr != "f1" {
+			if handled, result, viewCmd := m.handleStatusViewKey(msg); handled {
+				return result, viewCmd
+			}
+		}
+
 		if handled, cmd := m.handleMenuKey(keyStr); handled {
 			return m, cmd
 		}
+		if m.ViewMode == "status" {
+			return m, nil
+		}
 
-		// Handle custom view modes (list/detail/status) before standard navigation
+		// Handle custom view modes (list/detail) before standard navigation
 		if m.ViewMode == "list" {
 			if handled, result, viewCmd := m.handleListViewKey(keyStr); handled {
 				return result, viewCmd
@@ -3502,11 +3561,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.ViewMode == "detail" {
 			if handled, result, viewCmd := m.handleDetailViewKey(keyStr); handled {
-				return result, viewCmd
-			}
-		}
-		if m.ViewMode == "status" {
-			if handled, result, viewCmd := m.handleStatusViewKey(msg); handled {
 				return result, viewCmd
 			}
 		}
@@ -5191,6 +5245,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	}
+	if m.isModalBlockingInput() && !isCursorBlinkMsg(msg) {
+		return m, nil
+	}
+	if m.ViewMode == "status" && m.StatusViewState != nil {
+		var statusCmd tea.Cmd
+		var updated CustomView
+		updated, statusCmd = m.StatusViewState.Update(msg)
+		if sv, ok := updated.(*StatusViewModel); ok {
+			m.StatusViewState = sv
+		}
+		return m, statusCmd
+	}
 	var cmds []tea.Cmd
 	if m.InputFocused {
 		var inputCmd tea.Cmd
@@ -6850,6 +6916,9 @@ func truncateForStatus(s string) string {
 }
 
 func menuActionQuit(m *Model) tea.Cmd {
+	if m.ViewMode == "status" {
+		return tea.Quit
+	}
 	// Both expr and table modes use the PathInput value
 	evalExpr := strings.TrimSpace(m.PathInput.Value())
 	if evalExpr == "" {

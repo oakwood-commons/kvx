@@ -60,6 +60,7 @@ Swap `core.LoadObject` with `core.LoadFile` when you want to load from disk. For
 - `tui.DefaultConfig()` loads the bundled theme and key bindings from `internal/ui/default_config.yaml`.
 - Modify the returned config (colors, borders, widths, key bindings) before calling `tui.Run`.
 - To mirror CLI behavior, keep `cfg.Mode` at its default (interactive); snapshot/non-interactive runs are handled by the CLI front-end, not `tui.Run`.
+- For async status screens with actions, inline text input (`StatusInputConfig` / `cfg.OnStatusInput`), and custom URL opening (`cfg.OpenURL`), see [library-usage.md](library-usage.md#status-screens-and-inline-input).
 
 ## Navigation and rendering hooks
 
@@ -83,8 +84,9 @@ This lets you reuse kvx navigation/formatting while embedding the TUI only where
 requests), be aware of the following:
 
 - `tui.RenderTable`, `tui.RenderList`, and `core.Engine.Rows` /
-  `core.Engine.RenderTable` are safe to call concurrently from multiple
-  goroutines with different options — each call builds its own render styles
+  `core.Engine.RenderTable` / `core.Engine.FilterWhere` /
+  `core.Engine.EvaluateWhere` are safe to call concurrently from multiple
+  goroutines with different options -- each call builds its own render styles
   and sort order rather than mutating shared package state.
 - Package-level setters such as `tui.SetMaxValueLines`, the legacy
   `formatter.SetTableTheme`/`formatter.SetMaxValueLines`, and

@@ -2,9 +2,16 @@ package ui
 
 import (
 	"strings"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/oakwood-commons/kvx/pkg/loader"
 )
+
+// snapshotSubmitTimeout bounds how long RenderModelSnapshot waits for a
+// StartKeys-triggered OnStatusInput callback to return.
+var snapshotSubmitTimeout = 5 * time.Second
 
 // ModelSnapshotConfig configures snapshot rendering using the Model implementation.
 type ModelSnapshotConfig struct {
@@ -61,6 +68,8 @@ func renderModelLayoutSnapshot(node interface{}, cfg ModelSnapshotConfig) string
 	}
 	if len(cfg.StartKeys) > 0 {
 		ApplyStartupKeys(&m, cfg.StartKeys)
+		settleSnapshotStatusSubmission(&m)
+		m.PendingStartupCmds = nil
 	}
 	if containsF1(cfg.StartKeys) {
 		m.HelpVisible = true
@@ -86,7 +95,7 @@ func renderModelLayoutSnapshot(node interface{}, cfg ModelSnapshotConfig) string
 		AppName:        cfg.AppName,
 		HelpTitle:      cfg.HelpTitle,
 		HelpText:       helpText,
-		SnapshotHeader: true,
+		SnapshotHeader: m.ViewMode != "status",
 		InputVisible:   inputVisible,
 		HideFooter:     cfg.HideFooter,
 	})
@@ -116,4 +125,107 @@ func padSnapshotHeight(view string, height, width int) string {
 		lines = append(lines, padLine)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// settleSnapshotStatusSubmission executes a StartKeys-triggered status input
+// submission while concurrently servicing DoneChan so callbacks that write a
+// StatusResult to an unbuffered Config.Done channel cannot deadlock.
+//
+// Termination policy:
+//   - Consumes at most one StatusResult from DoneChan while waiting for the
+//     submission command to return, then drains DoneChan non-blockingly once
+//     after submission completes (covering buffered channels).
+//   - Bounds total wait time by snapshotSubmitTimeout so a stalled callback
+//     cannot block RenderModelSnapshot indefinitely. If timeout fires before
+//     DoneChan delivers a result, a one-shot background select drains at most
+//     one late DoneChan send until submitCmd returns so an unbuffered Done
+//     channel cannot deadlock the timed-out callback goroutine.
+func settleSnapshotStatusSubmission(m *Model) {
+	if m == nil || m.ViewMode != "status" || m.StatusViewState == nil ||
+		!m.StatusViewState.InputSubmitting || m.StatusViewState.lastSubmitCmd == nil {
+		return
+	}
+
+	submitCmd := m.StatusViewState.lastSubmitCmd
+	doneChan := m.StatusViewState.DoneChan
+
+	submitResCh := make(chan tea.Msg, 1)
+	go func() {
+		submitResCh <- submitCmd()
+	}()
+
+	timer := time.NewTimer(snapshotSubmitTimeout)
+	defer timer.Stop()
+
+	var (
+		submitMsg      tea.Msg
+		gotSubmit      bool
+		pendingDoneMsg statusDoneMsg
+		gotDone        bool
+	)
+
+	for !gotSubmit {
+		select {
+		case submitMsg = <-submitResCh:
+			gotSubmit = true
+		case doneRes, ok := <-doneChan:
+			if ok {
+				pendingDoneMsg = statusDoneMsg(doneRes)
+				gotDone = true
+			}
+			// Stop selecting on doneChan after receiving one completion or close.
+			doneChan = nil
+		case <-timer.C:
+			m.StatusViewState.InputSubmitting = false
+			m.StatusViewState.lastSubmitCmd = nil
+			if !gotDone && doneChan != nil {
+				select {
+				case doneRes, ok := <-doneChan:
+					if ok {
+						pendingDoneMsg = statusDoneMsg(doneRes)
+						gotDone = true
+					}
+				default:
+					go func(ch <-chan StatusResult) {
+						select {
+						case <-submitResCh:
+						case <-ch:
+						}
+					}(doneChan)
+				}
+			}
+			if gotDone {
+				if updated, _ := m.Update(pendingDoneMsg); updated != nil {
+					if um, ok := updated.(*Model); ok {
+						*m = *um
+					}
+				}
+			}
+			return
+		}
+	}
+
+	if !gotDone && doneChan != nil {
+		select {
+		case doneRes, ok := <-doneChan:
+			if ok {
+				pendingDoneMsg = statusDoneMsg(doneRes)
+				gotDone = true
+			}
+		default:
+		}
+	}
+
+	if updated, _ := m.Update(submitMsg); updated != nil {
+		if um, ok := updated.(*Model); ok {
+			*m = *um
+		}
+	}
+	if gotDone {
+		if updated, _ := m.Update(pendingDoneMsg); updated != nil {
+			if um, ok := updated.(*Model); ok {
+				*m = *um
+			}
+		}
+	}
 }

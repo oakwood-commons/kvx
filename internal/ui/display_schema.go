@@ -131,6 +131,9 @@ type StatusDisplayConfig struct {
 	// Actions defines interactive hotkey actions available on the status screen.
 	Actions []StatusActionConfig `json:"actions,omitempty"`
 
+	// Input configures an optional auto-focused inline text input shown while waiting.
+	Input *StatusInputConfig `json:"input,omitempty"`
+
 	// DoneBehavior controls what happens after the operation completes.
 	// Valid values: "exit-after-delay" (default), "wait-for-key".
 	DoneBehavior string `json:"doneBehavior,omitempty"`
@@ -139,6 +142,32 @@ type StatusDisplayConfig struct {
 	// Only used when DoneBehavior is "exit-after-delay" or empty.
 	DoneDelay string `json:"doneDelay,omitempty"`
 }
+
+// StatusInputConfig configures an auto-focused inline text input rendered on
+// the status screen while waiting for async completion.
+type StatusInputConfig struct {
+	// Label is optional helper text rendered directly above the input prompt.
+	Label string `json:"label,omitempty"`
+
+	// Placeholder is shown inside the input when empty.
+	Placeholder string `json:"placeholder,omitempty"`
+
+	// Prompt is the prefix shown before the text input (default: "❯ ").
+	Prompt string `json:"prompt,omitempty"`
+
+	// Masked echoes bullet characters, displays a "(N chars)" counter when
+	// non-empty, and suppresses keystroke debug logging while active.
+	Masked bool `json:"masked,omitempty"`
+
+	// MaxLength bounds accepted input length in runes (default: 8192 when 0).
+	MaxLength int `json:"maxLength,omitempty"`
+}
+
+// StatusInputSubmitFunc validates and processes text submitted from
+// StatusDisplayConfig.Input. Returning a non-nil error clears the input buffer,
+// keeps focus, and displays the error as a warning flash for inline retry.
+// Returning nil marks the input submitted while awaiting completion.
+type StatusInputSubmitFunc func(value string) error
 
 // StatusFieldDisplay defines a data field to display as a labeled value on the status screen.
 type StatusFieldDisplay struct {
