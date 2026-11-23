@@ -122,3 +122,7 @@ go run ./cmd/kvx/kvx.go tests/sample.yaml -o table -e "_.items[0]"
 # Snapshot with search then navigate (source)
 go run ./cmd/kvx/kvx.go tests/sample.yaml --snapshot --press "/name<Enter><Right>"
 ```
+
+<!-- copilot-review:start -->
+For pull request code review, follow the review contract in [`REVIEW.md`](../REVIEW.md) at the repo root. It is the single source of truth; do not duplicate it here.
+<!-- copilot-review:end -->
