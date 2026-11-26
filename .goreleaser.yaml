@@ -54,7 +54,7 @@ homebrew_casks:
       owner: oakwood-commons
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    homepage: "https://github.com/oakwood-commons/kvx"
+    homepage: "https://kvx.oakwood-commons.org"
     description: "Terminal-based UI for exploring structured data interactively"
     license: "Apache-2.0"
 winget:
@@ -62,10 +62,10 @@ winget:
     publisher: OakwoodCommons
     short_description: "Terminal-based UI for exploring structured data interactively"
     license: "Apache-2.0"
-    publisher_url: "https://github.com/oakwood-commons"
+    publisher_url: "https://oakwood-commons.org"
     publisher_support_url: "https://github.com/oakwood-commons/kvx/issues"
     package_identifier: "OakwoodCommons.kvx"
-    homepage: "https://github.com/oakwood-commons/kvx"
+    homepage: "https://kvx.oakwood-commons.org"
     description: "kvx is a terminal-based UI for exploring structured data (JSON, YAML, TOML, CSV, JWT) in an interactive, navigable way."
     license_url: "https://github.com/oakwood-commons/kvx/blob/main/LICENSE"
     release_notes_url: "https://github.com/oakwood-commons/kvx/releases/tag/{{ .Tag }}"
@@ -86,31 +86,96 @@ winget:
 release:
   draft: false
   prerelease: auto
+  header: |
+    <details>
+    <summary><strong>📦 Quick Install / Upgrade to {{ .Tag }}</strong> (macOS · Linux · Windows)</summary>
+
+    **macOS / Linux (Homebrew)**
+    ```bash
+    brew install oakwood-commons/tap/kvx
+    # or upgrade:
+    brew upgrade oakwood-commons/tap/kvx
+    ```
+
+    **Windows (`winget`)**
+    ```powershell
+    winget install OakwoodCommons.kvx
+    # or upgrade:
+    winget upgrade OakwoodCommons.kvx
+    ```
+
+    **Linux (`x86_64`)**
+    ```bash
+    curl -fsSL https://github.com/oakwood-commons/kvx/releases/download/{{ .Tag }}/kvx_{{ .Version }}_Linux_x86_64.tar.gz \
+      | sudo tar -xz -C /usr/local/bin kvx
+    ```
+
+    Documentation: [kvx.oakwood-commons.org](https://kvx.oakwood-commons.org/)
+    </details>
+  footer: |
+    ---
+
+    **Full Changelog**: https://github.com/oakwood-commons/kvx/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+    <details>
+    <summary><strong>🔐 Verify Checksums &amp; Cosign Signature</strong></summary>
+
+    ```bash
+    cosign verify-blob \
+      --bundle kvx_{{ .Version }}_SHA256SUMS.bundle \
+      --certificate-identity 'https://github.com/oakwood-commons/kvx/.github/workflows/release.yml@refs/tags/{{ .Tag }}' \
+      --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+      kvx_{{ .Version }}_SHA256SUMS
+
+    sha256sum --ignore-missing -c kvx_{{ .Version }}_SHA256SUMS
+    ```
+    </details>
 changelog:
+  disable: false
+  use: github
   sort: asc
-  use: git
+  abbrev: -1
+  format: >-
+    {{- $parts := split .Message ":" -}}
+    {{- $head := index $parts 0 -}}
+    {{- if and (gt (len $parts) 1) (not (contains $head " ")) -}}
+      {{- $body := trim (trimprefix .Message (printf "%s:" $head)) -}}
+      {{- if and (contains $head "(") (contains $head ")") -}}
+        {{- $scope := index (split (index (split $head "(") 1) ")") 0 -}}
+        **{{ $scope }}:** {{ $body }}
+      {{- else -}}
+        {{ $body }}
+      {{- end -}}
+    {{- else -}}
+      {{ .Message }}
+    {{- end -}}
+    {{- if .Logins }} ({{ .Logins | englishJoin }}){{ end -}}
   groups:
-    - title: "🚀 Features"
-      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+    - title: "💥 Breaking Changes"
+      regexp: '^[a-zA-Z]+(\([^)]+\))?!:.+$'
       order: 0
-    - title: "🐛 Bug Fixes"
-      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+    - title: "🚀 Features"
+      regexp: '^feat(\([^)]+\))?:.+$'
       order: 1
-    - title: "🚜 Refactor"
-      regexp: '^.*?refactor(\([[:word:]]+\))??!?:.+$'
+    - title: "🐛 Bug Fixes"
+      regexp: '^fix(\([^)]+\))?:.+$'
       order: 2
-    - title: "📚 Documentation"
-      regexp: '^.*?docs(\([[:word:]]+\))??!?:.+$'
-      order: 3
     - title: "⚡ Performance"
-      regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
+      regexp: '^perf(\([^)]+\))?:.+$'
+      order: 3
+    - title: "🚜 Refactor"
+      regexp: '^refactor(\([^)]+\))?:.+$'
       order: 4
-    - title: "⚙️ Miscellaneous"
-      regexp: '^.*?(chore|ci|build|style|test)(\([[:word:]]+\))??!?:.+$'
+    - title: "📚 Documentation"
+      regexp: '^docs(\([^)]+\))?:.+$'
       order: 5
+    - title: "⚙️ Build & Dependencies"
+      regexp: '^build(\([^)]+\))?:.+$'
+      order: 6
     - title: "Other"
       order: 999
   filters:
     exclude:
       - "^Merge "
       - "^Initial commit"
+      - '^(chore|ci|style|test)(\([^)]+\))?:'
