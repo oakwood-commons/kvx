@@ -46,3 +46,11 @@ func normalizeExampleExpr(sample string) string {
 	}
 	return strings.TrimSpace(expr)
 }
+
+func TestEmbeddedDefaultAboutURLs(t *testing.T) {
+	cfg, err := EmbeddedDefaultConfig()
+	require.NoError(t, err)
+
+	assert.Equal(t, "https://github.com/oakwood-commons/kvx", cfg.About.RepositoryURL)
+	assert.Equal(t, "https://kvx.oakwood-commons.org/", cfg.About.DocumentationURL)
+}

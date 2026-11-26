@@ -1,185 +1,212 @@
 # kvx
 
+[![Documentation](https://img.shields.io/badge/docs-kvx.oakwood--commons.org-00e9f2?labelColor=071e3d)](https://kvx.oakwood-commons.org/)
+[![Go Reference](https://pkg.go.dev/badge/github.com/oakwood-commons/kvx.svg)](https://pkg.go.dev/github.com/oakwood-commons/kvx)
 [![Go Report Card](https://goreportcard.com/badge/github.com/oakwood-commons/kvx)](https://goreportcard.com/report/github.com/oakwood-commons/kvx)
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/oakwood-commons/kvx)](https://github.com/oakwood-commons/kvx/releases)
 [![CI](https://github.com/oakwood-commons/kvx/actions/workflows/ci.yml/badge.svg)](https://github.com/oakwood-commons/kvx/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/oakwood-commons/kvx/graph/badge.svg)](https://codecov.io/gh/oakwood-commons/kvx)
-[![Documentation](https://img.shields.io/badge/docs-oakwood--commons.github.io%2Fkvx-blue)](https://oakwood-commons.github.io/kvx/)
+[![Release](https://img.shields.io/github/v/release/oakwood-commons/kvx)](https://github.com/oakwood-commons/kvx/releases)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-> **Alpha** — kvx is under active development. APIs and CLI flags may change between
-> releases. Breaking changes are documented in release notes. Questions? Open an
-> issue or start a [Discussion](https://github.com/oakwood-commons/kvx/discussions).
+Interactive terminal UI, schema-driven explorer, and [CEL](https://cel.dev/) query engine for JSON, YAML, TOML, NDJSON, CSV, and JWT data. Use `kvx` as a standalone CLI or embed `pkg/tui` and `pkg/core` directly in your own Go applications.
 
-**kvx** is a terminal-based UI for exploring structured data like JSON, YAML, and TOML in an interactive, navigable way. It presents data as key value trees that you can expand, collapse, and inspect directly in the terminal, making it easy to understand complex or deeply nested structures. In addition to being a standalone CLI, kvx is designed as a reusable TUI component, allowing other applications to embed the viewer directly into their own terminal interfaces for consistent data inspection and visualization.
+<p align="center">
+  <img src="static/images/demo.gif" alt="kvx interactive TUI demo" width="820">
+</p>
 
-## Usage
+> **Pre-1.0 Notice**: `kvx` is under active development. Minor releases may refine CLI flags or Go library interfaces; breaking changes are called out in [Release Notes](https://github.com/oakwood-commons/kvx/releases). Questions or ideas? Start a [Discussion](https://github.com/oakwood-commons/kvx/discussions).
 
-```bash
-kvx <file> [flags]
-kvx tests/sample.yaml           # table output
-kvx tests/sample.yaml -i        # interactive TUI
-```
+## Highlights
 
-See [docs/development.md](docs/development.md) for build instructions and project setup.
+- **Interactive TUI (`-i`)**: Navigate deeply nested trees (`j`/`k`/`l`/`h`), filter keys as you type, run deep recursive searches (`/`), copy highlighted CEL paths immediately with `y` (`Alt+w` / `F5`), or copy values with `Y` (`Alt+W`) as raw scalars or pretty-printed JSON.
+- **Schema-Driven Views (`--schema`)**: Render arrays and objects as scrollable Card Lists (`x-kvx-list`), Sectioned Detail views (`x-kvx-detail` with newline-preserving paragraphs and typed-slice pill badges), or Async Waiting Screens (`x-kvx-status` with hotkeys and masked inline input), and press `v` (`Alt+v` / `F2`) on any schema view to toggle the raw table.
+- **JWT & Nested String Decoding**: Auto-detect 6 input formats including `Bearer` JWT tokens, press `Enter` on any serialized JSON/YAML/TOML/NDJSON/JWT string leaf to expand it in place, or pass `--auto-decode lazy|eager` on the CLI.
+- **CEL Querying & Function Palette**: Filter lists per item with `-w/--where`, transform data with `-e/--expression` or `:` in the TUI, accept inline ghost completions, and browse categorized CEL functions via `Ctrl+Space`.
+- **10 Output Modes & Custom Column Order**: `auto` (width-aware table with automatic list fallback), `table`, `list`, `tree`, `mermaid`, `yaml`, `json`, `toml` (with automatic `[[items]]` root-slice wrapping), `csv`, and `raw`, plus `--column-order` across maps, columnar tables, and vertical lists.
+- **Embeddable Go Packages**: Thread-safe headless querying and table rendering (`pkg/core` + `pkg/tui`) plus full Bubble Tea v2 TUI embedding and deterministic `--snapshot` testing.
 
-### Flags
-
-- `-i, --interactive` launch the TUI; `--snapshot` renders once and exits using the same layout as the TUI.
-- `--press "<keys>"` script startup keys (e.g., `/name<Enter>`); include `<F10>` to bypass the TUI and emit non-interactive output (works regardless of `--keymap`).
-- `-e, --expression <cel>` evaluate CEL against `_` (e.g., `_.items[0].name`, `type(_)`); dotted shorthand stays TUI-only.
-- `--search <text>` search keys/values; seeds search mode in TUI and prints a bordered table in non-interactive runs.
-- `-o, --output table|list|tree|yaml|json|toml|raw|csv` choose output format (default: `table`).
-- `--limit N`, `--offset N`, `--tail N` apply record limiting after any expression; `--tail` ignores `--offset` and cannot combine with `--limit`.
-- `--width N`, `--height N` override detected terminal size for TUI/snapshot/CLI bordered tables.
-- `--theme <name>` select a theme (default from config, falls back to `midnight`); `--no-color` disables colors and box drawing.
-- `--keymap vim|emacs|function` keybinding mode (default: `vim`); affects navigation keys in interactive mode.
-- `--schema <path>` JSON Schema file for column display hints (title, maxLength, type, required, deprecated).
-- `--config-file <path>` load config from a specific file; `--config` prints the merged config (defaults + XDG) in the chosen format.
-- `--sort ascending|descending|none` pick map key ordering; `--debug` enable debug logging and `--debug-max-events N` cap stored debug events.
-
-### Data formats and output
-
-- Input auto-detects YAML/JSON (single or multi-doc), NDJSON, TOML (by extension or content), and CSV (by extension or stdin shape). If no input is provided, kvx shows help; with `--expression` but no input, it evaluates against an empty object `{}`.
-- Non-interactive table output renders a bordered table with header/footer parity to the TUI; scalars print raw, and simple scalar arrays print one value per line.
-- List output (`-o list`) displays data in a vertical format with each property on its own line. Arrays of objects show each element with an index header (`[0]`, `[1]`, etc.) and indented properties beneath. Maps display as `key: value` pairs, and scalars show as `value: <scalar>`.
-- Tree output (`-o tree`) renders data as an ASCII tree structure using box-drawing characters. Nested objects become branches, arrays show indexed children, and scalar values appear inline. Options: `--tree-depth N` limits depth, `--tree-no-values` shows structure only, `--tree-expand-arrays` expands all array elements.
-- Mermaid output (`-o mermaid`) generates Mermaid flowchart syntax for visualization in Markdown or diagram tools. Use `--mermaid-direction TD|LR|BT|RL` to set flow direction (default: TD for top-down).
-- Array index style: `--array-style index|numbered|bullet|none` controls how array elements are labeled. Default is `index` (`[0]`, `[1]`); use `numbered` for `1, 2`, `bullet` for `•`, or `none` to hide indices (useful with `-o list`).
-- CSV output is available for CLI/snapshot runs: arrays of objects become rows with merged headers, maps become key/value rows, other values emit a single `value` column.
-- YAML output defaults to indent `2` and literal block strings; these options are configurable via `formatting.yaml.*` in the config.
-
-## Config
-
-Config merges built-in defaults with `~/.config/kvx/config.yaml` (or `XDG_CONFIG_HOME/kvx/config.yaml`); override with `--config-file`. Use `kvx --config` to print the merged view without reading input.
-
-Manage and inspect configuration via the `config` command group:
+## Installation
 
 ```bash
-# Show merged config (defaults + XDG config)
-kvx config get
+# macOS / Linux (Homebrew)
+brew install oakwood-commons/tap/kvx
 
-# As JSON/YAML/Table
-kvx config get -o json
-kvx config get -o yaml
-kvx config get -o table
+# Windows (winget)
+winget install OakwoodCommons.kvx
 
-# Interactive TUI view of the config
-kvx config get -i
-
-# Use an explicit config file instead of XDG
-kvx config get --config-file ~/.config/kvx/config.yaml
+# Go toolchain (Go 1.27+)
+go install github.com/oakwood-commons/kvx@latest
 ```
 
-### Themes
+Prebuilt signed archives for Linux, macOS, and Windows (`x86_64` and `arm64`) are also available on [GitHub Releases](https://github.com/oakwood-commons/kvx/releases/latest).
 
-- Themes are defined in your config (`ui.themes`) and selected via `ui.theme.default` (default: `midnight`). Built-ins: `midnight`, `dark`, `warm`, `cool`.
-- List available themes from your merged config and see the default:
+## Quick CLI Tour
 
 ```bash
-kvx config theme
-# or with an explicit file:
-kvx config theme --config-file ~/.config/kvx/config.yaml
+# Auto-sized table (falls back to vertical list on narrow terminals)
+kvx examples/data/demo_services.json
+
+# Interactive TUI with schema-driven Card-List and Detail views
+kvx examples/data/demo_services.json --schema examples/data/demo_services_schema.json -i
+
+# Filter list items with --where (-w), then project fields with --expression (-e)
+kvx examples/data/demo_services.json \
+  -w '_.status == "running" && _.replicas >= 3' \
+  -e '_.map(s, {"service": s.name, "region": s.region})'
+
+# Recursively decode serialized JSON and Bearer JWT strings before querying
+kvx examples/data/demo_services.json \
+  --auto-decode eager \
+  -e '_[1].authToken.payload' \
+  -o yaml
+
+# Render ASCII trees or Mermaid flowcharts
+kvx tests/sample.yaml -o tree --tree-depth 3
+kvx tests/sample.yaml -o mermaid --mermaid-direction LR
+
+# Deterministic TUI snapshot with scripted startup keys (CI-safe)
+kvx examples/data/demo_services.json --snapshot --width 92 --height 22 --press "jl<Enter>"
 ```
 
-- You can still pass a theme at runtime with `--theme <name>`; the default comes from your config.
-- `--no-color` removes colors and the box-drawing borders for parity with plain terminals.
+## Visual TUI Walkthrough
 
-### Shell Completion
+### Schema Card-List (`x-kvx-list`) & Sectioned Detail (`x-kvx-detail`)
 
-Generate shell completion scripts for bash, zsh, fish, or PowerShell:
+Attach a JSON Schema with `x-kvx-*` vendor extensions (`--schema`) to turn arrays of objects into badged Card Lists and multi-layout Detail screens (`inline`, `paragraph`, `tags`, and `table` sections). Press `v` (`Alt+v` / `F2`) at any time to switch between the schema view and the raw `KEY`/`VALUE` table.
 
-```bash
-# Bash (add to ~/.bashrc)
-kvx completion bash > /etc/bash_completion.d/kvx
+<table>
+  <tr>
+    <td width="50%">
+      <img src="static/images/tui/schema-card-list.svg" alt="kvx schema Card-List view">
+      <p align="center"><sub>Card-List view (<code>x-kvx-list</code>)</sub></p>
+    </td>
+    <td width="50%">
+      <img src="static/images/tui/schema-detail-view.svg" alt="kvx schema Sectioned Detail view">
+      <p align="center"><sub>Sectioned Detail view (<code>x-kvx-detail</code>)</sub></p>
+    </td>
+  </tr>
+</table>
 
-# Zsh (add to ~/.zshrc)
-kvx completion zsh > "${fpath[1]}/_kvx"
+### CEL Expression Mode & `Ctrl+Space` Function Palette
 
-# Fish
-kvx completion fish > ~/.config/fish/completions/kvx.fish
+Press `:` to evaluate CEL interactively with inline ghost completions (`Right` to accept, `Tab` to cycle keys) and press `Ctrl+Space` to open the categorized Function Palette with type-to-filter search, signatures, and runnable examples:
 
-# PowerShell
-kvx completion powershell | Out-String | Invoke-Expression
+<p align="center">
+  <img src="static/images/tui/cel-function-palette.svg" alt="kvx CEL Expression Mode and Ctrl+Space Function Palette" width="780">
+</p>
+
+### JWT & Nested String Decoding + Async Status Screens
+
+Press `Enter` on any string leaf containing serialized JSON, YAML, TOML, NDJSON, or a `Bearer` JWT to inspect its decoded structure in place, or use `x-kvx-status` to drive device-code and callback waiting screens with hotkeys and masked inline input:
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="static/images/tui/jwt-decoded.svg" alt="kvx decoded Bearer JWT view">
+      <p align="center"><sub>Decoded <code>Bearer</code> JWT claims (<code>Enter</code>)</sub></p>
+    </td>
+    <td width="50%">
+      <img src="static/images/tui/status-screen.svg" alt="kvx async status screen with masked input">
+      <p align="center"><sub>Async Status Screen (<code>x-kvx-status</code>)</sub></p>
+    </td>
+  </tr>
+</table>
+
+### Built-In Theme Presets
+
+Switch palettes with `--theme <name>` (or customize colors under `ui.themes` in `~/.config/kvx/config.yaml`; list available presets with `kvx config theme`):
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="static/images/tui/theme-midnight.svg" alt="midnight theme">
+      <p align="center"><sub><code>midnight</code> (default)</sub></p>
+    </td>
+    <td width="50%">
+      <img src="static/images/tui/theme-dark.svg" alt="dark theme">
+      <p align="center"><sub><code>dark</code></sub></p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="static/images/tui/theme-warm.svg" alt="warm theme">
+      <p align="center"><sub><code>warm</code></sub></p>
+    </td>
+    <td width="50%">
+      <img src="static/images/tui/theme-cool.svg" alt="cool theme">
+      <p align="center"><sub><code>cool</code></sub></p>
+    </td>
+  </tr>
+</table>
+
+## Keybindings (`vim`, `emacs`, `function`)
+
+Select your preferred keymap with `--keymap vim|emacs|function` (or `ui.features.key_mode` in `config.yaml`):
+
+| Action | Vim (`default`) | Emacs | Function |
+|--------|-----------------|-------|----------|
+| Move down / up | `j` / `k` (`Down` / `Up`) | `Ctrl+N` / `Ctrl+P` | `Down` / `Up` |
+| Drill in / decode string leaf | `l`, `Enter` (`Right`) | `Ctrl+F`, `Enter` | `Enter` (`Right`) |
+| Ascend to parent | `h` (`Left`) | `Ctrl+B` | `Left` |
+| Top / bottom | `gg` / `G` | `Alt+<` / `Alt+>` | `Home` / `End` |
+| Toggle schema view vs raw table | `v` | `Alt+v` | `F2` |
+| Deep search (`keys` + `values`) | `/` (`n` / `N`) | `Ctrl+S` | `F3` |
+| Filter map keys | `f` | `Ctrl+L` | `F4` |
+| Copy path / Copy value | `y` / `Y` | `Alt+w` / `Alt+W` | `F5` / *(unbound)* |
+| CEL Expression / Function Palette | `:` / `Ctrl+Space` | `Alt+x` / `Ctrl+Space` | `F6` / `Ctrl+Space` |
+| Help / Close context / Quit | `?` / `Esc` / `q` | `F1` / `Esc` / `Ctrl+Q` | `F1` / `Esc` / `F10` |
+
+## Go Library Quickstart (`pkg/core` + `pkg/tui`)
+
+```go
+package main
+
+import (
+	"log"
+
+	"github.com/oakwood-commons/kvx/pkg/core"
+	"github.com/oakwood-commons/kvx/pkg/tui"
+)
+
+func main() {
+	root, err := core.LoadFile("examples/data/demo_services.json") // or core.LoadObject(myStructs)
+	if err != nil {
+		log.Fatal(err)
+	}
+	cfg := tui.DefaultConfig()
+	cfg.AppName = "my-cli"
+	if err := tui.Run(root, cfg); err != nil { // or tui.RenderTable(root, tui.TableOptions{Bordered: true})
+		log.Fatal(err)
+	}
+}
 ```
 
-### Shell Quoting
+Explore runnable Go examples in [`examples/display_schema`](examples/display_schema), [`examples/schema_hints`](examples/schema_hints), [`examples/status-screen`](examples/status-screen), [`examples/column_order`](examples/column_order), [`examples/custom_struct`](examples/custom_struct), and [`examples/core-cli`](examples/core-cli).
 
-When using expressions with special characters, prefer single quotes around the entire expression:
+## Architecture
 
-- `'_.items[0]'`, `'type(_)'`, `'_.metadata["bad-key"]'`
-- Double quotes require escaping internal quotes: `"_.metadata[\"bad-key\"]"`
-
-```bash
-# Print root as table
-kvx tests/sample.yaml
-
-# Navigate via CEL (CLI)
-kvx tests/sample.yaml -e '_.items[0].name'
-
-# Output as JSON
-kvx tests/sample.yaml -e '_.metadata' -o json
-
-# CEL functions
-kvx tests/sample.yaml -e 'type(_)'
-
-# Snapshot (render once) with scripted keys
-kvx tests/sample.yaml --snapshot --press "<Right><Right>"
-
-# Non-interactive search
-kvx tests/sample.yaml --search status
+```mermaid
+flowchart LR
+    Input["Files, Stdin, Go Structs (JSON, YAML, TOML, NDJSON, CSV, JWT)"] --> Loader["pkg/loader + pkg/core (Normalize & RecursiveDecode)"]
+    Loader --> Engine["internal/cel + pkg/core (--where & --expression)"]
+    Schema["JSON Schema (ColumnHints + x-kvx-*)"] --> TUI["pkg/tui + internal/ui (Bubble Tea v2 Explorer)"]
+    Schema --> Formatter["internal/formatter (Table, List, Tree, Mermaid, CSV)"]
+    Engine --> TUI
+    Engine --> Formatter
 ```
 
-### Path Syntax
+## Documentation
 
-- CLI (strict CEL): use `_` as the root variable
-	- `_.metadata.created`, `_.items[0]`, `type(_)`
-- TUI: dotted-path shorthand
-	- `metadata.created`, `items[0]`, `items.0`, `items[0].name`
+Full guides and API references are published at **[kvx.oakwood-commons.org](https://kvx.oakwood-commons.org/)**:
 
-### Limiting Records
+- [Getting Started](https://kvx.oakwood-commons.org/docs/tutorials/getting-started/)
+- [Interactive Mode](https://kvx.oakwood-commons.org/docs/tutorials/interactive-mode/)
+- [CEL Expressions & Function Palette](https://kvx.oakwood-commons.org/docs/tutorials/expressions/)
+- [Formats, JWTs & Serialized Decoding](https://kvx.oakwood-commons.org/docs/tutorials/formats-and-decoding/)
+- [Schema-Driven Views (`x-kvx-list`, `x-kvx-detail`, `x-kvx-status`)](https://kvx.oakwood-commons.org/docs/tutorials/schema-views/)
+- [Configuration & Theme Gallery](https://kvx.oakwood-commons.org/docs/tutorials/configuration/)
+- [Library Usage (`pkg/core` + `pkg/tui`)](https://kvx.oakwood-commons.org/docs/library-usage/) & [Embedding Guide](https://kvx.oakwood-commons.org/docs/embedding/)
 
-- `--limit N` shows the first N records after any `--expression` or filtering.
-- `--offset N` skips the first N records before applying `--limit`.
-- `--tail N` shows the last N records, ignores `--offset`, and cannot be combined with `--limit`.
-- Applies to arrays by index order and maps by stable sorted key order (same as CLI table rendering).
-- Non-interactive CLI output and snapshot TUI rendering use the same limiting rules; interactive scrolling does not change the applied limit.
+## License
 
-## Interactive Mode (TUI)
-
-kvx defaults to **vim** keybindings:
-
-| Key | Action |
-|-----|--------|
-| `j` / `k` | Navigate up/down |
-| `h` / `l` | Navigate back/forward (ascend/drill) |
-| `/` | Search mode (live search keys/values) |
-| `n` / `N` | Next/previous search match |
-| `f` | Filter current map keys |
-| `gg` / `G` | Go to top/bottom |
-| `:` | Expression mode (CEL) |
-| `y` | Copy current path/expression |
-| `?` | Toggle help panel |
-| `q` | Quit |
-| `Esc` | Close input/help/search context (does not quit) |
-
-Prefer **emacs** or **function-key** style bindings? Use `--keymap emacs` or `--keymap function`.
-
-**Panels:**
-- Data panel: main table view with path label and selection/total (`n/x`).
-- Help panel: overlay with navigation help (`?` to toggle).
-- Status bar: single-line info/error/status (right-aligned when input hidden).
-- Input panel: single-line bordered input (Expression/Search titles); hidden until activated.
-- Footer: bottom line with Help hint on the left and Rows/Cols on the right.
-
-**Filter & search:**
-- With input hidden, typing filters rows by key prefix; backspace edits; `Esc` clears; filter clears when you drill/ascend.
-- Search (`/`) keeps input open; results update live; `Right/Enter` drill, `Left` backs up within search base; `Esc` restores the prior node.
-
-**Expression (`:`):**
-- Starts with current path; Tab/Shift+Tab → keys/indices, Up/Down → CEL functions for the node type, Right accepts ghost completion.
-- `Enter` evaluates and stays in expr; errors in red; non-navigable results fall back to your prior path when you exit.
-
-## Embedding the TUI
-
-kvx's TUI can be embedded into your own Go application. See [docs/embedding.md](docs/embedding.md) for the full guide covering data loading, custom CEL functions, themes, and configuration. For a working example, see [`examples/embed-tui/`](examples/embed-tui/).
+Apache License 2.0. See [LICENSE](LICENSE) for details.

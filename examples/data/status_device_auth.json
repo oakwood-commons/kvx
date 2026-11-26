@@ -1,0 +1,10 @@
+{
+  "title": "Device Flow Authentication",
+  "url": "https://auth.example.com/activate",
+  "code": "WDJB-MJHT",
+  "environment": "production-us-east",
+  "messages": [
+    "Open the verification URL in your browser and enter the one-time code.",
+    "Or paste a callback token below when authenticating from a remote session."
+  ]
+}

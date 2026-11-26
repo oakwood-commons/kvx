@@ -84,7 +84,8 @@ func recursiveDecodeReflect(node any, depth int) any {
 	}
 
 	rv := reflect.ValueOf(node)
-	//exhaustive:ignore // We only care about containers (Map, Slice, Array, Ptr, Interface)
+	// We only care about containers (Map, Slice, Array, Pointer, Interface).
+	//exhaustive:ignore
 	switch rv.Kind() {
 	case reflect.Map:
 		out := make(map[string]any, rv.Len())

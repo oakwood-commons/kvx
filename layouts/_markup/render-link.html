@@ -1,0 +1,62 @@
+{{- /* Render hook for links: resolves .md file references, root-relative paths, and repo example links */ -}}
+{{- $url := .Destination -}}
+{{- $title := .Title -}}
+
+{{- $isExternal := or (hasPrefix $url "http://") (hasPrefix $url "https://") (hasPrefix $url "mailto:") -}}
+
+{{- if not $isExternal -}}
+  {{- $anchor := "" -}}
+  {{- if strings.Contains $url "#" -}}
+    {{- $parts := split $url "#" -}}
+    {{- $url = index $parts 0 -}}
+    {{- $anchor = index $parts 1 -}}
+  {{- end -}}
+
+  {{- if ne $url "" -}}
+    {{- /* Check if link points into repo examples/ or pkg/ outside Hugo content */ -}}
+    {{- $repoResolved := false -}}
+    {{- if and .Page.File .Page.Site.Params.BookRepo -}}
+      {{- $pagePath := replace .Page.File.Path "\\" "/" -}}
+      {{- $repoFile := cond (hasPrefix $pagePath "docs/") $pagePath (printf "home/%s" $pagePath) -}}
+      {{- $clean := path.Clean (printf "%s/%s" (path.Dir $repoFile) $url) -}}
+      {{- if or (hasPrefix $clean "examples/") (hasPrefix $clean "pkg/") (hasPrefix $clean "internal/") -}}
+        {{- $kind := cond (strings.Contains (path.Base $clean) ".") "blob" "tree" -}}
+        {{- $url = printf "%s/%s/main/%s" (strings.TrimSuffix "/" .Page.Site.Params.BookRepo) $kind $clean -}}
+        {{- $isExternal = true -}}
+        {{- $repoResolved = true -}}
+      {{- end -}}
+    {{- end -}}
+
+    {{- if not $repoResolved -}}
+      {{- if strings.HasSuffix $url ".md" -}}
+        {{- $trimmed := strings.TrimSuffix ".md" $url -}}
+        {{- $trimmed = strings.TrimSuffix "/_index" $trimmed -}}
+        {{- with .Page.GetPage $url -}}
+          {{- $url = .RelPermalink -}}
+        {{- else with site.GetPage $trimmed -}}
+          {{- $url = .RelPermalink -}}
+        {{- else with .Page.GetPage $trimmed -}}
+          {{- $url = .RelPermalink -}}
+        {{- else -}}
+          {{- $url = printf "%s/" (strings.TrimRight "/" ($trimmed | relURL)) -}}
+        {{- end -}}
+      {{- else if hasPrefix $url "/" -}}
+        {{- $trimmed := strings.TrimRight "/" $url -}}
+        {{- with site.GetPage $trimmed -}}
+          {{- $url = .RelPermalink -}}
+        {{- else -}}
+          {{- $url = strings.TrimPrefix "/" $url | relURL -}}
+        {{- end -}}
+      {{- end -}}
+    {{- end -}}
+  {{- end -}}
+
+  {{- with $anchor -}}
+    {{- $url = printf "%s#%s" $url . -}}
+  {{- end -}}
+{{- end -}}
+
+<a href="{{ $url | safeURL }}"
+  {{- with $title }} title="{{ . }}"{{ end -}}
+  {{- if $isExternal }} target="_blank" rel="noopener noreferrer"{{ end -}}
+>{{ .Text | safeHTML }}</a>{{- "" -}}

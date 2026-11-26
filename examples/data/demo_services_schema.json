@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Platform Service Catalog",
+  "description": "Schema for platform microservices with x-kvx-list and x-kvx-detail extensions",
+  "type": "array",
+  "x-kvx-icon": "⚡",
+  "x-kvx-collectionTitle": "Services",
+  "x-kvx-list": {
+    "titleField": "name",
+    "subtitleField": "description",
+    "subtitleMaxLines": 1,
+    "badgeFields": ["status", "region", "version"]
+  },
+  "x-kvx-detail": {
+    "titleField": "displayName",
+    "hiddenFields": ["authToken"],
+    "sections": [
+      {
+        "title": "",
+        "fields": ["name", "version", "region", "status"],
+        "layout": "inline"
+      },
+      {
+        "title": "Summary",
+        "fields": ["description"],
+        "layout": "paragraph"
+      },
+      {
+        "title": "Capabilities",
+        "fields": ["capabilities"],
+        "layout": "tags"
+      },
+      {
+        "title": "Runtime",
+        "fields": ["replicas", "config"],
+        "layout": "table"
+      }
+    ]
+  },
+  "items": {
+    "type": "object",
+    "required": ["name", "status", "region", "replicas"],
+    "properties": {
+      "name": {
+        "type": "string",
+        "title": "Service",
+        "maxLength": 18
+      },
+      "displayName": {
+        "type": "string",
+        "title": "Display Name"
+      },
+      "status": {
+        "type": "string",
+        "title": "Status",
+        "enum": ["running", "degraded", "stopped"]
+      },
+      "region": {
+        "type": "string",
+        "title": "Region",
+        "maxLength": 12
+      },
+      "replicas": {
+        "type": "integer",
+        "title": "Replicas"
+      },
+      "version": {
+        "type": "string",
+        "title": "Version",
+        "maxLength": 10
+      },
+      "description": {
+        "type": "string",
+        "title": "Description"
+      },
+      "capabilities": {
+        "type": "array",
+        "items": { "type": "string" },
+        "title": "Capabilities"
+      },
+      "config": {
+        "type": "string",
+        "title": "Serialized Config"
+      },
+      "authToken": {
+        "type": "string",
+        "title": "Auth Token",
+        "deprecated": true
+      }
+    }
+  }
+}

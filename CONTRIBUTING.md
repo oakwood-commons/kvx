@@ -1,13 +1,13 @@
 # Contributing to kvx
 
-Thank you for your interest in contributing to kvx! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to `kvx`! This document provides guidelines and instructions for building, testing, and submitting changes.
 
 ## Development Setup
 
 ### Prerequisites
 
-- **Go 1.20+** - [Download Go](https://go.dev/dl/)
-- **Task** (optional but recommended) - [Install Taskfile](https://taskfile.dev/installation/)
+- **Go 1.27+**: [Download Go](https://go.dev/dl/)
+- **Task** (optional but recommended): [Install Task](https://taskfile.dev/installation/)
 
 ### Building from Source
 
@@ -16,7 +16,7 @@ Thank you for your interest in contributing to kvx! This document provides guide
 task build
 
 # Or using go directly
-go build -ldflags "-s -w -X main.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ) -X main.BuildVersion=dev -X main.Commit=$(git rev-parse HEAD)" -o dist/kvx ./cmd/kvx/kvx.go
+mkdir -p dist && go build -o dist/kvx .
 ```
 
 The binary is built to `dist/kvx`.
@@ -24,11 +24,11 @@ The binary is built to `dist/kvx`.
 ### Running Tests
 
 ```bash
-# Run all tests
+# Run all unit tests
 go test ./...
 
-# Run tests with verbose output
-go test -v ./...
+# Run tests with the race detector (Linux/macOS; requires CGO)
+CGO_ENABLED=1 go test -race ./...
 
 # Run tests for a specific package
 go test ./internal/ui -v
@@ -36,78 +36,59 @@ go test ./internal/ui -v
 
 ### Linting
 
-We use `golangci-lint` with strict rules configured in `.golangci.yml`:
+`kvx` uses `golangci-lint` with strict rules configured in `.golangci.yaml`:
 
 ```bash
 # Run linter
-golangci-lint run
+golangci-lint run ./...
 
-# Auto-fix issues where possible
-golangci-lint run --fix
+# Auto-fix formatting and import issues where possible
+golangci-lint run --fix ./...
 ```
 
 ## Code Style
 
-- **Formatting**: Use `gofumpt` (stricter than `gofmt`) and keep imports `goimports`-clean
-- **Modern Go**: Use `any` instead of `interface{}`, use `maps.Copy()` over manual loops
-- **Error Handling**: Return errors, don't panic. Use `fmt.Errorf("context: %w", err)` for wrapping
-- **Linting**: All code must pass `golangci-lint` before merging
+- **Formatting**: Use `gofumpt` (stricter than `gofmt`) and keep imports `goimports`-clean.
+- **Modern Go**: Use `any` instead of `interface{}`, and prefer standard library helpers (`maps`, `slices`).
+- **Error Handling**: Return errors rather than panicking outside initialization. Wrap errors with context via `fmt.Errorf("context: %w", err)`.
+- **Linting**: All changes must pass `golangci-lint run ./...` before merging.
 
 ## Submitting Changes
 
 ### Pull Request Process
 
-1. **Fork the repository** and create your branch from `main`
-2. **Make your changes** following the code style guidelines
-3. **Add tests** for any new functionality
-4. **Run the test suite** and ensure all tests pass
-5. **Run the linter** and fix any issues
-6. **Submit a pull request** with a clear description of your changes
+1. **Fork the repository** and create your branch from `main`.
+2. **Make your changes** following the code style guidelines.
+3. **Add tests** covering new behavior and edge cases.
+4. **Run the test suite** (`CGO_ENABLED=1 go test -race ./...`) and ensure all tests pass.
+5. **Run the linter** (`golangci-lint run ./...`) and resolve any findings.
+6. **Submit a pull request** with a Conventional Commit title and clear summary.
 
 ### Pull Request Checklist
 
-- [ ] Tests pass (`go test ./...`)
-- [ ] Linter passes (`golangci-lint run`)
+- [ ] Tests pass (`CGO_ENABLED=1 go test -race ./...`)
+- [ ] Linter passes (`golangci-lint run ./...`)
 - [ ] Code follows project style guidelines
-- [ ] Documentation updated if needed
-- [ ] Commit messages are clear and descriptive
+- [ ] Documentation (and `task docs:build` if docs changed) updated as needed
+- [ ] Commits are signed (`git commit -s -S`) and use Conventional Commits
 
 ### Commit Messages
 
-Write clear, concise commit messages that explain the "what" and "why":
+Use Conventional Commit prefixes (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`, `perf:`, `ci:`):
 
-```
-feat: add tree output format with depth control
+```text
+feat(tui): add tree output format with depth control
 
 - Add --tree-depth flag to limit expansion depth
 - Add --tree-no-values flag to show structure only
 - Include comprehensive tests for edge cases
 ```
 
-Use conventional commit prefixes when appropriate:
-
-- `feat:` - New features
-- `fix:` - Bug fixes
-- `docs:` - Documentation changes
-- `test:` - Test additions or modifications
-- `refactor:` - Code refactoring without functional changes
-- `chore:` - Maintenance tasks
-
 ## Restricted Terms Check
 
-This repo runs an automated CI check ("Restricted Terms Check") that scans
-new content and commit messages for a maintainer-configured list of
-disallowed terms/patterns. The list itself is intentionally never committed
-to this repo or shown in CI logs -- only maintainers hold it.
+This repository runs an automated CI check ("Restricted Terms Check") that scans new content and commit messages for a maintainer-configured list of disallowed terms and patterns. The list itself is never committed to this repository or printed in CI logs.
 
-If your PR fails this check, you don't need the list yourself: a maintainer
-will look at the flagged file(s) (only the path is shown, never the matched
-text) during review and help you sanitize the content. This isn't something
-you can self-diagnose from the CI log alone, and that's by design.
-
-Optionally, if you're a repeat contributor, maintainers can share the local
-git hooks under `.githooks/` (see `.githooks/README.md`) for faster local
-feedback before you push -- ask in your PR or a discussion if you'd like this.
+If your PR fails this check, a maintainer will inspect the flagged file path(s) during review and help sanitize the content. Repeat contributors can also configure the optional local git hooks under `.githooks/` (see `.githooks/README.md`).
 
 ## Reporting Issues
 
@@ -115,21 +96,13 @@ feedback before you push -- ask in your PR or a discussion if you'd like this.
 
 When filing a bug report, please include:
 
-- **kvx version** (`kvx --version`)
+- **kvx version** (`kvx version`)
 - **Operating system** and version
 - **Go version** (if building from source)
-- **Steps to reproduce** the issue
+- **Steps to reproduce**
 - **Expected behavior** vs **actual behavior**
-- **Sample input data** (if applicable, anonymized)
+- **Sample input data** (anonymized)
 
 ### Feature Requests
 
-Feature requests are welcome! Please describe:
-
-- The use case or problem you're trying to solve
-- Your proposed solution (if any)
-- Any alternatives you've considered
-
-## Questions?
-
-If you have questions about contributing, feel free to open a discussion or issue on GitHub.
+Please describe the use case or problem you want to solve, your proposed approach, and any alternatives considered.

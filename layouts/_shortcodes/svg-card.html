@@ -1,0 +1,8 @@
+{{- $src := strings.TrimPrefix "/" (.Get "src") | relURL -}}
+{{- $alt := .Get "alt" | default "" -}}
+<figure class="bp-svg-card">
+  <img src="{{ $src | safeURL }}" alt="{{ $alt }}" loading="lazy" />
+  {{- with strings.TrimSpace .Inner }}
+  <figcaption>{{ . | $.Page.RenderString }}</figcaption>
+  {{- end }}
+</figure>

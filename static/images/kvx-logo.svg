@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="168" viewBox="0 0 520 168" role="img" aria-label="kvx horizontal primary logo">
+  <title>kvx - Key-Value Explorer</title>
+  <!-- Blueprint terminal + key-value tree mark -->
+  <g transform="translate(8 4)">
+    <g fill="none" stroke="#00E9F2" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="14" y="18" width="132" height="124" rx="14"/>
+      <path d="M14 48H146"/>
+    </g>
+    <circle cx="34" cy="33" r="4.5" fill="#00E9F2"/>
+    <circle cx="51" cy="33" r="4.5" fill="#A4F6C5"/>
+    <circle cx="68" cy="33" r="4.5" fill="#4E8298"/>
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M32 68L44 79L32 90" stroke="#A4F6C5" stroke-width="6.5"/>
+      <path d="M58 79H124" stroke="#00E9F2" stroke-width="6.5"/>
+      <path d="M58 79V119H84" stroke="#00E9F2" stroke-width="5.5"/>
+      <path d="M58 100H78" stroke="#00E9F2" stroke-width="5.5"/>
+      <rect x="84" y="92" width="42" height="15" rx="4" stroke="#00E9F2" stroke-width="4.5"/>
+      <rect x="88" y="113" width="38" height="14" rx="4" fill="#A4F6C5"/>
+    </g>
+  </g>
+  <!-- Geometric vector wordmark: "kvx" (pure SVG paths, zero font dependencies) -->
+  <g transform="translate(186 30)" fill="#FFFFFF">
+    <!-- k -->
+    <path d="M0 4H20V56L52 24H76L44 55L79 102H55L30 68L20 78V102H0V4Z"/>
+    <!-- v -->
+    <path d="M88 24H110L130 78L150 24H172L141 102H119L88 24Z"/>
+    <!-- x (accented with Blueprint cyan slash) -->
+    <path d="M182 24H206L225 51L244 24H268L238 63L270 102H246L225 75L204 102H180L212 63L182 24Z"/>
+    <circle cx="288" cy="93" r="8" fill="#00E9F2"/>
+  </g>
+</svg>

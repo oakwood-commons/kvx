@@ -1,0 +1,15 @@
+{{- $destination := .Destination -}}
+{{- $isExternal := or (hasPrefix $destination "http://") (hasPrefix $destination "https://") (hasPrefix $destination "data:") -}}
+{{- if not $isExternal -}}
+  {{- if hasPrefix $destination "static/" -}}
+    {{- $destination = strings.TrimPrefix "static/" $destination | relURL -}}
+  {{- else if hasPrefix $destination "/" -}}
+    {{- $destination = strings.TrimPrefix "/" $destination | relURL -}}
+  {{- else if hasPrefix $destination "images/" -}}
+    {{- $destination = $destination | relURL -}}
+  {{- else if .Page.Site.Params.BookPortableLinks -}}
+    {{- $destination = partial "docs/links/portable-image" . -}}
+  {{- end -}}
+{{- end -}}
+<img src="{{ $destination | safeURL }}" alt="{{ .Text }}" {{ with .Title }}title="{{ . }}"{{ end }} loading="lazy" />
+{{- /**/ -}}

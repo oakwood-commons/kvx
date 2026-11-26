@@ -3,99 +3,93 @@ title: "Embedding the TUI"
 weight: 30
 ---
 
-# Embedding kvx in another app
+# Embedding kvx in Another Go Application
 
-Use the public `tui` and `core` packages to run kvx inside your Go program. This guide covers data loading, configuration, and common extension points.
+`kvx` is architected so host CLIs (such as `scafctl`) can embed interactive data exploration, schema-driven catalogs, async waiting screens, and deterministic TUI snapshots without shelling out to a separate binary.
 
-## Data loading options
+## Choosing Your Integration Seam
 
-Pick the loader that matches your source:
+| Seam | Entry Point | When to Use |
+|------|-------------|-------------|
+| **Full Interactive Viewer** | `tui.Run(root, cfg, opts...)` | Launch a turnkey interactive explorer for command output, API responses, or provider catalogs |
+| **Deterministic Frame Snapshot** | `tui.RenderSnapshot(root, cfg)` | Test TUI views in `go test` or render non-interactive previews with `cfg.StartKeys` |
+| **Static Multi-Format Output** | `tui.Render` / `tui.RenderTable` | Emit CLI tables (`FormatAuto`, `FormatTable`), lists, trees, or Mermaid diagrams with visual parity |
+| **Headless Data & CEL Engine** | `core.New()` / `core.LoadObject` | Evaluate `--expression` and `--where` flags or normalize Go structs with zero Bubble Tea dependency |
 
-- `core.LoadFile(path)` — read JSON/YAML/NDJSON from disk.
-- `core.LoadRoot(input)` / `core.LoadRootBytes(data)` — parse strings/bytes with format auto-detection.
-- `core.LoadObject(value)` — pass an already parsed Go value (map, slice, struct, etc.). Strings and byte slices are parsed through the same detection logic; nil inputs return an error.
+## Minimal Interactive Embed
 
-## Minimal embed
+Always normalize typed Go structs and typed slices (`[]MyStruct`, `[]map[string]string`) with `core.LoadObject` before passing them to `tui.Run` or `tui.RenderSnapshot`:
 
 ```go
 package main
 
 import (
-    "log"
+	"log"
 
-    "github.com/oakwood-commons/kvx/pkg/core"
-    "github.com/oakwood-commons/kvx/pkg/tui"
+	"github.com/oakwood-commons/kvx/pkg/core"
+	"github.com/oakwood-commons/kvx/pkg/tui"
 )
 
 func main() {
-    // Use an existing Go value (no re-serialization needed)
-    data := map[string]any{
-        "service": "kvx",
-        "owners":  []any{"dev@acme.com", "ops@acme.com"},
-    }
+	payload := map[string]any{
+		"service":  "catalog-sync",
+		"replicas": 2,
+		"regions":  []string{"us-east-1", "eu-west-1"},
+	}
 
-    root, err := core.LoadObject(data)
-    if err != nil {
-        log.Fatalf("load data: %v", err)
-    }
+	root, err := core.LoadObject(payload)
+	if err != nil {
+		log.Fatalf("load object: %v", err)
+	}
 
-    cfg := tui.DefaultConfig()
+	cfg := tui.DefaultConfig()
+	cfg.AppName = "my-cli"
+	cfg.ThemeName = "midnight"
+	cfg.AutoDecode = "lazy" // allow automatic scalar decoding on navigate
 
-    if err := tui.Run(root, cfg); err != nil {
-        log.Fatalf("tui error: %v", err)
-    }
+	if err := tui.Run(root, cfg); err != nil {
+		log.Fatalf("run tui: %v", err)
+	}
 }
 ```
 
-Swap `core.LoadObject` with `core.LoadFile` when you want to load from disk. For scripted renders (no interactive loop), use CLI-style flags with `--snapshot` via your own `os.Args` handling; the `tui` package itself always runs interactively.
+Pass custom `io.Reader` / `io.Writer` streams in tests or alternate TTYs via `tui.WithIO(in, out)...` as variadic `tea.ProgramOption` arguments to `tui.Run`.
 
-## Customizing expression support
+## Wiring Schema-Driven Catalogs & Status Screens
 
-- Start from the built-in CEL provider: `tui.NewCELExpressionProvider(celEnv, exampleHints)`.
-- Inject it with `tui.SetExpressionProvider(provider)` before calling `tui.Run`.
-- See the extended example in [examples/embed-tui/main.go](../examples/embed-tui/main.go) for adding custom CEL functions and completion hints.
+Attach a `DisplaySchema` parsed from JSON Schema `x-kvx-*` extensions (`tui.ParseSchemaWithDisplay`) or constructed in Go (`tui.DisplaySchema`):
 
-## Theming and layout
+- **`DisplaySchema.List` (`x-kvx-list`)**: Renders root object slices as scrollable cards with badges and subtitles (`examples/display_schema`).
+- **`DisplaySchema.Detail` (`x-kvx-detail`)**: Renders drilled-in objects using `inline`, `paragraph`, `tags`, and `table` sections. Users can still press `v` (`Alt+v` / `F2`) to inspect the raw table unless disabled.
+- **`DisplaySchema.Status` (`x-kvx-status`)**: Renders an async waiting screen wired to `cfg.Done` (`<-chan tui.StatusResult`), `cfg.OnStatusInput` (for inline masked or unmasked token submission), and `cfg.OpenURL` (`examples/status-screen`).
 
-- `tui.DefaultConfig()` loads the bundled theme and key bindings from `internal/ui/default_config.yaml`.
-- Modify the returned config (colors, borders, widths, key bindings) before calling `tui.Run`.
-- To mirror CLI behavior, keep `cfg.Mode` at its default (interactive); snapshot/non-interactive runs are handled by the CLI front-end, not `tui.Run`.
-- For async status screens with actions, inline text input (`StatusInputConfig` / `cfg.OnStatusInput`), and custom URL opening (`cfg.OpenURL`), see [library-usage.md](library-usage.md#status-screens-and-inline-input).
+## Customizing CEL Functions & Intellisense
 
-## Navigation and rendering hooks
+Build a `*cel.Env` containing `_` (`cel.Variable("_", cel.DynType)`) plus your application's custom functions, wrap it with `tui.NewCELExpressionProvider(env, exampleHints)`, and assign `cfg.ExpressionProvider` on `tui.Config` (prefer `cfg.ExpressionProvider` over the process-global `tui.SetExpressionProvider` when multiple commands share a binary). Your custom functions automatically participate in live evaluation, ghost completions, and the `Ctrl+Space` Function Palette.
 
-If you need custom navigation or table rendering outside the TUI, use the `core.Engine` directly:
+## Internal `ChildModel` Composition Architecture
 
-```go
-engine, _ := core.New()
-rows := engine.Rows(root)        // table rows for your own renderer
-out, _ := engine.Evaluate("_.path", root)
-_ = rows
-_ = out
+Inside `internal/ui`, `kvx` organizes interactive Bubble Tea v2 components around a composable **tree-of-models** pattern (`ChildModel`, `RootModel`, and `Maker`) inspired by modular TUI architectures:
+
+```mermaid
+flowchart TD
+    Root["RootModel (mode router + WindowSize broadcast)"]
+    Maker["Maker / CachedMaker (lazy model creation)"]
+    Current["Active ChildModel (Explorer / Help / Prompt)"]
+    Help["Help ChildModel (F1 / ? modal)"]
+    Prompt["Prompt ChildModel (modal dialog)"]
+
+    Root --> Current
+    Root --> Help
+    Root --> Prompt
+    Root --> Maker
 ```
 
-This lets you reuse kvx navigation/formatting while embedding the TUI only where you need it.
+- **`ChildModel` (`internal/ui/child_model.go`)**: Minimal lifecycle contract (`Init() tea.Cmd`, `Update(tea.Msg) (ChildModel, tea.Cmd)`, `View() string`) implemented by focused sub-models (`internal/ui/explorer`, `HelpModel`, and `PromptModel`) so each view can be unit-tested in isolation without spinning up a full terminal program.
+- **Optional capability interfaces**: Child models opt into richer shell coordination by implementing `ModelWithID`, `ModelWithTitle`, `ModelWithBorder`, `ModelWithSize` (`SetSize(width, height)`), and `ModelWithFocus` (`Focus() tea.Cmd`, `Blur()`, `Focused() bool`).
+- **`RootModel` (`internal/ui/root_model.go`)**: Maintains the active UI `Mode` (`NormalMode`, `ExprMode`, `SearchMode`, `HelpMode`, `PromptMode`), swallows `tea.KeyReleaseMsg` events so modifiers never double-fire, broadcasts `tea.WindowSizeMsg` resizes, and manages back-navigation via a `ChildModel` stack (`NavigateTo` / `NavigateBack`).
+- **`Maker` & `CachedMaker` (`internal/ui/maker.go`)**: Lazily instantiates child models by route/path ID on demand and optionally caches stateful views across navigation transitions.
 
-## Concurrency
+## Concurrency Notes for Host Applications
 
-`tui.Run` itself is not meant to be called concurrently for the same process
-(it drives an interactive event loop). However, if your embedding renders
-`kvx` output from multiple goroutines (e.g. a server handling concurrent
-requests), be aware of the following:
-
-- `tui.RenderTable`, `tui.RenderList`, and `core.Engine.Rows` /
-  `core.Engine.RenderTable` / `core.Engine.FilterWhere` /
-  `core.Engine.EvaluateWhere` are safe to call concurrently from multiple
-  goroutines with different options -- each call builds its own render styles
-  and sort order rather than mutating shared package state.
-- Package-level setters such as `tui.SetMaxValueLines`, the legacy
-  `formatter.SetTableTheme`/`formatter.SetMaxValueLines`, and
-  `navigator.SetSortOrder` still mutate process-global defaults and are
-  **not** safe to call concurrently with renders that depend on a specific
-  value; prefer passing per-call options (e.g. `TableOptions.MaxValueLines`)
-  instead of these global setters when rendering concurrently.
-- `ui.SetTheme`/`ui.CurrentTheme` and `cel.SetExampleHints`/`GetExampleHints`
-  are internally synchronized (safe from data races), but still represent
-  shared, process-wide configuration — concurrent callers setting different
-  themes/hints will race for "which one wins," even though no corruption or
-  crash occurs.
+`tui.Run` drives a single interactive terminal session and should not be run concurrently in the same terminal. For concurrent background or server-side rendering, `tui.RenderTable`, `tui.RenderList`, `tui.RenderTree`, `tui.RenderMermaid`, and `core.Engine` (`Evaluate`, `Rows`, `FilterWhere`, `EvaluateWhere`) isolate per-call render state and are verified under `CGO_ENABLED=1 go test -race ./...`.

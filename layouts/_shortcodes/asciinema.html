@@ -1,0 +1,130 @@
+{{- if not (.Page.Store.Get "asciinema") -}}
+  <link rel="stylesheet" href="{{ "lib/asciinema-player/asciinema-player.css" | relURL }}" />
+  <script defer src="{{ "lib/asciinema-player/asciinema-player.min.js" | relURL }}"></script>
+  <script>
+  (function () {
+    function parseCastMarkers(text) {
+      var markers = [];
+      var lines = text.split('\n');
+      for (var i = 1; i < lines.length; i++) {
+        var line = lines[i].trim();
+        if (!line) continue;
+        try {
+          var ev = JSON.parse(line);
+          if (Array.isArray(ev) && ev[1] === 'm' && typeof ev[0] === 'number' && ev[2]) {
+            markers.push({ time: ev[0], label: String(ev[2]) });
+          }
+        } catch (_) {}
+      }
+      return markers;
+    }
+
+    function bootPlayers() {
+      if (!window.AsciinemaPlayer) return false;
+      document.querySelectorAll('.bp-asciinema-mount[data-cast-src]').forEach(function (mount) {
+        if (mount.getAttribute('data-ap-ready') === '1') return;
+        mount.setAttribute('data-ap-ready', '1');
+        var src = mount.getAttribute('data-cast-src');
+        var opts = {};
+        try {
+          opts = JSON.parse(mount.getAttribute('data-cast-opts') || '{}');
+        } catch (_) {}
+        var player = window.AsciinemaPlayer.create(src, mount, opts);
+        var chapterBarId = mount.getAttribute('data-chapters-id');
+        var chapterBar = chapterBarId ? document.getElementById(chapterBarId) : null;
+        if (!chapterBar) return;
+
+        fetch(src)
+          .then(function (r) { return r.ok ? r.text() : ''; })
+          .then(function (txt) {
+            var markers = parseCastMarkers(txt);
+            if (!markers.length) return;
+            var labelEl = document.createElement('span');
+            labelEl.className = 'bp-terminal__chapters-label';
+            labelEl.textContent = 'Chapters:';
+            chapterBar.appendChild(labelEl);
+            markers.forEach(function (m) {
+              var btn = document.createElement('button');
+              btn.type = 'button';
+              btn.className = 'bp-chapter-pill';
+              var dot = document.createElement('span');
+              dot.className = 'bp-chapter-pill__dot';
+              dot.setAttribute('aria-hidden', 'true');
+              btn.appendChild(dot);
+              btn.appendChild(document.createTextNode(m.label));
+              btn.addEventListener('click', function () {
+                if (player && typeof player.seek === 'function') {
+                  player.seek(m.time);
+                  if (typeof player.play === 'function') player.play();
+                }
+              });
+              chapterBar.appendChild(btn);
+            });
+          })
+          .catch(function () {});
+      });
+      return true;
+    }
+
+    if (!bootPlayers()) {
+      document.addEventListener('DOMContentLoaded', function () {
+        if (!bootPlayers()) {
+          window.addEventListener('load', bootPlayers, { once: true });
+        }
+      }, { once: true });
+    }
+  })();
+  </script>
+  {{- .Page.Store.Set "asciinema" true -}}
+{{- end -}}
+
+{{- $rawCast := or (.Get "cast") (.Get 0) "casts/demo.cast" -}}
+{{- $castURL := strings.TrimPrefix "/" $rawCast | relURL -}}
+{{- $title := or (.Get "title") "kvx --schema provider_schema.json -i" -}}
+{{- $cols := int (or (.Get "cols") 100) -}}
+{{- $rows := int (or (.Get "rows") 26) -}}
+{{- $speed := float (or (.Get "speed") 1.0) -}}
+{{- $rawIdle := printf "%v" (.Get "idleTimeLimit") -}}
+{{- $idle := cond (eq $rawIdle "") 2.0 (float (.Get "idleTimeLimit")) -}}
+{{- $fit := or (.Get "fit") "width" -}}
+{{- $poster := or (.Get "poster") "npt:0:01" -}}
+{{- $rawAutoPlay := printf "%v" (.Get "autoPlay") -}}
+{{- $autoPlay := cond (eq $rawAutoPlay "") true (ne $rawAutoPlay "false") -}}
+{{- $rawLoop := printf "%v" (.Get "loop") -}}
+{{- $loop := cond (eq $rawLoop "") true (ne $rawLoop "false") -}}
+{{- $rawPreload := printf "%v" (.Get "preload") -}}
+{{- $preload := cond (eq $rawPreload "") true (ne $rawPreload "false") -}}
+{{- $rawChapters := printf "%v" (.Get "chapters") -}}
+{{- $chapters := cond (eq $rawChapters "") true (ne $rawChapters "false") -}}
+
+{{- $opts := dict
+  "cols" $cols
+  "rows" $rows
+  "autoPlay" $autoPlay
+  "loop" $loop
+  "preload" $preload
+  "speed" $speed
+  "idleTimeLimit" $idle
+  "fit" $fit
+  "poster" $poster
+-}}
+{{- $id := printf "bp-asciinema-%d" .Ordinal -}}
+{{- $chaptersID := printf "bp-asciinema-chapters-%d" .Ordinal -}}
+
+<div class="bp-terminal" role="region" aria-label="Interactive terminal recording">
+  <div class="bp-terminal__bar">
+    <span class="bp-terminal__dots" aria-hidden="true"><span></span><span></span><span></span></span>
+    <span class="bp-terminal__title">{{ $title }}</span>
+    <span class="bp-terminal__badge">INTERACTIVE CAST</span>
+  </div>
+  <div class="bp-terminal__viewport">
+    <div id="{{ $id }}"
+         class="bp-asciinema-mount"
+         data-cast-src="{{ $castURL }}"
+         data-cast-opts="{{ $opts | jsonify }}"
+         {{- if $chapters }} data-chapters-id="{{ $chaptersID }}"{{ end -}}></div>
+  </div>
+  {{- if $chapters -}}
+  <div id="{{ $chaptersID }}" class="bp-terminal__chapters"></div>
+  {{- end -}}
+</div>

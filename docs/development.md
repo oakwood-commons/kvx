@@ -5,73 +5,107 @@ weight: 50
 
 # Development
 
+Guide for building, testing, linting, and maintaining documentation and TUI media in `kvx`.
+
 ## Prerequisites
 
-- Go 1.20+
-- [task](https://taskfile.dev/) (optional but recommended)
+- **Go 1.27+** ([go.dev/dl](https://go.dev/dl/))
+- **[Task](https://taskfile.dev/)** (optional convenience runner for `taskfile.yaml`)
+- **C toolchain** (`gcc` or `clang`) when running race-detector suites (`CGO_ENABLED=1 go test -race ./...`)
+- **Hugo Extended** (`0.155+` / `0.158+`) when building or previewing the documentation site locally
 
 ## Building
 
-```bash
-task build                    # recommended (builds to dist/kvx)
-go build -o dist/kvx .        # alternative (always use -o dist/kvx)
-```
-
-**Note:** The binary is built to `dist/kvx`, not the root directory. Always use `-o dist/kvx` when building manually.
-
-## Task Commands
+Always output local binaries to `dist/kvx` (which is gitignored) rather than the repository root:
 
 ```bash
-task build           # Build binary
-task run             # Run with sample data
-task run-interactive # Run TUI
-task test            # Run tests
-go test ./...        # Direct test execution
+# Recommended via Task
+task build
+
+# Direct Go command
+mkdir -p dist && go build -o dist/kvx .
 ```
 
-## Testing
+## Testing & Linting
 
-Tests use fixture-based approach with deterministic Bubble Tea `Update()` calls:
+Tests exercise real loader, CEL, formatter, and deterministic Bubble Tea v2 `Update()` / `RenderSnapshot` state transitions without requiring an interactive TTY:
 
 ```bash
-task test
-go test ./internal/ui -v
+# Unit tests
+go test ./...
+
+# Race-detector suite (required before opening a PR on Linux/macOS)
+CGO_ENABLED=1 go test -race ./...
+
+# Strict golangci-lint suite (configured in .golangci.yaml, including gofumpt + goimports)
+golangci-lint run ./...
+
+# Full local CI pipeline (mod + lint + test + coverage + govulncheck)
+task ci
 ```
 
-Run the race detector locally before relying on concurrent rendering paths
-(`pkg/tui`, `pkg/core`, or anything under `internal/` that guards shared
-state with a mutex):
+> [!IMPORTANT]
+> Never pass `-i` inside automated tests; use `--snapshot` (and optional `--press "<keys>"`) or `tui.RenderSnapshot` so test runs terminate deterministically.
+
+## Documentation Site & TUI Media Generation
+
+The documentation site (`https://kvx.oakwood-commons.org/`) uses [Hugo](https://gohugo.io/) (`site/hugo.yaml`) with the Oakwood Commons Blueprint theme (`assets/_custom.scss`). `site/go.mod` isolates the Hugo theme module from the root Go module, and Hugo builds into `site/public/` or `public/` (gitignored).
+
+### Building and Previewing Docs
 
 ```bash
-task test-race                       # CGO_ENABLED=1 go test -race ./...
-CGO_ENABLED=1 go test -race ./...    # equivalent, direct invocation
+# Build minified static site into public/
+task docs:build
+# or directly:
+(cd site && hugo --gc --minify --cleanDestinationDir -d ../public)
+
+# Live-reload local preview server
+task docs:serve
 ```
 
-`task test-race` needs CGO and a C toolchain, so it's only wired into the
-Linux CI jobs (`task coverage` also runs with `-race`); the Windows CI jobs
-still use plain `task test`.
+### Regenerating `.svg` Terminal Cards, `.cast` Recording, and `demo.gif`
 
-## Project Structure
+All TUI visuals under `static/images/tui/*.svg`, `static/casts/demo.cast`, and `static/images/demo.gif` are generated deterministically from the live `dist/kvx` binary:
 
-- `cmd/` - CLI commands (Cobra)
-- `internal/navigator/` - Path/CEL navigation
-- `internal/cel/` - CEL evaluator
-- `internal/ui/` - TUI (Bubble Tea)
-- `internal/formatter/` - Output formats
-- `tests/`, `examples/data/` - Test fixtures
+1. Install [Charmbracelet `freeze`](https://github.com/charmbracelet/freeze) (`go install github.com/charmbracelet/freeze@latest`) for vector `.svg` terminal snapshots, and install [`asciinema/agg`](https://github.com/asciinema/agg) in `PATH` to re-render `static/images/demo.gif` from `static/casts/demo.cast` (or set `SKIP_GIF=1` to update `.svg` cards and `demo.cast` only).
+2. Run the media pipeline:
+   ```bash
+   task docs:media
+   # or directly:
+   ./scripts/render-docs-media.sh
+   ```
 
-## Architecture
+`scripts/render-docs-media.sh` builds `dist/kvx`, pipes isolated `kvx ... --snapshot` frames through `freeze --language ansi` (stripping embedded base64 fonts and adding responsive `viewBox` and `<title>` metadata), runs `scripts/record_demo_cast.py` in a fixed `100x26` Python pseudo-terminal to emit `static/casts/demo.cast` with `"m"` chapter markers, and renders `static/images/demo.gif` via `agg`.
 
-1. Parse YAML/JSON → `interface{}` (`map[string]any`, `[]any`)
-2. CLI: evaluate `--expression` via CEL with `_` context
-3. TUI: navigate dotted paths (sugar) or CEL in the path input
-4. Output via formatters (non-interactive) or TUI (interactive)
+## Repository Structure
+
+~~~text
+.
+|-- main.go                 # CLI entry point
+|-- cmd/                    # Cobra root/config/version commands and CLI flag wiring
+|-- pkg/
+|   |-- core/               # Public headless loader, CEL Engine, and FilterWhere API
+|   |-- tui/                # Public Bubble Tea v2 runner, RenderTable/Snapshot, and DisplaySchema API
+|   |-- loader/             # Format auto-detection, JWT decoder, and RecursiveDecode
+|   |-- intellisense/       # Public completion metadata and example helpers
+|   |-- logger/             # Context-aware logr + zap structured logging
+|   +-- settings/           # CLI run parameters and context helpers
+|-- internal/
+|   |-- cel/                # CEL environment setup, custom helpers, and expression evaluation
+|   |-- completion/         # AST-aware CEL completion engine and categorized FunctionRegistry
+|   |-- formatter/          # Table, columnar, list, tree, Mermaid, YAML, TOML, and CSV formatters
+|   |-- limiter/            # --limit, --offset, and --tail record slicing
+|   |-- navigator/          # Path AST, map/slice normalization, and row extraction
+|   +-- ui/                 # Bubble Tea v2 models (ChildModel, RootModel, Card-List, Detail, Status, Palette)
+|-- examples/               # Runnable Go library examples and sample data/schemas
+|-- docs/ & home/           # Markdown content mounted by site/hugo.yaml
+|-- assets/, layouts/, static/ # Blueprint SCSS, Hugo shortcodes, SVG snapshots, and hero cast/GIF
++-- scripts/                # Snapshot updater, release index generator, and docs media pipeline
+~~~
 
 ## Logging Pattern
 
-Uses the logr interface with zapr (zap adapter) for structured logging:
+`kvx` uses `github.com/go-logr/logr` backed by `zapr`:
 
-- `logger.Get(verbosity)` creates loggers with verbosity levels (negative numbers, e.g., `-1` for debug)
-- Context-aware: `logger.WithLogger(ctx, lgr)` and `logger.FromContext(ctx)`
-- Global keys defined in `logger/logger.go`: `RootCommandKey`, `CommitKey`, `VersionKey`, etc.
-- Example: `lgr.V(1).Info("message", "key", value)` for verbose logging
+- `logger.Get(verbosity)` constructs structured loggers (negative verbosity values such as `-1` enable debug output).
+- `logger.WithLogger(ctx, lgr)` and `logger.FromContext(ctx)` propagate loggers through `context.Context`.
