@@ -20,6 +20,8 @@ Instead, please report them via GitHub's private vulnerability reporting:
 2. Click "Report a vulnerability"
 3. Fill out the form with details about the vulnerability
 
+Alternatively, you may report security vulnerabilities by email to [security@oakwood-commons.org](mailto:security@oakwood-commons.org).
+
 ### What to Include
 
 When reporting a vulnerability, please include:

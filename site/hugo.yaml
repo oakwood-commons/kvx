@@ -4,7 +4,7 @@
 # go.mod is isolated from the main project's go.mod. Paths in
 # module mounts are relative to this directory.
 
-baseURL: "https://oakwood-commons.github.io/kvx/"
+baseURL: "https://kvx.oakwood-commons.org/"
 locale: "en-us"
 title: "kvx"
 enableRobotsTXT: true
