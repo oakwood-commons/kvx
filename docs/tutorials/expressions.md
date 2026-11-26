@@ -117,7 +117,7 @@ Wrap CLI expressions in single quotes so your shell does not expand `$`, `!`, `*
 
 ```bash
 # Bash / Zsh / Fish: single quotes around the expression
-kvx examples/data/demo_services.json -e '_[0].capabilities.contains("mtls")'
+kvx examples/data/demo_services.json -e '"mtls" in _[0].capabilities'
 
 # Keys containing dots, slashes, or hyphens use bracket notation
 kvx pod.json -e '_.metadata.annotations["kubectl.kubernetes.io/last-applied-configuration"]'
