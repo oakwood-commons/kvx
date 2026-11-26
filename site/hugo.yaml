@@ -1,11 +1,9 @@
-# Hugo Configuration for kvx
+# Hugo Configuration for oakwood-commons/kvx
 # Documentation: https://gohugo.io/getting-started/configuration/
-# Note: Hugo is run from this directory (site/) so that its
-# go.mod is isolated from the main project's go.mod. Paths in
-# module mounts are relative to this directory.
+# Note: Hugo runs from site/ so its theme go.mod stays isolated from the root Go module.
 
 baseURL: "https://kvx.oakwood-commons.org/"
-locale: "en-us"
+languageCode: "en-us"
 title: "kvx"
 enableRobotsTXT: true
 
@@ -25,24 +23,28 @@ module:
       target: assets
     - source: ../layouts
       target: layouts
+    - source: ../static
+      target: static
 
 # Repository information
 params:
-  description: "Terminal-based UI for exploring structured data interactively"
+  description: "Interactive terminal UI, schema-driven explorer, and CEL query engine for structured data"
   github_repo: "https://github.com/oakwood-commons/kvx"
   github_project_repo: "https://github.com/oakwood-commons/kvx"
 
   # Book theme specific
-  BookMenuBundle: /menu
+  BookTheme: "blueprint"
+  BookLogo: "images/symbol.svg"
+  BookFavicon: "favicon.svg"
   BookSection: docs
   BookRepo: "https://github.com/oakwood-commons/kvx"
-  BookEditLink: "https://github.com/oakwood-commons/kvx/edit/main/{{ .Path }}"
+  BookEditLink: 'https://github.com/oakwood-commons/kvx/edit/main/{{ $p := replace .Page.File.Path "\\" "/" }}{{ if hasPrefix $p "docs/" }}{{ $p }}{{ else }}home/{{ $p }}{{ end }}'
   BookDateFormat: "January 2, 2006"
   BookSearch: true
   BookComments: false
   BookToC: true
 
-# Enable syntax highlighting
+# Enable syntax highlighting and raw Blueprint HTML blocks
 markup:
   highlight:
     style: github-dark
@@ -50,27 +52,21 @@ markup:
     codeFences: true
     guessSyntax: true
   goldmark:
+    extensions:
+      typographer: false
     renderer:
-      unsafe: false
+      unsafe: true
 
 # Menu structure
 menu:
   before: []
   after:
-    - name: "GitHub"
+    - name: "GitHub Repository"
       url: "https://github.com/oakwood-commons/kvx"
       weight: 10
-
-# Output formats
-outputs:
-  home:
-    - HTML
-    - RSS
-    - JSON
-
-# Enable JSON for search
-outputFormats:
-  JSON:
-    mediaType: application/json
-    baseName: search
-    isPlainText: true
+    - name: "Releases"
+      url: "https://github.com/oakwood-commons/kvx/releases"
+      weight: 20
+    - name: "Go Reference"
+      url: "https://pkg.go.dev/github.com/oakwood-commons/kvx"
+      weight: 30

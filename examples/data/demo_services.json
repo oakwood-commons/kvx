@@ -1,0 +1,62 @@
+[
+  {
+    "name": "api-gateway",
+    "displayName": "API Edge Gateway",
+    "status": "running",
+    "region": "us-east-1",
+    "replicas": 4,
+    "version": "2.4.1",
+    "description": "Routes external HTTPS traffic, enforces rate limits, and validates client JWTs at the edge.",
+    "capabilities": ["http2", "rate-limit", "mtls", "jwt-verify"],
+    "config": "{\"port\":8443,\"tls\":true,\"rateLimitRps\":2500,\"upstreamTimeoutMs\":1500}",
+    "authToken": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImstcHJvZC0wMSJ9.eyJpc3MiOiJodHRwczovL2F1dGguZXhhbXBsZS5jb20iLCJzdWIiOiJzdmM6YXBpLWdhdGV3YXkiLCJyb2xlIjoiZWRnZS1wcm94eSIsInNjb3BlIjoidHJhZmZpYzpyb3V0ZSBjZXJ0czpyZWFkIiwiZXhwIjoxODkzNDU2MDAwfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+  },
+  {
+    "name": "auth-issuer",
+    "displayName": "Auth Token Issuer",
+    "status": "running",
+    "region": "us-east-1",
+    "replicas": 3,
+    "version": "2.4.1",
+    "description": "Issues short-lived OIDC and workload JWT credentials with rotating signing keys.\n\nEnforces PKCE S256 challenges, automated JWKS rotation, and audience-scoped claims.",
+    "capabilities": ["oidc", "jwt", "pkce", "jwks"],
+    "config": "{\"port\":8444,\"tls\":true,\"tokenTtlSec\":900,\"keyRotationHours\":24}",
+    "authToken": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImstcHJvZC0wMSJ9.eyJpc3MiOiJodHRwczovL2F1dGguZXhhbXBsZS5jb20iLCJzdWIiOiJzdmM6YXV0aC1pc3N1ZXIiLCJyb2xlIjoidG9rZW4taXNzdWVyIiwic2NvcGUiOiJ0b2tlbnM6c2lnbiBqd2tzOnJlYWQiLCJleHAiOjE4OTM0NTYwMDB9.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+  },
+  {
+    "name": "billing-worker",
+    "displayName": "Usage Billing Worker",
+    "status": "degraded",
+    "region": "eu-west-1",
+    "replicas": 1,
+    "version": "2.3.8",
+    "description": "Aggregates metered API usage events and reconciles hourly invoice ledgers.",
+    "capabilities": ["queue-consumer", "ledger", "webhooks"],
+    "config": "{\"batchSize\":250,\"flushIntervalSec\":30,\"retryMax\":5}",
+    "authToken": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImstcHJvZC0wMSJ9.eyJpc3MiOiJodHRwczovL2F1dGguZXhhbXBsZS5jb20iLCJzdWIiOiJzdmM6YmlsbGluZy13b3JrZXIiLCJyb2xlIjoid29ya2VyIiwic2NvcGUiOiJsZWRnZXI6d3JpdGUgZXZlbnRzOnJlYWQiLCJleHAiOjE4OTM0NTYwMDB9.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+  },
+  {
+    "name": "catalog-sync",
+    "displayName": "OCI Catalog Sync",
+    "status": "running",
+    "region": "eu-west-1",
+    "replicas": 2,
+    "version": "2.4.0",
+    "description": "Mirrors signed solution bundles and JSON Schemas across regional OCI registries.",
+    "capabilities": ["oci", "cosign-verify", "cache"],
+    "config": "{\"pollIntervalSec\":60,\"verifySignatures\":true,\"maxConcurrentPulls\":4}",
+    "authToken": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImstcHJvZC0wMSJ9.eyJpc3MiOiJodHRwczovL2F1dGguZXhhbXBsZS5jb20iLCJzdWIiOiJzdmM6Y2F0YWxvZy1zeW5jIiwicm9sZSI6InN5bmMiLCJzY29wZSI6Im9jaTpwdWxsIG9jaTpwdXNoIiwiZXhwIjoxODkzNDU2MDAwfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+  },
+  {
+    "name": "search-indexer",
+    "displayName": "Telemetry Search Indexer",
+    "status": "running",
+    "region": "us-west-2",
+    "replicas": 3,
+    "version": "2.4.1",
+    "description": "Indexes structured audit events and schema metadata for sub-second query filtering.",
+    "capabilities": ["ndjson", "fulltext", "compaction"],
+    "config": "{\"shards\":8,\"commitIntervalMs\":500,\"compression\":\"zstd\"}",
+    "authToken": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImstcHJvZC0wMSJ9.eyJpc3MiOiJodHRwczovL2F1dGguZXhhbXBsZS5jb20iLCJzdWIiOiJzdmM6c2VhcmNoLWluZGV4ZXIiLCJyb2xlIjoiaW5kZXhlciIsInNjb3BlIjoiaW5kZXg6d3JpdGUgcXVlcnk6cmVhZCIsImV4cCI6MTg5MzQ1NjAwMH0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+  }
+]

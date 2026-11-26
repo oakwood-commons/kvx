@@ -3,179 +3,122 @@ title: "CEL Expressions"
 weight: 3
 ---
 
-# CEL Expressions
+# CEL Expressions & Function Palette
 
-kvx uses the [Common Expression Language (CEL)](https://cel.dev/) for dynamic querying, filtering, and transformation. This tutorial covers the expression syntax and common patterns.
+`kvx` embeds the [Common Expression Language (CEL)](https://cel.dev/) for fast, side-effect-free querying, filtering, and data shaping across both the non-interactive CLI (`-e` and `-w`) and the interactive TUI (`:` and `Ctrl+Space`).
 
-## Basics
+## CLI (`-e`) vs Per-Item Filtering (`-w`)
 
-The root variable is always `_`. Use `-e` on the CLI or `:` in the TUI to evaluate expressions.
+`kvx` exposes two complementary CEL flags on the command line:
 
-```bash
-# Access a field
-kvx data.yaml -e '_.metadata.name'
+| Flag | Root Variable `_` | Purpose |
+|------|-------------------|---------|
+| `-w`, `--where <predicate>` | Bound to **each element** of a root list | Filters arrays/slices in place where the boolean predicate returns `true` |
+| `-e`, `--expression <cel>` | Bound to the **entire document** (or filtered list after `-w`) | Navigates, projects, aggregates, or reshapes data into any value |
 
-# Array index
-kvx data.yaml -e '_.items[0]'
-
-# Nested field access
-kvx data.yaml -e '_.items[0].name'
-```
-
-## Path Syntax
-
-kvx supports two path styles:
-
-### CLI (strict CEL)
-
-Use `_` as the root variable:
+When both flags are passed, `--where` runs first and `--expression` receives the filtered list:
 
 ```bash
-kvx data.yaml -e '_.metadata.created'
-kvx data.yaml -e '_.items[0]'
-kvx data.yaml -e 'type(_)'
+# 1. Filter services with --where (_ = each service object)
+kvx examples/data/demo_services.json -w '_.status == "running" && _.replicas >= 3'
+
+# 2. Chain --where into --expression (_ = filtered list of running services)
+kvx examples/data/demo_services.json \
+  -w '_.status == "running"' \
+  -e '_.map(s, {"service": s.name, "region": s.region, "replicas": s.replicas})' \
+  -o table
 ```
 
-### TUI (dotted-path shorthand)
+> [!TIP]
+> On the CLI, `--where` requires a list or array input and exits with status `2` when given a top-level map or scalar. When embedding `pkg/core` in Go, `engine.FilterWhere` and `engine.EvaluateWhere` return a wrapped `core.ErrNotList` sentinel on non-lists so host CLIs can treat non-list commands as a safe no-op.
 
-In the TUI expression mode, you can also use dotted-path shorthand:
+## Path Syntax: Strict CLI vs TUI Shorthand
 
+- **CLI (`-e` and `-w`)**: Uses strict CEL syntax rooted at `_`:
+  ```bash
+  kvx data.yaml -e '_.metadata.name'
+  kvx data.yaml -e '_.items[0]'
+  kvx data.yaml -e '_.metadata["k8s.io/app"]'
+  ```
+- **TUI (`:` Expression mode)**: Accepts both `_`-rooted CEL and dotted-path shorthand (`metadata.name`, `items[0]`, `items.0`). For global CEL functions such as `type(_)` or `has(_.metadata.labels)`, include `_`.
+
+## Interactive Expression Mode (`:`) & Ghost Completion
+
+Press `:` (`Alt+x` in Emacs, `F6` in Function mode) to open the live CEL Expression bar:
+
+1. **Prefilled context**: Starts at the `_`-rooted path of your currently highlighted node.
+2. **Ghost text & Tab completion**: As you type `.` or partial field/method names, `kvx` shows dimmed inline ghost completions derived from the live runtime value and CEL environment.
+   - Press `Right` to accept the inline ghost completion.
+   - Press `Tab` / `Shift+Tab` to cycle through matching object keys, array indices, or completions.
+   - Press `Up` / `Down` to cycle CEL functions valid for the current node's type.
+3. **Live evaluation**: Press `Enter` to evaluate the expression immediately in the Data panel while staying in Expression mode. Invalid expressions show inline red diagnostics without losing your place.
+4. **Exit behavior**: Press `Esc` to close Expression mode. If the result is a navigable map or list, the Data panel stays on it; scalar or error results restore your prior navigable path.
+
+## Categorized Function Palette (`Ctrl+Space`)
+
+While in Expression mode (`:`), press **`Ctrl+Space`** to open the interactive **Function Palette** overlay:
+
+{{< svg-card src="images/tui/cel-function-palette.svg" alt="kvx CEL Expression Mode and Ctrl+Space Function Palette" >}}Pressing `Ctrl+Space` in Expression mode opens the categorized CEL Function Palette with signatures and runnable examples.{{< /svg-card >}}
+
+Inside the Function Palette:
+
+- **Category tabs**: Press `Tab` / `Shift+Tab` to switch across `conversion`, `string`, `list`, `map`, `math`, `encoding`, `datetime`, `regex`, and `general` categories.
+- **Context-aware methods**: If your expression currently ends with a dot (for example `_.`), `Ctrl+Space` opens in **Methods** mode showing methods applicable to receiver values.
+- **Type-to-filter**: Start typing any characters (for example `filter` or `base64`) to search function names and descriptions across all categories simultaneously.
+- **Signature & live examples**: The bottom detail pane displays the selected function's signature, description, and evaluated examples from `ui.help.cel.function_examples`.
+- **Insert at cursor**: Press `Enter` to insert `funcName(` (or `.methodName(`) directly into your expression input and continue typing arguments.
+
+## High-Value CEL Patterns
+
+### Filtering, Sorting, and Deduplicating Lists
+
+```cel
+// Filter objects matching multiple criteria
+_.filter(s, s.status == "running" && s.replicas >= 2)
+
+// Sort objects by a key or sort scalar lists
+_.sortBy(s, s.replicas)
+_.map(s, s.region).distinct().sort()
+
+// Quantifiers: exists, all, exists_one
+_.exists(s, s.status == "degraded")
+_.all(s, s.replicas > 0)
 ```
-metadata.created
-items[0]
-items.0
-items[0].name
+
+### String Inspection and Formatting
+
+```cel
+_.name.startsWith("auth-")
+_.description.lowerAscii().contains("jwt")
+_.name.matches("^[a-z]+-[a-z]+$")
+"%s (%d replicas)".format([_.name, _.replicas])
+["us-east-1", "eu-west-1"].join(", ")
 ```
 
-The TUI automatically resolves dotted paths. For CEL functions, use the full `_`-rooted syntax.
+### Math, Timestamps, Durations, and Base64
 
-## Common Patterns
-
-### Field access
-
-```
-_.name                            # top-level field
-_.metadata.labels                 # nested field
-_.items[0].name                   # array element field
+```cel
+math.greatest([1, 4, 3, 2])
+timestamp("2026-02-18T10:30:00Z")
+duration("1h30m")
+string(base64.decode("aGVsbG8="))
 ```
 
-### Array operations
+### Type Introspection and Safe Field Checks
 
-```
-_.items[0]                        # first element
-_.items[2]                        # third element
-_.items.size()                    # array length
-```
-
-### Filtering
-
-```
-# Keep items where status is "running"
-_.items.filter(x, x.status == "running")
-
-# Keep items with replicas > 0
-_.items.filter(x, x.replicas > 0)
-
-# Combine conditions
-_.items.filter(x, x.status == "running" && x.replicas >= 2)
-```
-
-### Mapping / transformation
-
-```
-# Extract a single field from each item
-_.items.map(x, x.name)
-
-# Build a summary string
-_.items.map(x, x.name + ": " + string(x.replicas))
-```
-
-### Existence and type checking
-
-```
-# Check if a field exists
-has(_.metadata.labels)
-
-# Inspect the type
+```cel
 type(_)
-type(_.items)
-type(_.items[0].replicas)
+has(_[0].authToken) ? "present" : "missing"
 ```
 
-### String functions
+## Shell Quoting Tips
 
-```
-_.name.startsWith("api")
-_.name.endsWith("-svc")
-_.name.contains("web")
-_.description.matches("v[0-9]+")
-```
-
-### Conditional expressions
-
-```
-_.replicas > 5 ? "high" : "low"
-has(_.labels) ? _.labels : {}
-```
-
-### Size and counting
-
-```
-_.items.size()                    # number of items
-_.name.size()                     # string length
-_.items.filter(x, x.status == "running").size()  # count matching
-```
-
-## Shell Quoting
-
-When using expressions with special characters on the command line, prefer single quotes around the entire expression:
+Wrap CLI expressions in single quotes so your shell does not expand `$`, `!`, `*`, or double quotes:
 
 ```bash
-# Single quotes (recommended)
-kvx data.yaml -e '_.items[0]'
-kvx data.yaml -e 'type(_)'
-kvx data.yaml -e '_.metadata["bad-key"]'
+# Bash / Zsh / Fish: single quotes around the expression
+kvx examples/data/demo_services.json -e '"mtls" in _[0].capabilities'
 
-# Double quotes require escaping
-kvx data.yaml -e "_.metadata[\"bad-key\"]"
+# Keys containing dots, slashes, or hyphens use bracket notation
+kvx pod.json -e '_.metadata.annotations["kubectl.kubernetes.io/last-applied-configuration"]'
 ```
-
-### Tips
-
-- Use single quotes to avoid shell expansion of `$`, `!`, `*`, etc.
-- Bracket notation (`["key"]`) handles keys with hyphens, dots, or spaces.
-- In PowerShell, use double quotes with backtick escaping or single quotes.
-
-## Combining with Output Formats
-
-Expressions work with any output format:
-
-```bash
-# Filter and output as JSON
-kvx data.yaml -e '_.items.filter(x, x.status == "running")' -o json
-
-# Map names and output as YAML
-kvx data.yaml -e '_.items.map(x, x.name)' -o yaml
-
-# First item as a list
-kvx data.yaml -e '_.items[0]' -o list
-
-# Tree view of metadata
-kvx data.yaml -e '_.metadata' -o tree
-```
-
-## Expressions in the TUI
-
-In interactive mode, press `:` to enter expression mode:
-
-1. The input is prefilled with the current `_`-rooted path
-2. **Tab/Shift+Tab** cycle through keys and indices as completions
-3. **Up/Down** cycle through CEL functions valid for the current node type
-4. **Right** accepts the ghosted completion
-5. **Enter** evaluates and stays in expression mode
-6. **Esc** exits; non-navigable results fall back to the prior path
-
-## Next Steps
-
-- [Configuration & Themes](../configuration/) — Customize kvx to your workflow
-- [Library Usage](../../library-usage/) — Use CEL expressions programmatically with `core.Engine`

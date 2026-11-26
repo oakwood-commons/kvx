@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "x-kvx-status": {
+    "titleField": "title",
+    "messageField": "messages",
+    "waitMessage": "Waiting for browser verification or callback token...",
+    "successMessage": "Session authenticated",
+    "timeout": "2m",
+    "doneBehavior": "exit-after-delay",
+    "doneDelay": "2s",
+    "displayFields": [
+      { "label": "Verification URL", "field": "url" },
+      { "label": "One-Time Code", "field": "code" },
+      { "label": "Target Profile", "field": "environment" }
+    ],
+    "actions": [
+      {
+        "label": "Copy code",
+        "type": "copy-value",
+        "field": "code",
+        "keys": { "vim": "c", "emacs": "alt+c", "function": "f2" }
+      },
+      {
+        "label": "Open browser",
+        "type": "open-url",
+        "field": "url",
+        "keys": { "vim": "o", "emacs": "alt+o", "function": "f3" }
+      }
+    ],
+    "input": {
+      "label": "Paste callback token (masked):",
+      "placeholder": "https://localhost:8400/callback?token=...",
+      "prompt": "❯ ",
+      "masked": true,
+      "maxLength": 4096
+    }
+  }
+}

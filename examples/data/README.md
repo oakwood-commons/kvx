@@ -1,6 +1,6 @@
 # Example Data Files
 
-Sample data files for testing kvx features.
+Sample data files for testing `kvx` features.
 
 ## Schema Example: users.json + users_schema.json
 
@@ -13,16 +13,17 @@ kvx examples/data/users.json -o table
 ```
 
 Output shows all columns with original field names:
-```
-╭─────────────────────────── kvx ────────────────────────────╮
-│#    department   full_name    internal_code  score  user_id│
-│────────────────────────────────────────────────────────────│
-│1    Engineering  Alice Smith  X123           95     u001   │
-│2    Sales        Bob Jones    Y456           87     u002   │
-│3    Engineering  Carol White  Z789           92     u003   │
-│4    Marketing    David Lee    W012           78     u004   │
-│5    Engineering  Eva Brown    V345           99     u005   │
-╰ _ ────────────────────────────────────────────── list: 1/5 ╯
+
+```text
++--------------------------- kvx ----------------------------+
+|#    department   full_name    internal_code  score  user_id|
+|------------------------------------------------------------|
+|1    Engineering  Alice Smith  X123           95     u001   |
+|2    Sales        Bob Jones    Y456           87     u002   |
+|3    Engineering  Carol White  Z789           92     u003   |
+|4    Marketing    David Lee    W012           78     u004   |
+|5    Engineering  Eva Brown    V345           99     u005   |
++ _ ---------------------------------------------- list: 1/5 +
 ```
 
 ### With schema
@@ -32,16 +33,17 @@ kvx examples/data/users.json --schema examples/data/users_schema.json -o table
 ```
 
 Output with schema-driven display:
-```
-╭─────────────────────────── kvx ────────────────────────────╮
-│#    Dept         Name         Score  ID                    │
-│──────────────────────────────────────────                  │
-│1    Engineering  Alice Smith     95  u001                  │
-│2    Sales        Bob Jones       87  u002                  │
-│3    Engineering  Carol White     92  u003                  │
-│4    Marketing    David Lee       78  u004                  │
-│5    Engineering  Eva Brown       99  u005                  │
-╰ _ ────────────────────────────────────────────── list: 1/5 ╯
+
+```text
++--------------------------- kvx ----------------------------+
+|#    Dept         Name         Score  ID                    |
+|------------------------------------------                  |
+|1    Engineering  Alice Smith     95  u001                  |
+|2    Sales        Bob Jones       87  u002                  |
+|3    Engineering  Carol White     92  u003                  |
+|4    Marketing    David Lee       78  u004                  |
+|5    Engineering  Eva Brown       99  u005                  |
++ _ ---------------------------------------------- list: 1/5 +
 ```
 
 ### What the schema does
@@ -64,18 +66,21 @@ kvx examples/data/users.json --schema examples/data/users_schema.json -i
 
 ### With column ordering
 
-Combine `--schema` with config file column ordering:
+Combine `--schema` with `--column-order` or config file column ordering:
 
 ```yaml
 # ~/.config/kvx/config.yaml
-formatting:
-  table:
-    column_order: [full_name, user_id, score, department]
+ui:
+  formatting:
+    table:
+      column_order: [full_name, user_id, score, department]
 ```
 
 ## Other data files
 
-- `sample_cluster.json` - Large nested cluster configuration
-- `sample_employees.csv` - CSV format example  
-- `sample_nested.json` - Nested JSON with encoded strings for auto-decode testing
-- `sample.jwt` - JWT token for decoding
+- `demo_services.json` and `demo_services_schema.json`: Microservice catalog with `x-kvx-list`, `x-kvx-detail`, serialized JSON config, and `Bearer` JWT strings
+- `status_device_auth.json` and `status_device_auth_schema.json`: Async status screen fixture (`x-kvx-status`) with hotkey actions and masked inline input
+- `sample_cluster.json`: Large nested cluster configuration
+- `sample_employees.csv`: CSV format example
+- `sample_nested.json`: Nested JSON with encoded strings for auto-decode testing
+- `sample.jwt`: JWT token for decoding

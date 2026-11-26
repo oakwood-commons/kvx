@@ -15,8 +15,8 @@ app:
     # These fields are available in templates as {{.config.app.about.version}}, etc.
     # or as {{.build.version}}, etc.
     license: Apache License 2.0
-    repository_url: https://github.com/yourusername/kvx
-    documentation_url: https://github.com/yourusername/kvx/blob/main/README.md
+    repository_url: https://github.com/oakwood-commons/kvx
+    documentation_url: https://kvx.oakwood-commons.org/
     author: The kvx contributors
     # Additional details (array of strings, supports templates)
     # These appear in CLI --help and UI help overlay

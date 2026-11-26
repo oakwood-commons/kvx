@@ -8,6 +8,7 @@ on:
       - "home/**"
       - "assets/**"
       - "layouts/**"
+      - "static/**"
       - "site/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:

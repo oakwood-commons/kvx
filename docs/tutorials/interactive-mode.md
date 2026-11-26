@@ -5,148 +5,121 @@ weight: 2
 
 # Interactive Mode
 
-The interactive TUI lets you navigate, search, filter, and evaluate expressions against your data in a full-screen terminal interface.
+The interactive TUI (`-i` / `--interactive`) provides keyboard-driven tree navigation, instant prefix filtering, deep search, live CEL evaluation with a categorized Function Palette, clipboard copy actions, and in-place decoding of serialized strings.
 
 ## Launching the TUI
 
 ```bash
-kvx data.yaml -i
+# Open a file in the interactive TUI
+kvx examples/data/demo_services.json -i
+
+# Attach a JSON Schema for Card-List and Detail views
+kvx examples/data/demo_services.json --schema examples/data/demo_services_schema.json -i
+
+# Pipe command output into the TUI
+kubectl get pods -o json | kvx -i
+
+# Override detected terminal dimensions
+kvx examples/data/demo_services.json -i --width 110 --height 32
 ```
 
-Override terminal size detection:
+## Panel Layout
+
+The TUI adapts dynamically to terminal resizes without leaving blank rows below the footer:
+
+- **Data panel**: Displays the active `KEY`/`VALUE` table, schema Card-List, Sectioned Detail screen, or decoded scalar view. The bottom border shows the current `_`-rooted CEL path on the left and the node type plus `selection/total` count (such as `map: 1/8` or `list: 2/5`) on the right.
+- **Function Palette overlay**: Opens above the data panel when you press `Ctrl+Space` inside Expression mode, grouping all CEL functions and methods by category.
+- **Input panel**: Single-line bordered input bar titled `Expression` or `Search`. Hidden until `/` or `:` activates it.
+- **Status / Info row**: Single-line feedback row showing copy confirmations, `decoded` indicators, CEL type/function hints, or evaluation errors.
+- **Footer**: Persistent bottom shortcut bar listing context-aware keys for your active `--keymap`.
+- **Help modal**: Toggled with `?` (Vim) or `F1` (Emacs/Function).
+
+## Keybindings Across Modes
+
+`kvx` defaults to `vim` keybindings and also supports `emacs` and `function` keymaps via `--keymap vim|emacs|function`, `KVX_KEY_MODE`, or `ui.features.key_mode` in `config.yaml`:
+
+| Action | Vim (`default`) | Emacs (`--keymap emacs`) | Function (`--keymap function`) |
+|--------|-----------------|--------------------------|--------------------------------|
+| Move down / up | `j` / `k` or `Down` / `Up` | `Ctrl+N` / `Ctrl+P` or `Down` / `Up` | `Down` / `Up` |
+| Drill in / decode scalar | `l`, `Enter`, or `Right` | `Ctrl+F`, `Enter`, or `Right` | `Enter` or `Right` |
+| Ascend to parent | `h` or `Left` | `Ctrl+B` or `Left` | `Left` |
+| Jump to top / bottom | `gg` / `G` (`Home` / `End`) | `Alt+<` / `Alt+>` (`Home` / `End`) | `Home` / `End` |
+| Toggle help overlay | `?` or `F1` | `F1` | `F1` |
+| Toggle schema view vs raw table | `v` | `Alt+v` | `F2` |
+| Deep search (`keys` + `values`) | `/` (`n` / `N` next/prev) | `Ctrl+S` | `F3` |
+| Filter current map keys | `f` | `Ctrl+L` | `F4` |
+| Copy current path or expression | `y` | `Alt+w` | `F5` |
+| Copy current value (scalar or JSON) | `Y` | `Alt+W` | *(unbound; set via `ui.menu.copy_value`)* |
+| Open CEL Expression mode | `:` | `Alt+x` | `F6` |
+| Open CEL Function Palette (in expr) | `Ctrl+Space` | `Ctrl+Space` | `Ctrl+Space` |
+| Close active input / popup / search | `Esc` | `Esc` or `Ctrl+G` | `Esc` |
+| Quit `kvx` | `q` or `Ctrl+C` | `Ctrl+Q` or `Ctrl+C` | `F10` or `Ctrl+C` |
+
+## Copying Paths (`y`) vs Copying Values (`Y`)
+
+`kvx` provides two context-aware clipboard actions:
+
+- **`y` (`Alt+w` / `F5`)**: In table view, always copies the `_`-rooted CEL path of the **currently highlighted row** right from frame 1 without requiring a cursor move first (for example `Copied: _[1].config` or `Copied: _.metadata["bad-key"]`). While `:` Expression input is focused, pressing `F5` copies the typed expression string itself (typing `y` or `Y` inside the focused input inserts literal characters into the expression).
+- **`Y` (`Shift+y` / `Alt+W`; unbound by default in `function` mode)**: Copies the **value** at the highlighted cursor position:
+  - **Scalars** (`string`, `int`, `float`, `bool`, `nil`) copy as raw unquoted text (`Copied value: auth-issuer`).
+  - **Maps and arrays** copy as pretty-printed, 2-space indented JSON (`Copied value (JSON, 148 bytes)`), ready to paste into an editor, fixture, or HTTP request.
+  - **Evaluating & copying CEL results**: Press `Enter` inside `:` Expression mode to evaluate a navigable result, press `Esc` to focus the result table, and press `Y` (`Alt+W`) to copy it (or bind `ui.menu.copy_value.keys.function`, such as `f7`, to copy evaluated expression values directly while focused).
+
+## Type-Ahead Row Filtering
+
+When the input bar is closed in table view, typing printable characters (`a` through `z`, digits, or spaces) immediately filters the current node's rows by key prefix (case-insensitive):
+
+- Press `Backspace` to edit the prefix filter.
+- Press `Esc` to clear the filter.
+- Drilling into a child node or ascending to a parent automatically resets the prefix filter.
+
+## Deep Search (`/`)
+
+Press `/` to search recursively across all nested keys and scalar values from the current node downward:
+
+1. Type your query and press `Enter` to commit the deep search (up to `ui.performance.search_result_limit`, default `500`).
+2. Use `Up` / `Down` arrow keys to move through matching paths while the Search input is open.
+3. Press `Right` to drill into a match while preserving your search session, or `Enter` to jump into the matched node and close search.
+4. Press `Esc` to cancel search and return to your starting node.
+
+## Decoding Serialized Strings (`Enter`)
+
+Many real-world payloads embed JSON, YAML, TOML, NDJSON, or `Bearer` JWT strings inside scalar fields (such as Kubernetes annotations, Terraform state blobs, or audit event payloads).
+
+Highlight any string leaf and press `Enter` (or `l` / `Right`). If the string parses into structured data, `kvx` decodes it in place (`decoded` status badge) and lets you navigate its inner fields like any other map or list. Press `h` (`Left`) to ascend back to the parent object. See [Formats, JWTs & Decoding](../formats-and-decoding/) for details.
+
+## Toggling Schema Views (`v`)
+
+When launched with `--schema` containing `x-kvx-list` or `x-kvx-detail` extensions, `kvx` renders arrays as rich Card Lists and objects as Sectioned Detail views. Press `v` (`Alt+v` in Emacs, `F2` in Function mode) on either a Card-List or a Detail screen to switch between the schema-driven view and the underlying raw `KEY`/`VALUE` table:
+
+- **Context-aware footer**: The `v view` shortcut only appears when the current node has a matching schema view (list or detail); drilling into a deeper nested field where no schema view applies hides `v view` automatically.
+- **Copy integration**: While a schema Card-List or Detail view is active, `y` and `Y` copy hints stay hidden to keep the footer concise; pressing `v` switches into the raw table and immediately restores `y copy` and `Y copy value` so you can copy any field path, hidden property, or JSON subtree.
+
+{{< svg-card src="images/tui/schema-card-list.svg" alt="kvx schema card-list view in interactive TUI" >}}Card-List view rendered from `x-kvx-list`; press `Enter` for Detail view or `v` for the raw table.{{< /svg-card >}}
+
+## Scripted Snapshots (`--snapshot` and `--press`)
+
+Combine `--snapshot` with `--press` to drive reproducible multi-step TUI interactions in scripts, tests, and documentation pipelines:
 
 ```bash
-kvx data.yaml -i --width 120 --height 40
+# Open Expression mode, launch the Ctrl+Space Function Palette, and switch to list functions
+kvx examples/data/demo_services.json \
+  --snapshot --width 94 --height 26 \
+  --press ":<C-u>_<C-Space><Tab><Tab><Down><Down><Down><Down>"
+
+# Drill into item 1 and decode its Bearer JWT field
+kvx examples/data/demo_services.json \
+  --snapshot --width 92 --height 20 \
+  --press "jl<Enter><Enter>j"
 ```
 
-## Panels
+Supported angle-bracket key tokens in `--press`:
+`<Enter>`, `<Esc>`, `<Tab>`, `<Space>`, `<BS>`, `<Left>`, `<Right>`, `<Up>`, `<Down>`, `<Home>`, `<End>`, `<C-c>`, `<C-d>`, `<C-u>`, `<C-Space>`, and `<F1>` through `<F12>`. Including `<F10>` in `--press` bypasses the interactive event loop and emits non-interactive CLI output directly regardless of `--keymap`.
 
-The TUI is organized into panels:
+## Debug Event Capture
 
-- **Data panel** — Main table view. The bottom border shows the current CEL path (tail is kept when the path is long). The lower-right corner shows `n/x` for selection/visible rows.
-- **Input panel** — Single-line bordered input. Title reflects the current mode (Expression or Search). Hidden until activated.
-- **Info panel** — One row, borderless. Right-justified when input is hidden. Left-justified and recolored when input is shown.
-- **Footer** — Always visible. Left shows `? - Help`, right shows rows/cols.
-- **Help popup** — Hidden by default. Press `?` to toggle help content.
-
-## Navigation
-
-kvx defaults to **vim** keybindings:
-
-| Key | Action |
-|-----|--------|
-| `j` / `k` | Navigate up/down |
-| `h` / `l` | Navigate back/forward (ascend/drill) |
-| `/` | Search mode (live search keys/values) |
-| `n` / `N` | Next/previous search match |
-| `f` | Filter current map keys |
-| `gg` / `G` | Go to top/bottom |
-| `:` | Expression mode (CEL) |
-| `y` | Copy current path/expression |
-| `?` | Toggle help panel |
-| `q` | Quit |
-| `Esc` | Close input/help/search context (does not quit) |
-
-### Emacs keybindings
+Pass `--debug` (and optional `--debug-max-events N`, default `200`) to buffer timestamped UI, key-routing, and navigation events in memory and emit them cleanly via structured logging upon exit:
 
 ```bash
-kvx data.yaml -i --keymap emacs
+kvx examples/data/demo_services.json -i --debug --debug-max-events 500
 ```
-
-### Function-key keybindings
-
-```bash
-kvx data.yaml -i --keymap function
-```
-
-## Filter (Type-Ahead)
-
-With input hidden, typing letters, digits, or spaces filters rows by key prefix (case-insensitive):
-
-- **Backspace** edits the filter
-- **Esc** clears the filter
-- Navigation works on filtered rows
-- The `n/x` indicator reflects filtered counts
-- Filter clears automatically when you drill into or ascend from a node
-
-## Search
-
-Press `/` to enter search mode:
-
-- Type your query in the input bar — the query updates as you type but the deep search executes when you press **Enter**
-- **Enter** commits the search and shows matching results (searches both keys and values)
-- **Up/Down** move within results
-- **Right** drills into a result but keeps search context
-- **Left** backs up but stops at the search base path
-- **Esc** exits search and restores the prior node
-
-The search query stays visible until you exit search mode.
-
-## Expression Mode
-
-Press `:` to enter expression mode:
-
-- Starts with the current path (prefilled with `_`-rooted CEL path)
-- **Tab / Shift+Tab** — cycle through keys/indices
-- **Up / Down** — cycle through CEL functions valid for the current node type
-- **Right** — accept ghosted completion
-- **Enter** — evaluate the expression and stay in expression mode; errors show in red
-- **Esc** — exit expression mode; non-navigable results fall back to the path you started from
-- While in expression mode, **y** copies the current expression
-
-### Expression examples
-
-```
-_.metadata                        # navigate to metadata
-_.items[0]                        # first item
-_.items.filter(x, x.status == "running")  # filter running items
-_.items.map(x, x.name)           # extract names
-type(_)                           # inspect root type
-```
-
-## Snapshot and Scripted Runs
-
-### Snapshot
-
-Render the TUI layout once and exit — useful for CI or scripted output:
-
-```bash
-kvx data.yaml --snapshot
-```
-
-Honors `--width`, `--height`, and `--theme`.
-
-### Scripted Keys (--press)
-
-Feed a sequence of key presses for reproducible end states:
-
-```bash
-# Search for "api"
-kvx data.yaml --snapshot --press "/api<Enter>"
-
-# Navigate with expression
-kvx data.yaml --snapshot --press ":_.items[0]<Enter>"
-
-# Open help then close
-kvx data.yaml --snapshot --press "?<Esc>"
-
-# Multiple operations: search then filter
-kvx data.yaml --snapshot --press "/test<Enter><Esc>me"
-```
-
-Special keys use angle brackets: `<Enter>`, `<Esc>`, `<Tab>`, `<Space>`, `<BS>` (backspace), `<Left>`, `<Right>`, `<Up>`, `<Down>`, `<Home>`, `<End>`, `<C-c>`, `<C-d>`, `<C-u>`, `<C-Space>`, `<F1>`–`<F12>`.
-
-Include `<F10>` in `--press` to bypass the interactive loop and emit non-interactive output directly (works regardless of `--keymap`).
-
-## Debug
-
-```bash
-kvx data.yaml -i --debug
-```
-
-Buffers recent debug events and prints them on exit. Adjust the buffer size with `--debug-max-events N` (default: 200).
-
-## Next Steps
-
-- [CEL Expressions](../expressions/) — Advanced querying patterns
-- [Configuration & Themes](../configuration/) — Customize themes, keymaps, and schemas

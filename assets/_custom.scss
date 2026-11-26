@@ -1,2 +1,916 @@
-/* Custom styles for kvx documentation site */
-/* Add site-specific CSS overrides here */
+// Oakwood Commons Blueprint Design System for kvx (kvx.oakwood-commons.org)
+// Matches the Blueprint palette across scafctl and sln-agentic-code.
+
+$bp-canvas: #05152a;
+$bp-navy: #071e3d;
+$bp-surface: #0b2547;
+$bp-navy-deep: #061b30;
+$bp-code-bg: #041020;
+$bp-cyan: #00e9f2;
+$bp-mint: #a4f6c5;
+$bp-amber: #ffc28e;
+$bp-coral: #ff8585;
+$bp-text: #eff7ff;
+$bp-text-secondary: #cbdae8;
+$bp-muted: #9bafc4;
+$bp-caption: #7894af;
+$bp-steel: #4e8298;
+$bp-border: rgba(99, 162, 187, 0.28);
+$bp-border-strong: rgba(0, 233, 242, 0.45);
+$bp-divider: rgba(99, 162, 187, 0.22);
+
+@mixin theme-blueprint {
+  color-scheme: dark;
+
+  --bp-canvas: #{$bp-canvas};
+  --bp-navy: #{$bp-navy};
+  --bp-surface: #{$bp-surface};
+  --bp-code-bg: #{$bp-code-bg};
+  --bp-cyan: #{$bp-cyan};
+  --bp-mint: #{$bp-mint};
+  --bp-amber: #{$bp-amber};
+  --bp-muted: #{$bp-muted};
+  --bp-border: #{$bp-border};
+  --bp-border-strong: #{$bp-border-strong};
+
+  --body-background: #{$bp-navy};
+  --body-background-tint: none;
+  --body-font-color: #{$bp-text};
+
+  --color-link: #{$bp-cyan};
+  --color-visited-link: #66eff6;
+
+  --icon-filter: brightness(0) invert(0.86) sepia(0.2) saturate(2.1) hue-rotate(168deg);
+
+  --gray-100: #{$bp-surface};
+  --gray-200: #{$bp-border};
+  --gray-500: #{$bp-muted};
+
+  @include accent("default", $bp-steel, 0.12);
+  @include accent("note", $bp-cyan, 0.10);
+  @include accent("tip", $bp-mint, 0.10);
+  @include accent("important", #7cc4ff, 0.12);
+  @include accent("warning", $bp-amber, 0.12);
+  @include accent("caution", $bp-coral, 0.12);
+
+  // Fallback for {{< hint >}} shortcodes
+  @include accent("info", $bp-cyan, 0.10);
+  @include accent("success", $bp-mint, 0.10);
+  @include accent("danger", $bp-coral, 0.12);
+}
+
+// CAD drafting grid (24px minor / 120px major) + ambient cyan glow
+body {
+  position: relative;
+  isolation: isolate;
+  background-color: $bp-canvas;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    radial-gradient(ellipse at 68% 24%, rgba(0, 233, 242, 0.065), rgba(11, 56, 80, 0.28) 42%, transparent 70%),
+    linear-gradient(rgba(99, 162, 187, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(99, 162, 187, 0.05) 1px, transparent 1px),
+    linear-gradient(rgba(99, 162, 187, 0.095) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(99, 162, 187, 0.095) 1px, transparent 1px);
+  background-size: 100% 100%, 24px 24px, 24px 24px, 120px 120px, 120px 120px;
+}
+
+// Sidebar brand lockup, search, and navigation
+.book-menu .book-menu-content {
+  background: linear-gradient(180deg, rgba(7, 30, 61, 0.94), rgba(5, 21, 42, 0.96));
+  border-inline-end: 1px solid $bp-border;
+  backdrop-filter: blur(8px);
+}
+
+.book-brand {
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid $bp-divider;
+
+  a {
+    gap: 0.65rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: #ffffff !important;
+
+    &:hover {
+      opacity: 0.92;
+    }
+  }
+
+  img {
+    width: 1.85rem;
+    height: 1.85rem;
+    flex-shrink: 0;
+    filter: none !important;
+  }
+}
+
+.book-search input {
+  background: rgba(5, 21, 42, 0.85);
+  border: 1px solid $bp-border;
+  color: $bp-text;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+  &::placeholder {
+    color: $bp-caption;
+  }
+
+  &:focus {
+    border-color: $bp-cyan;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(0, 233, 242, 0.16);
+  }
+}
+
+.book-menu nav {
+  a {
+    color: $bp-text-secondary;
+    border-radius: 5px;
+    padding: 0.4rem 0.6rem;
+    margin: 0.08rem 0;
+    transition: background 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+
+    &:hover {
+      color: #ffffff;
+      opacity: 1;
+      background: rgba(0, 233, 242, 0.07);
+    }
+
+    &.active {
+      color: $bp-cyan;
+      font-weight: 600;
+      background: rgba(0, 233, 242, 0.1);
+      box-shadow: inset 2px 0 0 $bp-cyan;
+    }
+  }
+}
+
+// Main content Blueprint sheet & right ToC
+.book-page {
+  background: linear-gradient(115deg, rgba(7, 30, 61, 0.82), rgba(5, 21, 42, 0.84));
+  border: 1px solid $bp-border;
+  border-radius: 8px;
+  padding: 2rem 2.4rem;
+  margin-top: 1rem;
+  margin-bottom: 2rem;
+  box-shadow: 0 18px 48px rgba(2, 9, 20, 0.45);
+}
+
+@media (max-width: 56rem) {
+  .book-page {
+    padding: 1.25rem 1.15rem;
+    margin-top: 0.25rem;
+    border-radius: 0;
+    border-inline: none;
+  }
+}
+
+.book-toc .book-toc-content {
+  font-size: 0.82rem;
+
+  nav a {
+    color: $bp-muted;
+    padding: 0.28rem 0;
+
+    &:hover {
+      opacity: 1;
+      color: $bp-cyan;
+    }
+  }
+}
+
+.book-footer {
+  border-top: 1px solid $bp-divider;
+  padding-top: 1rem;
+  color: $bp-caption;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.78rem;
+}
+
+// Markdown typography, tables, tabs, alerts, code, and Mermaid diagrams
+.markdown {
+  color: $bp-text-secondary;
+  line-height: 1.68;
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    color: #ffffff;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  h1 {
+    font-weight: 650;
+    letter-spacing: -0.03em;
+  }
+
+  h2 {
+    padding-bottom: 0.38rem;
+    border-bottom: 1px solid $bp-divider;
+  }
+
+  strong {
+    color: $bp-text;
+  }
+
+  :not(pre) > code {
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 0.875em;
+    background: rgba(5, 21, 42, 0.88);
+    border: 1px solid rgba(0, 233, 242, 0.22);
+    color: #c8f9fd;
+    padding: 0.12em 0.4em;
+    border-radius: 4px;
+  }
+
+  pre,
+  .highlight pre {
+    background-color: $bp-code-bg !important;
+    border: 1px solid $bp-border;
+    border-radius: 6px;
+  }
+
+  pre.mermaid {
+    background: linear-gradient(115deg, rgba(5, 21, 42, 0.86), rgba(11, 37, 71, 0.72)) !important;
+    border: 1px solid $bp-border;
+    border-radius: 6px;
+    text-align: center;
+    padding: 1.25rem;
+    overflow-x: auto;
+
+    svg {
+      max-width: 100%;
+      height: auto;
+    }
+  }
+
+  table {
+    width: 100%;
+    border-radius: 6px;
+
+    tr th {
+      background: rgba(5, 21, 42, 0.78);
+      color: $bp-mint;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      border-color: $bp-border;
+    }
+
+    tr td {
+      border-color: $bp-border;
+    }
+
+    tr:nth-child(2n) {
+      background: rgba(11, 37, 71, 0.52);
+    }
+  }
+
+  .book-tabs {
+    background: rgba(5, 21, 42, 0.55);
+    border-color: $bp-border;
+    border-radius: 6px;
+
+    label {
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 0.82rem;
+      color: $bp-muted;
+    }
+
+    input[type="radio"]:checked + label {
+      color: $bp-cyan;
+      border-bottom: 2px solid $bp-cyan;
+      background: rgba(0, 233, 242, 0.07);
+    }
+  }
+
+  blockquote.book-hint {
+    border-radius: 6px;
+    border-inline-start-width: 3px;
+    padding: 0.85rem 1.15rem;
+  }
+
+  // Blueprint numbered cyan step rail for {{% steps %}}
+  .book-steps > ol {
+    margin-top: 1.4rem;
+
+    > li {
+      border-inline-start: 2px solid rgba(0, 233, 242, 0.34);
+      padding-inline-start: 2.3rem;
+      padding-bottom: 1.55rem;
+    }
+
+    > li:last-child {
+      border-inline-start-color: transparent;
+    }
+
+    > li::before {
+      background: $bp-surface;
+      color: $bp-cyan;
+      border: 1.5px solid $bp-cyan;
+      outline: 4px solid $bp-navy;
+      align-items: center;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 0.78rem;
+      font-weight: 700;
+    }
+  }
+}
+
+// Highlighted code blocks, language badge, and copy-to-clipboard button
+.highlight {
+  position: relative;
+  margin: 1rem 0;
+
+  pre {
+    position: relative;
+    padding: 1.65rem 1rem 1rem !important;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(99, 162, 187, 0.32) transparent;
+  }
+
+  pre code[data-lang]::before {
+    content: attr(data-lang);
+    position: absolute;
+    top: 0;
+    left: 0;
+    padding: 2px 9px;
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 0.65em;
+    line-height: 1.6;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: $bp-cyan;
+    background: rgba(0, 233, 242, 0.09);
+    border-bottom: 1px solid rgba(0, 233, 242, 0.2);
+    border-right: 1px solid rgba(0, 233, 242, 0.2);
+    border-bottom-right-radius: 5px;
+    pointer-events: none;
+    user-select: none;
+  }
+}
+
+.copy-button {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid $bp-border;
+  border-radius: 5px;
+  background: rgba(11, 37, 71, 0.88);
+  color: $bp-muted;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  z-index: 2;
+
+  &:hover {
+    background: rgba(0, 233, 242, 0.14);
+    border-color: $bp-cyan;
+    color: #ffffff;
+  }
+
+  &.copied {
+    color: $bp-mint;
+    border-color: $bp-mint;
+    opacity: 1;
+  }
+}
+
+.highlight:hover .copy-button,
+.highlight:focus-within .copy-button,
+.copy-button:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .copy-button {
+    opacity: 0.75;
+  }
+}
+
+// Home page Blueprint Hero Sheet
+.bp-hero {
+  position: relative;
+  margin-bottom: 2.25rem;
+  padding: 2rem 2.25rem 1.75rem;
+  background: linear-gradient(125deg, rgba(11, 37, 71, 0.95), rgba(5, 21, 42, 0.96));
+  border: 1px solid rgba(0, 233, 242, 0.34);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 18px 44px rgba(2, 9, 20, 0.5);
+
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(rgba(99, 162, 187, 0.065) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(99, 162, 187, 0.065) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  > * {
+    position: relative;
+  }
+
+  .bp-hero__eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    margin-bottom: 0.85rem;
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: $bp-mint;
+  }
+
+  .bp-hero__dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: $bp-mint;
+    box-shadow: 0 0 8px rgba(164, 246, 197, 0.65);
+    flex-shrink: 0;
+  }
+
+  .bp-hero__logo {
+    display: block;
+    width: 240px;
+    max-width: 75%;
+    height: auto;
+    margin: 0 0 0.9rem -4px;
+  }
+
+  .bp-hero__tagline {
+    margin: 0 0 0.65rem !important;
+    font-size: clamp(1.35rem, 2.4vw, 1.75rem) !important;
+    font-weight: 650 !important;
+    line-height: 1.3 !important;
+    color: #ffffff !important;
+  }
+
+  .bp-hero__desc {
+    margin: 0 0 1.35rem;
+    max-width: 52rem;
+    color: $bp-text-secondary;
+    line-height: 1.65;
+  }
+
+  .bp-hero__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1.15rem;
+  }
+
+  .bp-hero__btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.54rem 1.1rem;
+    border-radius: 5px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-decoration: none !important;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.12s ease;
+
+    &--primary {
+      background: $bp-cyan;
+      color: $bp-canvas !important;
+      border: 1px solid $bp-cyan;
+
+      &:hover {
+        background: #66eff6;
+        border-color: #66eff6;
+        transform: translateY(-1px);
+      }
+    }
+
+    &--secondary {
+      background: rgba(5, 21, 42, 0.75);
+      color: $bp-text !important;
+      border: 1px solid rgba(99, 162, 187, 0.42);
+
+      &:hover {
+        border-color: $bp-cyan;
+        color: $bp-cyan !important;
+      }
+    }
+  }
+
+  .bp-hero__badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 1.5rem;
+
+    img {
+      display: block;
+      height: 20px;
+    }
+  }
+}
+
+// Blueprint Terminal Window Frame & Asciinema Player Integration
+.bp-terminal {
+  margin: 1.25rem 0 0.5rem;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 233, 242, 0.34);
+  background: $bp-code-bg;
+  box-shadow: 0 14px 36px rgba(1, 6, 15, 0.65);
+  overflow: hidden;
+
+  &__bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.55rem 0.9rem;
+    background: linear-gradient(90deg, rgba(11, 37, 71, 0.95), rgba(5, 21, 42, 0.95));
+    border-bottom: 1px solid $bp-divider;
+  }
+
+  &__dots {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+
+    span {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+
+      &:nth-child(1) {
+        background: #ff5f56;
+      }
+      &:nth-child(2) {
+        background: #ffbd2e;
+      }
+      &:nth-child(3) {
+        background: #27c93f;
+      }
+    }
+  }
+
+  &__title {
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 0.74rem;
+    color: $bp-muted;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__badge {
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: $bp-mint;
+    background: rgba(164, 246, 197, 0.1);
+    border: 1px solid rgba(164, 246, 197, 0.32);
+    border-radius: 999px;
+    padding: 0.1rem 0.5rem;
+    flex-shrink: 0;
+  }
+
+  &__viewport {
+    background: $bp-code-bg;
+    padding: 0.25rem 0.25rem 0;
+  }
+
+  &__chapters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.6rem 0.85rem;
+    background: rgba(5, 21, 42, 0.92);
+    border-top: 1px solid $bp-divider;
+
+    &:empty {
+      display: none;
+    }
+  }
+
+  &__chapters-label {
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: $bp-caption;
+    margin-right: 0.2rem;
+  }
+}
+
+.bp-chapter-pill {
+  appearance: none;
+  border: 1px solid rgba(99, 162, 187, 0.32);
+  background: rgba(11, 37, 71, 0.7);
+  color: $bp-text-secondary;
+  border-radius: 999px;
+  padding: 0.22rem 0.65rem;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+
+  &:hover,
+  &:focus-visible {
+    border-color: $bp-cyan;
+    background: rgba(0, 233, 242, 0.14);
+    color: #ffffff;
+    outline: none;
+  }
+
+  .bp-chapter-pill__dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: $bp-cyan;
+    margin-right: 0.38rem;
+    vertical-align: middle;
+  }
+}
+
+// Seamless Blueprint overrides for asciinema-player v3
+.bp-asciinema-mount {
+  .ap-wrapper {
+    background: $bp-code-bg !important;
+  }
+
+  .ap-player {
+    background: $bp-code-bg !important;
+    border-radius: 4px;
+  }
+
+  .ap-control-bar {
+    background: rgba(7, 30, 61, 0.94) !important;
+    color: $bp-text-secondary !important;
+    border-top: 1px solid rgba(99, 162, 187, 0.2);
+  }
+
+  .ap-progressbar .ap-bar-el {
+    color: $bp-cyan !important;
+  }
+
+  .ap-marker {
+    color: $bp-mint !important;
+  }
+}
+
+// Crisp SVG terminal snapshot cards & 2x2 Theme Gallery
+.bp-svg-card {
+  margin: 1.35rem 0 1.75rem;
+  border-radius: 8px;
+  border: 1px solid $bp-border;
+  background: rgba(4, 16, 32, 0.78);
+  padding: 0.6rem;
+  box-shadow: 0 10px 28px rgba(2, 9, 20, 0.42);
+
+  img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 6px;
+  }
+
+  figcaption {
+    margin-top: 0.5rem;
+    padding: 0 0.35rem;
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 0.75rem;
+    color: $bp-muted;
+  }
+}
+
+.bp-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.1rem;
+  margin: 1.35rem 0 2rem;
+
+  .bp-svg-card {
+    margin: 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .bp-theme-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+// Blueprint 4-Pillar Feature Cards
+.bp-pillars {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0 2rem;
+}
+
+.bp-card {
+  background: rgba(4, 16, 32, 0.65);
+  border: 1px solid $bp-border;
+  border-radius: 7px;
+  padding: 1.15rem 1.25rem;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.12s ease;
+
+  &:hover {
+    border-color: rgba(0, 233, 242, 0.55);
+    background: rgba(11, 37, 71, 0.78);
+    transform: translateY(-1px);
+  }
+
+  .bp-card-head {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 0.5rem;
+  }
+
+  svg {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    stroke: $bp-cyan;
+  }
+
+  h3 {
+    margin: 0 !important;
+    font-size: 0.98rem !important;
+    font-weight: 600 !important;
+    color: #ffffff !important;
+  }
+
+  p {
+    margin: 0;
+    font-size: 0.88rem;
+    line-height: 1.55;
+    color: $bp-muted;
+  }
+}
+
+// Guided walkthrough progress bar (top of tutorial RegularPages)
+.bp-step-bar {
+  margin-bottom: 1.5rem;
+  padding: 0.75rem 1rem;
+  background: rgba(11, 37, 71, 0.72);
+  border: 1px solid $bp-border;
+  border-radius: 6px;
+
+  &__meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  &__section {
+    color: $bp-muted !important;
+    text-decoration: none;
+
+    &:hover {
+      color: $bp-cyan !important;
+    }
+  }
+
+  &__sep {
+    color: rgba(155, 175, 196, 0.45);
+  }
+
+  &__pill {
+    color: $bp-cyan;
+    font-weight: 600;
+  }
+
+  &__track {
+    width: 100%;
+    height: 4px;
+    background: rgba(5, 21, 42, 0.9);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+
+  &__fill {
+    display: block;
+    height: 100%;
+    background: linear-gradient(90deg, $bp-cyan, $bp-mint);
+    border-radius: 999px;
+  }
+}
+
+// Guided walkthrough previous / next transition cards (bottom of tutorial RegularPages)
+.bp-step-nav {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 2.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid $bp-divider;
+}
+
+.bp-step-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1rem 1.2rem;
+  background: rgba(11, 37, 71, 0.65);
+  border: 1px solid $bp-border;
+  border-radius: 6px;
+  text-decoration: none !important;
+  transition: border-color 0.15s ease, background 0.15s ease;
+
+  &:hover {
+    background: rgba(11, 37, 71, 0.95);
+    border-color: rgba(0, 233, 242, 0.6);
+  }
+
+  &--next {
+    grid-column: 2;
+    text-align: right;
+    align-items: flex-end;
+  }
+
+  &__eyebrow {
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: $bp-muted;
+  }
+
+  &__title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: $bp-text;
+  }
+
+  &:hover &__title {
+    color: $bp-cyan;
+  }
+}
+
+@media (max-width: 640px) {
+  .bp-hero {
+    padding: 1.45rem 1.15rem;
+  }
+
+  .bp-pillars,
+  .bp-step-nav {
+    grid-template-columns: 1fr;
+  }
+
+  .bp-step-card--next {
+    grid-column: 1;
+    text-align: left;
+    align-items: flex-start;
+  }
+
+  .bp-terminal__badge {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

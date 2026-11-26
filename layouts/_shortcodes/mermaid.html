@@ -1,0 +1,26 @@
+<pre class="mermaid">{{- .Inner | htmlEscape | safeHTML -}}</pre>
+{{- if not (.Page.Store.Get "mermaid") -}}
+  {{- $cfg := "{}" -}}
+  {{- with resources.Get "mermaid.json" | minify -}}
+    {{- $cfg = .Content -}}
+  {{- end -}}
+  <script defer src="{{ "mermaid.min.js" | relURL }}"></script>
+  <script>
+  (function () {
+    function renderMermaid() {
+      if (!window.mermaid) return false;
+      window.mermaid.initialize(Object.assign({ startOnLoad: false }, {{ $cfg | safeJS }}));
+      window.mermaid.run({ querySelector: '.mermaid' });
+      return true;
+    }
+    if (!renderMermaid()) {
+      document.addEventListener('DOMContentLoaded', function () {
+        if (!renderMermaid()) {
+          window.addEventListener('load', renderMermaid, { once: true });
+        }
+      }, { once: true });
+    }
+  })();
+  </script>
+  {{- .Page.Store.Set "mermaid" true -}}
+{{- end -}}

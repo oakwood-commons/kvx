@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160" role="img" aria-label="kvx Key-Value Explorer symbol">
+  <title>kvx</title>
+  <!-- Terminal window shell -->
+  <g fill="none" stroke="#00E9F2" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="14" y="18" width="132" height="124" rx="14"/>
+    <path d="M14 48H146"/>
+  </g>
+  <!-- Window header status dots -->
+  <circle cx="34" cy="33" r="4.5" fill="#00E9F2"/>
+  <circle cx="51" cy="33" r="4.5" fill="#A4F6C5"/>
+  <circle cx="68" cy="33" r="4.5" fill="#4E8298"/>
+  <!-- Prompt chevron + structured key-value tree -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M32 68L44 79L32 90" stroke="#A4F6C5" stroke-width="6.5"/>
+    <path d="M58 79H124" stroke="#00E9F2" stroke-width="6.5"/>
+    <path d="M58 79V119H84" stroke="#00E9F2" stroke-width="5.5"/>
+    <path d="M58 100H78" stroke="#00E9F2" stroke-width="5.5"/>
+    <rect x="84" y="92" width="42" height="15" rx="4" stroke="#00E9F2" stroke-width="4.5"/>
+    <rect x="88" y="113" width="38" height="14" rx="4" fill="#A4F6C5"/>
+  </g>
+</svg>

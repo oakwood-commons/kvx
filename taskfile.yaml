@@ -69,6 +69,7 @@ tasks:
         echo "Docs:"
         echo "  task docs:build  # Build Hugo documentation site"
         echo "  task docs:serve  # Serve docs locally (live reload)"
+        echo "  task docs:media  # Regenerate TUI SVG snapshots, hero cast, and demo GIF"
         echo
         echo "Variables and Values:"
         echo "  NAME:          {{ .NAME }}"
@@ -516,7 +517,7 @@ tasks:
     cmds:
       - |
         cd site
-        hugo --gc --minify
+        hugo --gc --minify --cleanDestinationDir
         echo ""
         echo "Site built to public/"
 
@@ -529,3 +530,8 @@ tasks:
       - |
         cd site
         hugo server
+
+  docs:media:
+    desc: Regenerate TUI SVG snapshots, asciinema hero cast, and README demo GIF
+    cmds:
+      - ./scripts/render-docs-media.sh
