@@ -85,6 +85,7 @@
       "authToken": {
         "type": "string",
         "title": "Auth Token",
+        "description": "Synthetic unsigned demo JWT fixture (not a real credential)",
         "deprecated": true
       }
     }
