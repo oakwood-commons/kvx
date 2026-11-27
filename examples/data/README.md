@@ -78,9 +78,25 @@ ui:
 
 ## Other data files
 
-- `demo_services.json` and `demo_services_schema.json`: Microservice catalog with `x-kvx-list`, `x-kvx-detail`, serialized JSON config, and `Bearer` JWT strings
+- `demo_services.json` and `demo_services_schema.json`: Microservice catalog with `x-kvx-list`, `x-kvx-detail`, serialized JSON config, and synthetic `Bearer` JWT strings
 - `status_device_auth.json` and `status_device_auth_schema.json`: Async status screen fixture (`x-kvx-status`) with hotkey actions and masked inline input
 - `sample_cluster.json`: Large nested cluster configuration
 - `sample_employees.csv`: CSV format example
 - `sample_nested.json`: Nested JSON with encoded strings for auto-decode testing
 - `sample.jwt`: JWT token for decoding
+
+## Synthetic JWT Fixtures
+
+All JWT values in `demo_services.json`, `sample_nested.json`, and `sample.jwt` are synthetic test fixtures generated solely to demonstrate `kvx` JWT detection and decoding. They are never issued by or accepted by any real service.
+
+Specifically, the five `Bearer` tokens in `demo_services.json` are intentionally unsigned and zero-entropy so both humans and automated secret scanners can recognize them as non-credentials while `kvx` still decodes all three segments:
+
+- JOSE header `{"alg":"none","kid":"demo-signing-key","typ":"JWT"}` (RFC 7519 `"alg":"none"` unsecured header)
+- Reserved RFC 2606 example issuer `https://auth.example.com`, `"test_fixture": true`, and expired timestamp `exp: 946684800` (`2000-01-01T00:00:00Z`)
+- Zero-entropy base64url placeholder third segment `AAAA` (`[0, 0, 0]`, non-empty to satisfy `kvx`'s three-segment JWT detector without a cryptographic signature)
+
+To reproduce a `demo_services.json` token (for example, `api-gateway`) with Python's standard library:
+
+```bash
+python3 -c 'import base64, json; b64 = lambda b: base64.urlsafe_b64encode(b).rstrip(b"=").decode(); h = b64(json.dumps({"alg":"none","kid":"demo-signing-key","typ":"JWT"}, separators=(",",":")).encode()); p = b64(json.dumps({"iss":"https://auth.example.com","sub":"svc:api-gateway","role":"edge-proxy","scope":"traffic:route certs:read","exp":946684800,"test_fixture":True}, separators=(",",":")).encode()); print(f"Bearer {h}.{p}.AAAA")'
+```
